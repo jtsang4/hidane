@@ -4,3 +4,5 @@ dist/
 *.log
 .test-home/
 .DS_Store
+.acceptance-report.json
+.acceptance-sessions/

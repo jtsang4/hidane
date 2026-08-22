@@ -63,10 +63,19 @@ curl -X POST localhost:2718/webhook/github -d '{"hello":"world"}' \
 
 ## Verification
 
+Two layers, different jobs:
+
 ```bash
-pnpm test    # kernel unit/integration tests (needs dev postgres)
-pnpm e2e     # live loop with a real LLM: chat → route → worker → artifacts → projection
+pnpm test    # deterministic: kernel invariants (event log, cursors, triage, projections)
+pnpm e2e     # agent-driven acceptance: a tester agent executes acceptance/scenarios.md
+             # against the real system and writes an evidence-based verdict report
+pnpm smoke   # scripted live smoke of the happy path (fast sanity, not the source of truth)
 ```
+
+Acceptance scenarios are natural language (`acceptance/scenarios.md`) — cheap to
+evolve with requirements, and able to express semantic checks (does the reply
+match what actually happened?) that assertion scripts cannot. Verdicts require
+observed evidence; the report lands in `.acceptance-report.json`.
 
 ## Deploy (production: Coolify)
 
