@@ -1,5 +1,6 @@
 FROM node:24-alpine AS build
 WORKDIR /repo
+ENV CI=true
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/server/package.json apps/server/
@@ -7,7 +8,9 @@ COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 COPY apps/server ./apps/server
 COPY apps/web ./apps/web
-RUN pnpm -C apps/server build && pnpm -C apps/web build && pnpm prune --prod
+RUN pnpm -C apps/server build && pnpm -C apps/web build \
+  && rm -rf node_modules apps/server/node_modules apps/web/node_modules \
+  && pnpm install --prod --frozen-lockfile
 
 FROM node:24-alpine
 WORKDIR /repo/apps/server
