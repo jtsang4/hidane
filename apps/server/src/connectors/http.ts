@@ -8,6 +8,7 @@ import { appendEvent } from "../kernel/events.js";
 import { sql } from "../kernel/db.js";
 import { config } from "../config.js";
 import { registerApi } from "../api/routes.js";
+import { registerFeishu } from "./feishu.js";
 
 /**
  * Passive connector: webhook ingress + health endpoint for deployment probes.
@@ -78,6 +79,7 @@ export function buildApp(): Hono {
 
   app.use("/api/*", requireApiToken);
   registerApi(app);
+  registerFeishu(app);
 
   // Serve the built web app when present (production single-container mode).
   const webDist = resolve(process.cwd(), config.webDist);

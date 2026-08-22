@@ -31,6 +31,10 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set in Coolify}
       HIDANE_API_TOKEN: ${HIDANE_API_TOKEN:?set in Coolify}
       HIDANE_WEBHOOK_SECRET: ${HIDANE_WEBHOOK_SECRET:?set in Coolify}
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+      FEISHU_VERIFICATION_TOKEN: ${FEISHU_VERIFICATION_TOKEN:-}
+      FEISHU_ENCRYPT_KEY: ${FEISHU_ENCRYPT_KEY:-}
     volumes:
       - hidane-data:/data
     ports:

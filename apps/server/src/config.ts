@@ -35,6 +35,11 @@ export const config = {
   webDist: env("HIDANE_WEB_DIST") ?? "../web/dist",
   /** Memory distiller interval in seconds (daemon). */
   distillIntervalSec: Number(env("HIDANE_DISTILL_SEC") ?? 600),
+  /** Feishu channel binding (all optional; connector disabled when unset). */
+  feishuAppId: env("FEISHU_APP_ID"),
+  feishuAppSecret: env("FEISHU_APP_SECRET"),
+  feishuVerificationToken: env("FEISHU_VERIFICATION_TOKEN"),
+  feishuEncryptKey: env("FEISHU_ENCRYPT_KEY"),
 };
 
 export function workspacesDir(): string {
