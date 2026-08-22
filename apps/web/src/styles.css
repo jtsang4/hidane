@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: oklch(0.16 0.01 260);
+  --color-surface: oklch(0.2 0.012 260);
+  --color-surface-2: oklch(0.24 0.014 260);
+  --color-border: oklch(0.3 0.015 260);
+  --color-foreground: oklch(0.93 0.005 260);
+  --color-muted: oklch(0.62 0.01 260);
+  --color-primary: oklch(0.72 0.16 55);
+  --color-primary-foreground: oklch(0.15 0.02 55);
+  --color-success: oklch(0.72 0.15 150);
+  --color-danger: oklch(0.65 0.2 25);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+}

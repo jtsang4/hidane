@@ -31,6 +31,8 @@ export const config = {
   apiToken: env("HIDANE_API_TOKEN"),
   /** HMAC-SHA256 secret for webhook signatures when set. Always set in production. */
   webhookSecret: env("HIDANE_WEBHOOK_SECRET"),
+  /** Directory of the built web app, served statically when it exists. */
+  webDist: env("HIDANE_WEB_DIST") ?? "../web/dist",
 };
 
 export function workspacesDir(): string {

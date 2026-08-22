@@ -1,9 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { Hono, type Context, type Next } from "hono";
 import { serve, type ServerType } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { appendEvent } from "../kernel/events.js";
 import { sql } from "../kernel/db.js";
 import { config } from "../config.js";
+import { registerApi } from "../api/routes.js";
 
 /**
  * Passive connector: webhook ingress + health endpoint for deployment probes.
@@ -27,7 +31,10 @@ export function signWebhook(body: string, secret: string): string {
 export async function requireApiToken(c: Context, next: Next): Promise<Response | void> {
   if (!config.apiToken) return next();
   const header = c.req.header("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  // EventSource cannot set headers, so SSE passes ?token= instead.
+  const token = header.startsWith("Bearer ")
+    ? header.slice(7)
+    : (c.req.query("token") ?? "");
   if (!token || !safeEqual(token, config.apiToken)) {
     return c.json({ ok: false, error: "unauthorized" }, 401);
   }
@@ -68,6 +75,17 @@ export function buildApp(): Hono {
     });
     return c.json({ ok: true, eventId: event.id, seq: event.seq });
   });
+
+  app.use("/api/*", requireApiToken);
+  registerApi(app);
+
+  // Serve the built web app when present (production single-container mode).
+  const webDist = resolve(process.cwd(), config.webDist);
+  if (existsSync(join(webDist, "index.html"))) {
+    app.use("*", serveStatic({ root: config.webDist }));
+    const indexHtml = readFileSync(join(webDist, "index.html"), "utf8");
+    app.get("*", (c) => c.html(indexHtml));
+  }
 
   return app;
 }

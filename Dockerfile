@@ -3,9 +3,11 @@ WORKDIR /repo
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/server/package.json apps/server/
+COPY apps/web/package.json apps/web/
 RUN pnpm install --frozen-lockfile
 COPY apps/server ./apps/server
-RUN pnpm -C apps/server build && pnpm prune --prod
+COPY apps/web ./apps/web
+RUN pnpm -C apps/server build && pnpm -C apps/web build && pnpm prune --prod
 
 FROM node:24-alpine
 WORKDIR /repo/apps/server
@@ -18,6 +20,7 @@ COPY --from=build /repo/node_modules /repo/node_modules
 COPY --from=build /repo/apps/server/node_modules ./node_modules
 COPY --from=build /repo/apps/server/package.json ./
 COPY --from=build /repo/apps/server/dist ./dist
+COPY --from=build /repo/apps/web/dist /repo/apps/web/dist
 ENV NODE_ENV=production
 ENV HIDANE_HOME=/data
 VOLUME ["/data"]
