@@ -5,6 +5,7 @@ import { getWorkItem, listWorkItems } from "../kernel/workItems.js";
 import { renderDay, today } from "../projections/worklog.js";
 import { handleUserMessage } from "../agents/primary.js";
 import { handleThreadMessage } from "../agents/manager.js";
+import { describeEffectiveModel } from "../agents/sdk.js";
 
 /**
  * Read API = queries over the event log and its state tables.
@@ -14,11 +15,33 @@ import { handleThreadMessage } from "../agents/manager.js";
 export function registerApi(app: Hono): void {
   app.get("/api/events", async (c) => {
     const q = c.req.query();
-    const events = await listEvents({
+    const filters = {
       threadId: q["thread"],
       workItemId: q["item"],
       kind: q["kind"],
       day: q["day"],
+    };
+    // Cursor pagination walks backwards through the log: `before` is exclusive,
+    // matching the append-only spine's monotonic seq (same idea as consumer
+    // cursors). One extra row tells us whether an older page exists.
+    if (q["before"] !== undefined || q["page"] !== undefined) {
+      const limit = Math.min(Number(q["limit"] ?? 50), 200);
+      const before = q["before"] !== undefined ? Number(q["before"]) : undefined;
+      const page = await listEvents({
+        ...filters,
+        beforeSeq: before,
+        tail: limit + 1,
+      });
+      const hasMore = page.length > limit;
+      const events = hasMore ? page.slice(page.length - limit) : page;
+      return c.json({
+        events,
+        hasMore,
+        oldestSeq: events[0]?.seq ?? null,
+      });
+    }
+    const events = await listEvents({
+      ...filters,
       afterSeq: q["after"] !== undefined ? Number(q["after"]) : undefined,
       tail: q["tail"] !== undefined ? Number(q["tail"]) : undefined,
       limit: q["limit"] !== undefined ? Number(q["limit"]) : undefined,
@@ -125,11 +148,12 @@ export function registerApi(app: Hono): void {
   });
 
   app.get("/api/status", async (c) => {
-    const [latest, heartbeats, cursor, open] = await Promise.all([
+    const [latest, heartbeats, cursor, open, model] = await Promise.all([
       listEvents({ tail: 1 }),
       listEvents({ kind: "connector.heartbeat", tail: 1 }),
       getCursor("triage"),
       listWorkItems("open"),
+      describeEffectiveModel().catch((err) => `error: ${String(err.message ?? err)}`),
     ]);
     const latestSeq = latest[0]?.seq ?? 0;
     return c.json({
@@ -138,6 +162,7 @@ export function registerApi(app: Hono): void {
       triageLag: Math.max(0, latestSeq - cursor),
       lastHeartbeatAt: heartbeats[0]?.ts ?? null,
       openWorkItems: open.length,
+      model,
     });
   });
 }

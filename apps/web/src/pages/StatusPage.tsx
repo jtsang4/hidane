@@ -37,6 +37,11 @@ export function StatusPage() {
       tone: heartbeatOk ? "success" : "danger",
     },
     { label: t("status.openItems"), value: String(data.openWorkItems) },
+    {
+      label: t("status.model"),
+      value: data.model ?? t("status.none"),
+      ...(data.model?.startsWith("error:") ? { tone: "danger" as const } : {}),
+    },
   ];
 
   return (

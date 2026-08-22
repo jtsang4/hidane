@@ -26,6 +26,7 @@ export interface StatusInfo {
   triageLag: number;
   lastHeartbeatAt: string | null;
   openWorkItems: number;
+  model?: string;
 }
 
 const TOKEN_KEY = "hidane-token";
@@ -73,6 +74,22 @@ export const api = {
       if (v !== undefined && v !== "") q.set(k, String(v));
     }
     return apiFetch<{ events: HidaneEvent[] }>(`/api/events?${q}`);
+  },
+  /** Cursor page walking backwards; omit `before` for the newest page. */
+  eventsPage: (params: {
+    kind?: string;
+    item?: string;
+    before?: number;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams({ page: "1" });
+    if (params.kind) q.set("kind", params.kind);
+    if (params.item) q.set("item", params.item);
+    if (params.before !== undefined) q.set("before", String(params.before));
+    q.set("limit", String(params.limit ?? 50));
+    return apiFetch<{ events: HidaneEvent[]; hasMore: boolean; oldestSeq: number | null }>(
+      `/api/events?${q}`,
+    );
   },
   workItems: (all = false) =>
     apiFetch<{ items: WorkItem[] }>(`/api/work-items${all ? "?all" : ""}`),

@@ -5,7 +5,7 @@ import { migrate, closeDb } from "./kernel/db.js";
 import { listEvents } from "./kernel/events.js";
 import { listWorkItems } from "./kernel/workItems.js";
 import { handleUserMessage } from "./agents/primary.js";
-import { disposeAgents } from "./agents/sdk.js";
+import { disposeAgents, describeEffectiveModel } from "./agents/sdk.js";
 import { runDistillation } from "./agents/distiller.js";
 import { globalMemoryPath, readMemoryFile } from "./kernel/memories.js";
 import { startHeartbeat } from "./connectors/timer.js";
@@ -145,6 +145,7 @@ program
       archiveDay(today()).catch((err) => console.error("archive loop error:", err));
     }, 3600 * 1000);
     console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, distill ${config.distillIntervalSec}s`);
+    console.log(`model: ${await describeEffectiveModel()}`);
     const shutdown = async () => {
       stopHeartbeat();
       stopTriage();

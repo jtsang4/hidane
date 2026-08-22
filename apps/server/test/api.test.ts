@@ -96,7 +96,40 @@ describe("api", () => {
     expect((await app.request("/api/work-items/wi_nope")).status).toBe(404);
   });
 
-  it("reports status with triage lag and worklog renders", async () => {
+  it("paginates events backwards with a seq cursor and reports hasMore", async () => {
+    for (let i = 0; i < 12; i++) {
+      await appendEvent({ source: "s", kind: "page.test", payload: { i } });
+    }
+    const app = buildApp();
+
+    const first = (await (
+      await app.request("/api/events?page=1&kind=page.test&limit=5")
+    ).json()) as { events: { seq: number }[]; hasMore: boolean; oldestSeq: number };
+    expect(first.events).toHaveLength(5);
+    expect(first.hasMore).toBe(true);
+    // newest page: ascending order, ending at the newest event
+    expect(first.events[4]!.seq).toBeGreaterThan(first.events[0]!.seq);
+    expect(first.oldestSeq).toBe(first.events[0]!.seq);
+
+    const older = (await (
+      await app.request(
+        `/api/events?page=1&kind=page.test&limit=5&before=${first.oldestSeq}`,
+      )
+    ).json()) as { events: { seq: number }[]; hasMore: boolean };
+    expect(older.events).toHaveLength(5);
+    // strictly older, no overlap with the first page
+    expect(older.events.at(-1)!.seq).toBeLessThan(first.oldestSeq);
+
+    const last = (await (
+      await app.request(
+        `/api/events?page=1&kind=page.test&limit=5&before=${older.events[0]!.seq}`,
+      )
+    ).json()) as { events: unknown[]; hasMore: boolean };
+    expect(last.events).toHaveLength(2);
+    expect(last.hasMore).toBe(false);
+  });
+
+  it("reports status with triage lag, model and worklog renders", async () => {
     await appendEvent({
       source: "connector:timer",
       kind: "connector.heartbeat",

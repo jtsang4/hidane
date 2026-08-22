@@ -71,6 +71,8 @@ export interface ListFilter {
   workItemId?: string | undefined;
   kind?: string | undefined;
   afterSeq?: number | undefined;
+  /** Exclusive upper bound — used with `tail` to page backwards. */
+  beforeSeq?: number | undefined;
   /** ISO date `YYYY-MM-DD` interpreted in the local timezone. */
   day?: string | undefined;
   tail?: number | undefined;
@@ -90,6 +92,7 @@ export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]
   if (filter.workItemId) add("work_item_id = ?", filter.workItemId);
   if (filter.kind) add("kind = ?", filter.kind);
   if (filter.afterSeq !== undefined) add("seq > ?", filter.afterSeq);
+  if (filter.beforeSeq !== undefined) add("seq < ?", filter.beforeSeq);
   if (filter.day) {
     const start = new Date(`${filter.day}T00:00:00`);
     const end = new Date(start.getTime() + 24 * 3600 * 1000);

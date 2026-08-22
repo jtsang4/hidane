@@ -19,16 +19,40 @@ function modelRuntime(): Promise<ModelRuntime> {
   return runtimePromise;
 }
 
+/**
+ * Resolve the configured model. A half-configured pair (one of provider/model
+ * set) is an error rather than a silent fallback to pi's own default — that
+ * fallback once had production quietly running a different model than intended.
+ */
 async function resolveModel(): Promise<ModelOpt> {
-  if (!config.piProvider || !config.piModel) return undefined;
+  const { piProvider, piModel } = config;
+  if (!piProvider && !piModel) return undefined;
+  if (!piProvider || !piModel) {
+    throw new Error(
+      `HIDANE_PI_PROVIDER and HIDANE_PI_MODEL must be set together (got provider=${piProvider ?? "unset"}, model=${piModel ?? "unset"})`,
+    );
+  }
   const runtime = await modelRuntime();
-  const model = runtime.getModel(config.piProvider, config.piModel);
+  const model = runtime.getModel(piProvider, piModel);
   if (!model) {
     throw new Error(
-      `model not found: ${config.piProvider}/${config.piModel} (check HIDANE_PI_PROVIDER/HIDANE_PI_MODEL)`,
+      `model not found: ${piProvider}/${piModel} (check HIDANE_PI_PROVIDER/HIDANE_PI_MODEL and the pi model catalog)`,
     );
   }
   return model as ModelOpt;
+}
+
+/** What model will agents actually use? Printed at daemon start so the answer
+ *  never has to be guessed from logs or inferred from behaviour. */
+export async function describeEffectiveModel(): Promise<string> {
+  const resolved = await resolveModel().catch((err) => {
+    throw err instanceof Error ? err : new Error(String(err));
+  });
+  if (resolved) {
+    const m = resolved as unknown as { provider?: string; id?: string };
+    return `${m.provider ?? config.piProvider}/${m.id ?? config.piModel} (configured)`;
+  }
+  return "pi default (HIDANE_PI_PROVIDER/HIDANE_PI_MODEL unset)";
 }
 
 interface RoleSessionOptions {
