@@ -26,8 +26,9 @@ services:
       DATABASE_URL: postgres://hidane:${POSTGRES_PASSWORD}@db:5432/hidane
       PORT: "2718"
       HIDANE_HOME: /data
-      # pi provider credentials for agent calls, e.g.:
-      # DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      HIDANE_PI_PROVIDER: ${HIDANE_PI_PROVIDER:-deepseek}
+      HIDANE_PI_MODEL: ${HIDANE_PI_MODEL:-deepseek-v4-pro}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set in Coolify}
     volumes:
       - hidane-data:/data
     ports:
