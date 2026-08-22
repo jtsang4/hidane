@@ -16,9 +16,14 @@ vi.mock("@larksuiteoapi/node-sdk", async (importOriginal) => {
         reply: vi.fn(async () => ({ data: { message_id: "om_stub_reply" } })),
       },
       messageResource: {
-        // Mirrors a missing `im:resource` scope: the download rejects.
+        // Mirrors a real SDK failure: an opaque axios message, with Feishu's
+        // actual reason only reachable through the streamed response body.
         get: vi.fn(async () => {
-          throw new Error("permission denied: im:resource");
+          const err = new Error("Request failed with status code 400") as Error & {
+            response: { data: string };
+          };
+          err.response = { data: JSON.stringify({ code: 234003, msg: "File not in msg." }) };
+          throw err;
         }),
       },
     };
@@ -218,10 +223,14 @@ describe("feishu connector (official SDK)", () => {
     const captured = await listEvents({ kind: "connector.feishu" });
     expect(captured).toHaveLength(1);
     expect(captured[0]!.payload["imageCount"]).toBe(0);
-    expect((captured[0]!.payload["imageFailures"] as string[]).length).toBe(1);
+    // Feishu's own reason survives, not just the opaque axios message.
+    const failures = captured[0]!.payload["imageFailures"] as string[];
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("File not in msg.");
+    expect(failures[0]).toContain("234003");
     // ...and the failure is visible rather than swallowed.
     const errors = await listEvents({ kind: "agent.error" });
-    expect(String(errors[0]!.payload["error"])).toContain("im:resource");
+    expect(String(errors[0]!.payload["error"])).toContain("failed to download 1 image");
     // The agent is still woken, with text that admits the image is unreadable.
     const { handleUserMessage } = await import("../src/agents/primary.js");
     expect(handleUserMessage).toHaveBeenCalledTimes(1);

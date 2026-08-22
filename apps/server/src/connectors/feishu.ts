@@ -110,6 +110,31 @@ export function sniffMime(buf: Buffer, fallback: string): string {
   return fallback;
 }
 
+/**
+ * Feishu's real reason for a failed download. The SDK surfaces only
+ * "Request failed with status code 400" while the body carries the actual
+ * cause — a guessed cause is worse than none: "check the im:resource scope"
+ * sent debugging down the wrong path when the message had simply been recalled.
+ */
+async function describeLarkError(err: unknown): Promise<string> {
+  const base = err instanceof Error ? err.message : String(err);
+  const body = (err as { response?: { data?: unknown } })?.response?.data;
+  try {
+    let raw: string | undefined;
+    if (typeof body === "string") raw = body;
+    else if (body && typeof (body as { on?: unknown }).on === "function") {
+      const chunks: Buffer[] = [];
+      for await (const c of body as AsyncIterable<Buffer>) chunks.push(Buffer.from(c));
+      raw = Buffer.concat(chunks).toString("utf8");
+    } else if (body && typeof body === "object") raw = JSON.stringify(body);
+    if (!raw) return base;
+    const parsed = JSON.parse(raw) as { code?: number; msg?: string };
+    return parsed.msg ? `${base} (feishu ${parsed.code}: ${parsed.msg})` : base;
+  } catch {
+    return base;
+  }
+}
+
 export interface FetchImagesResult {
   images: InboundImage[];
   /** Per-key failure reasons — surfaced, never swallowed: a missing `im:resource`
@@ -167,7 +192,7 @@ async function fetchImages(
       });
     } catch (err) {
       // A failed image must not sink the whole message — but it must be visible.
-      failures.push(`${key}: ${err instanceof Error ? err.message : String(err)}`);
+      failures.push(`${key}: ${await describeLarkError(err)}`);
     }
   }
   return { images, failures };
@@ -254,7 +279,7 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
       source: "connector:feishu",
       kind: "agent.error",
       payload: {
-        error: `failed to download ${failures.length} image(s); check the app's im:resource scope`,
+        error: `failed to download ${failures.length} image(s) from Feishu`,
         detail: failures.slice(0, 4),
         messageId: data.message.message_id ?? null,
       },
