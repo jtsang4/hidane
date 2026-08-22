@@ -88,12 +88,65 @@ export function imageKeys(messageType: string, content: string): string[] {
   }
 }
 
+/** Content type from magic bytes — the download response headers are not
+ *  reliable, and a jpeg labelled image/png is rejected by the vision model. */
+export function sniffMime(buf: Buffer, fallback: string): string {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (buf.length >= 8 && buf.subarray(0, 8).toString("hex") === "89504e470d0a1a0a") {
+    return "image/png";
+  }
+  if (buf.length >= 6 && buf.subarray(0, 6).toString("ascii").startsWith("GIF8")) {
+    return "image/gif";
+  }
+  if (
+    buf.length >= 12 &&
+    buf.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buf.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return fallback;
+}
+
+export interface FetchImagesResult {
+  images: InboundImage[];
+  /** Per-key failure reasons — surfaced, never swallowed: a missing `im:resource`
+   *  scope is otherwise indistinguishable from "the user sent no image". */
+  failures: string[];
+}
+
+/**
+ * Stand-in text for a message that carries no text of its own, so the agent is
+ * told what actually arrived instead of receiving nothing. Truthful by
+ * construction: a failed download says so rather than pretending an image is
+ * attached (the model then denies seeing one, and the user cannot tell why).
+ */
+export function describeMessage(
+  messageType: string,
+  keys: string[],
+  images: InboundImage[],
+  failures: string[],
+): string {
+  if (images.length > 0) {
+    return failures.length > 0
+      ? `(图片消息：附带 ${images.length} 张图片，另有 ${failures.length} 张下载失败)`
+      : "(图片消息，请查看附带图片)";
+  }
+  if (keys.length > 0) {
+    return `(收到 ${keys.length} 张图片，但下载失败，无法查看内容)`;
+  }
+  return `(收到一条 ${messageType || "unknown"} 类型的消息，暂不支持解析内容)`;
+}
+
 /** Download message images so the vision model actually receives them. */
 async function fetchImages(
   messageId: string,
   keys: string[],
-): Promise<InboundImage[]> {
+): Promise<FetchImagesResult> {
   const images: InboundImage[] = [];
+  const failures: string[] = [];
   for (const key of keys.slice(0, 4)) {
     try {
       const res = await larkClient().im.messageResource.get({
@@ -105,15 +158,19 @@ async function fetchImages(
         chunks.push(Buffer.from(chunk as Buffer));
       }
       const buf = Buffer.concat(chunks);
-      const mimeType =
-        (res.headers?.["content-type"] as string | undefined)?.split(";")[0] ??
-        "image/png";
-      images.push({ data: buf.toString("base64"), mimeType });
-    } catch {
-      // A failed image must not sink the whole message.
+      if (buf.length === 0) throw new Error("empty body");
+      const header =
+        (res.headers?.["content-type"] as string | undefined)?.split(";")[0] ?? "";
+      images.push({
+        data: buf.toString("base64"),
+        mimeType: sniffMime(buf, header.startsWith("image/") ? header : "image/png"),
+      });
+    } catch (err) {
+      // A failed image must not sink the whole message — but it must be visible.
+      failures.push(`${key}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  return images;
+  return { images, failures };
 }
 
 interface MessageEventData {
@@ -164,15 +221,19 @@ async function deliverOutcome(
 async function handleMessageEvent(data: MessageEventData): Promise<void> {
   if (data.sender?.sender_type !== "user") return; // bot echoes never re-enter
   const chatId = data.message?.chat_id;
+  if (!chatId) return;
   const messageType = data.message?.message_type ?? "";
   const rawContent = data.message?.content ?? "";
   const keys = imageKeys(messageType, rawContent);
-  const images =
-    keys.length > 0 ? await fetchImages(data.message.message_id, keys) : [];
-  const text =
-    extractText(rawContent) ||
-    (images.length > 0 ? "(图片消息，请查看附带图片)" : "");
-  if (!chatId || !text) return;
+  const { images, failures } =
+    keys.length > 0
+      ? await fetchImages(data.message.message_id, keys)
+      : { images: [] as InboundImage[], failures: [] as string[] };
+
+  // Connectors capture, never judge. A message we cannot fully read still gets
+  // recorded and still reaches the agent with an honest description — dropping
+  // it made the user's image vanish with no trace anywhere in the log.
+  const text = extractText(rawContent) || describeMessage(messageType, keys, images, failures);
 
   await appendEvent({
     source: "connector:feishu",
@@ -183,9 +244,26 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
       messageId: data.message.message_id ?? null,
       messageType,
       imageCount: images.length,
+      ...(failures.length > 0 ? { imageFailures: failures } : {}),
       text: text.slice(0, 2000),
     },
   });
+
+  if (failures.length > 0) {
+    await appendEvent({
+      source: "connector:feishu",
+      kind: "agent.error",
+      payload: {
+        error: `failed to download ${failures.length} image(s); check the app's im:resource scope`,
+        detail: failures.slice(0, 4),
+        messageId: data.message.message_id ?? null,
+      },
+    });
+  }
+
+  // The log takes everything; the model wakes only for input it can act on.
+  // Stickers, audio and Feishu's own system notices are recorded and stop here.
+  if (!extractText(rawContent) && keys.length === 0) return;
 
   const rootId = data.message.root_id ?? null;
   const binding = rootId ? await findByChannelRef("feishu", chatId, rootId) : undefined;
