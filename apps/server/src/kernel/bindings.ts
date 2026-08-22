@@ -77,6 +77,7 @@ export async function findByWorkItem(
   const db = sql();
   const rows = await db`
     SELECT * FROM channel_bindings
-    WHERE channel = ${channel} AND work_item_id = ${workItemId}`;
+    WHERE channel = ${channel} AND work_item_id = ${workItemId}
+    ORDER BY created_at DESC LIMIT 1`;
   return rows.length > 0 ? toBinding(rows[0] as unknown as BindingRow) : undefined;
 }

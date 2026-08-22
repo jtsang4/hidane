@@ -6,6 +6,8 @@
 ## 环境速查
 
 - 开发数据库：Postgres，`postgres://hidane:hidane@localhost:2716/hidane`（容器 `hidane-pg`，若未运行可 `docker start hidane-pg`）
+- 本仓库是 pnpm monorepo：服务端命令在 `apps/server` 下执行（`pnpm dev <cmd>`）
+- daemon 若设置了 `HIDANE_API_TOKEN`，API 调用需带 `authorization: Bearer <token>`
 - CLI：在仓库根目录用 `pnpm dev <command>`（`chat` / `items` / `events` / `log` / `daemon` / `init`）
 - daemon HTTP 端口：2718（`/health`、`POST /webhook/:name`）
 - 查询数据库可用：`docker exec hidane-pg psql -U hidane -d hidane -c "..."`
@@ -40,6 +42,30 @@
 
 - `pnpm dev log` 渲染出的当日工作日志包含主线程和场景 1 的工作项分区，内容能对应上真实发生的事
 - 写盘版本落在 `~/.hidane/worklogs/YYYY/MM/` 下且内容一致
+
+## 场景 4A：认证边界
+
+daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-secret` 启动。期望：
+
+- `/api/*` 无 token 或错 token 返回 401；正确 Bearer token 返回 200；SSE 的 `?token=` 查询参数同样有效
+- `/webhook/:name` 无签名或错签名返回 401，事件**不**落日志；正确的 `x-hidane-signature`（sha256= 前缀的 HMAC-SHA256）返回 200 且事件落日志
+- `/health` 始终开放
+
+## 场景 4B：记忆蒸馏与跨日召回
+
+用 `chat` 告诉 Primary 一条明确的、此前不存在的长期偏好（编一条具体的），然后 `pnpm dev distill --min 1`。期望：
+
+- 偏好被提取并晋升进 `~/.hidane/memory/MEMORY.md`（带日期与 id 注释）
+- `memory.candidate` 与 `memory.promoted` 事件落日志
+- 之后的新 `chat` 提问相关话题时，Primary 的回答引用了该偏好（跨进程召回）
+
+## 场景 4C：飞书连接器（本地模拟）
+
+不需要真实飞书应用。期望：
+
+- POST `/feishu/events` 的 `url_verification` 返回相同 challenge
+- 携带正确 verification token 的 `im.message.receive_v1` 用户消息事件被接受，`connector.feishu` 事件落日志（可设 `FEISHU_VERIFICATION_TOKEN` 与假 app 凭证启动 daemon 验证；注意消息处理会尝试回调飞书 API 失败属预期，验证捕获层即可）
+- 相同 event_id 的重复推送被去重（只落一条）
 
 ## 场景 4：事件不灭与重放
 
