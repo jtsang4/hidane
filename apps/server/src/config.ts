@@ -27,6 +27,10 @@ export const config = {
   workerTimeoutSec: Number(env("HIDANE_WORKER_TIMEOUT_SEC") ?? 600),
   /** Timeout (seconds) for routing/planning calls. */
   routeTimeoutSec: Number(env("HIDANE_ROUTE_TIMEOUT_SEC") ?? 180),
+  /** Bearer token required on /api/* when set. Always set in production. */
+  apiToken: env("HIDANE_API_TOKEN"),
+  /** HMAC-SHA256 secret for webhook signatures when set. Always set in production. */
+  webhookSecret: env("HIDANE_WEBHOOK_SECRET"),
 };
 
 export function workspacesDir(): string {

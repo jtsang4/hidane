@@ -29,10 +29,18 @@ services:
       HIDANE_PI_PROVIDER: ${HIDANE_PI_PROVIDER:-deepseek}
       HIDANE_PI_MODEL: ${HIDANE_PI_MODEL:-deepseek-v4-flash-vision-exp}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set in Coolify}
+      HIDANE_API_TOKEN: ${HIDANE_API_TOKEN:?set in Coolify}
+      HIDANE_WEBHOOK_SECRET: ${HIDANE_WEBHOOK_SECRET:?set in Coolify}
     volumes:
       - hidane-data:/data
     ports:
       - "2718:2718"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2718/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 volumes:
   hidane-db:

@@ -8,6 +8,11 @@ Rules for AI coding agents working in this repository. Project introduction live
 - Keep subjects imperative and specific. One logical change per commit.
 - Never commit secrets. Provider API keys and passwords are env-only.
 
+## Layout
+
+- pnpm monorepo: `apps/server` (runtime daemon + CLI), `apps/web` (frontend), `packages/*` (shared). Root scripts proxy (`pnpm test` runs all workspaces).
+- Kernel code lives in `apps/server/src/kernel/` — its invariants below apply there.
+
 ## Toolchain
 
 - Node ≥ 24, package manager is **pnpm only** (never npm/yarn commands or lockfiles).
@@ -44,6 +49,10 @@ Rules for AI coding agents working in this repository. Project introduction live
 - The pi package is ESM-only; resolve its `cli.js` via `import.meta.resolve`, not `require.resolve`.
 - Any direct pi subprocess must set `stdin: "ignore"` (pi waits forever on an open piped stdin) and `PI_OFFLINE=1`.
 - Use the exported `RpcClient`; never hand-roll the RPC JSONL protocol.
+
+## Security
+
+- `/health` is the only open endpoint. `/api/*` requires `HIDANE_API_TOKEN` (Bearer); `/webhook/:name` requires an `x-hidane-signature` HMAC-SHA256 when `HIDANE_WEBHOOK_SECRET` is set. Production sets both — never remove these gates or add unauthenticated write endpoints.
 
 ## Configuration & deployment
 
