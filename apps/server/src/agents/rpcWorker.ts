@@ -17,6 +17,48 @@ function cliPath(): string {
   return join(dirname(entry), "cli.js");
 }
 
+function guardExtensionPath(): string {
+  // Lives outside src/ (pi loads it with its own TS loader); same relative
+  // location from src/agents and dist/agents.
+  return fileURLToPath(new URL("../../extensions/pi-guard.ts", import.meta.url));
+}
+
+interface Steerable {
+  steer(message: string): Promise<void>;
+}
+
+interface ActiveEntry {
+  client?: Steerable | undefined;
+  /** Steers arriving before the RPC client is up are buffered, then flushed. */
+  buffer: string[];
+}
+
+/** Running executions by work item — the "唯一在跑的 Execution" routing target. */
+const activeWorkers = new Map<string, ActiveEntry>();
+
+export function hasActiveWorker(workItemId: string): boolean {
+  return activeWorkers.has(workItemId);
+}
+
+/** Inject a message into the running (or starting) execution for this work item. */
+export async function steerActiveWorker(
+  workItemId: string,
+  text: string,
+): Promise<boolean> {
+  const entry = activeWorkers.get(workItemId);
+  if (!entry) return false;
+  if (!entry.client) {
+    entry.buffer.push(text);
+    return true;
+  }
+  try {
+    await entry.client.steer(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface WorkerToolEvent {
   phase: "start" | "end";
   toolName: string;
@@ -29,6 +71,8 @@ export interface WorkerRunOptions {
   cwd: string;
   charter: string;
   sessionDir: string;
+  /** Registers the execution as steerable for this work item while it runs. */
+  workItemId?: string | undefined;
   timeoutSec?: number | undefined;
   /** Called on tool execution boundaries — the two-phase side-effect hook. */
   onToolEvent?: ((e: WorkerToolEvent) => void | Promise<void>) | undefined;
@@ -54,6 +98,8 @@ export async function runWorkerExecution(
   const timeoutSec = opts.timeoutSec ?? config.workerTimeoutSec;
   const args = [
     "--no-extensions",
+    "-e",
+    guardExtensionPath(),
     "--thinking",
     config.workerThinking,
     "--session-dir",
@@ -103,10 +149,16 @@ export async function runWorkerExecution(
     }
   };
 
+  const entry: ActiveEntry = { buffer: [] };
+  if (opts.workItemId) activeWorkers.set(opts.workItemId, entry);
   try {
     await client.start();
+    entry.client = client;
     const unsubscribe = client.onEvent(offEvent);
     await client.prompt(opts.instructions);
+    for (const buffered of entry.buffer.splice(0)) {
+      await client.steer(buffered).catch(() => {});
+    }
     await client.waitForIdle(timeoutSec * 1000);
     unsubscribe();
     const text = lastAssistantText(finalMessages);
@@ -121,6 +173,7 @@ export async function runWorkerExecution(
       toolCalls,
     };
   } finally {
+    if (opts.workItemId) activeWorkers.delete(opts.workItemId);
     await client.stop().catch(() => {});
   }
 }

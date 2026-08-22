@@ -6,13 +6,23 @@ import { config } from "../config.js";
 import { extractJson } from "./pi.js";
 import { MANAGER_CHARTER, WORKER_CHARTER } from "./charters.js";
 import { getManagerSession, promptRole } from "./sdk.js";
-import { runWorkerExecution } from "./rpcWorker.js";
+import { hasActiveWorker, runWorkerExecution, steerActiveWorker } from "./rpcWorker.js";
 import { recallForManager } from "./distiller.js";
 
 interface ManagerDecision {
   instructions?: string | null;
   expect?: string;
   reply?: string;
+}
+
+/** One plan+execute cycle at a time per work item (no concurrent workers in one workspace). */
+const itemLocks = new Map<string, Promise<unknown>>();
+
+function withItemLock<T>(workItemId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = itemLocks.get(workItemId) ?? Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  itemLocks.set(workItemId, run);
+  return run;
 }
 
 /**
@@ -24,6 +34,28 @@ export async function handleThreadMessage(
   workItemId: string,
   message: string,
 ): Promise<string> {
+  const item = await getWorkItem(workItemId);
+
+  // Routing waterfall: a message during a running execution is steered into
+  // it instead of spawning a second worker in the same workspace.
+  if (hasActiveWorker(workItemId)) {
+    const steered = await steerActiveWorker(workItemId, message);
+    if (steered) {
+      await appendEvent({
+        source: "agent:manager",
+        kind: "execution.steered",
+        threadId: item.threadId,
+        workItemId,
+        payload: { text: message },
+      });
+      return "steered into the running execution";
+    }
+  }
+
+  return withItemLock(workItemId, () => managerCycle(workItemId, message));
+}
+
+async function managerCycle(workItemId: string, message: string): Promise<string> {
   const item = await getWorkItem(workItemId);
   const sessionsRoot = join(item.workspace, ".hidane", "sessions");
   const history = await listEvents({ threadId: item.threadId, tail: 12 });
@@ -108,6 +140,7 @@ export async function handleThreadMessage(
     cwd: item.workspace,
     charter: WORKER_CHARTER,
     sessionDir: sessionsRoot,
+    workItemId,
     timeoutSec: config.workerTimeoutSec,
     // Two-phase side-effect trail: intent before the tool acts, result after.
     onToolEvent: (e) => {

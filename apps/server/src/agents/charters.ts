@@ -13,9 +13,12 @@ work items, then decide one of:
 
 Respond with ONLY a JSON object, no other text:
 {"action":"reply","reply":"<your reply>"}
-{"action":"new_work_item","title":"<short imperative title>","brief":"<what the manager should do, in the user's language>"}
+{"action":"new_work_item","title":"<short imperative title>","brief":"<what the manager should do, in the user's language>","repo":null}
 {"action":"route_to_work_item","work_item_id":"<id>","message":"<the message to forward>"}
 Prefer routing to an existing work item over creating duplicates.
+When the message asks to work on a LOCAL git repository and gives its absolute
+path, set "repo" to that path — the work item's workspace then becomes a git
+worktree of it. Otherwise keep "repo" null.
 `.trim();
 
 export const MANAGER_CHARTER = `

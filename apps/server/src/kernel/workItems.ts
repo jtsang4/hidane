@@ -37,27 +37,36 @@ function toWorkItem(row: WorkItemRow): WorkItem {
 
 /**
  * Create a work item with its thread and workspace, and record the fact.
- * The thread is the interaction lane; the workspace is the execution home.
+ * The thread is the interaction lane; the workspace is the execution home
+ * (a plain dir, or a git worktree when the work targets a local repo).
  */
 export async function createWorkItem(
   title: string,
   source = "kernel",
+  opts: { repo?: string | undefined } = {},
 ): Promise<WorkItem> {
   const db = sql();
   const id = genId("wi", 6);
   const threadId = genId("th", 6);
-  const workspace = await ensureWorkspace(id);
+  const workspace = await ensureWorkspace(id, opts.repo);
   await db`INSERT INTO threads (id, work_item_id, kind) VALUES (${threadId}, ${id}, 'work')`;
   await db`
     INSERT INTO work_items (id, title, workspace, thread_id)
-    VALUES (${id}, ${title}, ${workspace}, ${threadId})`;
+    VALUES (${id}, ${title}, ${workspace.path}, ${threadId})`;
   const item = await getWorkItem(id);
   await appendEvent({
     source,
     kind: "work_item.created",
     threadId,
     workItemId: id,
-    payload: { title, workspace },
+    payload: {
+      title,
+      workspace: workspace.path,
+      provider: workspace.provider,
+      branch: workspace.branch ?? null,
+      repo: opts.repo ?? null,
+      workspaceError: workspace.error ?? null,
+    },
   });
   return item;
 }

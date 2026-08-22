@@ -12,6 +12,7 @@ interface RouteDecision {
   reply?: string;
   title?: string;
   brief?: string;
+  repo?: string | null;
   work_item_id?: string;
   message?: string;
 }
@@ -96,7 +97,9 @@ export async function handleUserMessage(
 
   if (decision.action === "new_work_item") {
     const title = decision.title ?? text.slice(0, 60);
-    const item = await createWorkItem(title, "agent:primary");
+    const item = await createWorkItem(title, "agent:primary", {
+      repo: decision.repo ?? undefined,
+    });
     const brief = decision.brief ?? text;
     await appendEvent({
       source: "agent:primary",
