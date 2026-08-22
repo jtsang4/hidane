@@ -112,10 +112,31 @@ session traces live in the `/data` volume.
   not model software engineering (no built-in CI/CD, dependency graphs, deploy
   pipelines).
 
-## Roadmap
+## Feishu channel binding
 
-- Memory distiller consumer (long-term memory promotion)
-- Feishu channel binding (thread ↔ topic-group topic)
+Set these in the environment (production: Coolify) to enable the Feishu connector:
+
+| Var | Meaning |
+|---|---|
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | app credentials (open.feishu.cn) |
+| `FEISHU_VERIFICATION_TOKEN` | optional; verifies event authenticity when set |
+| `FEISHU_ENCRYPT_KEY` | optional; AES-256-CBC decrypt when encrypt策略 enabled |
+
+Point the app's event subscription callback at `https://<host>/feishu/events`
+and subscribe to `im.message.receive_v1`. Grant `im:message:send_as_bot`,
+`im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`,
+`im:chat:readonly`. A p2p message maps to the main thread; the reply-thread
+under a bot-posted `📋 wi_x` root maps to that work item's thread.
+
+## Done in v1
+
+- Memory distiller consumer → layered `MEMORY.md` files, cross-day recall
+- Feishu channel binding (p2p ↔ main thread, reply-thread ↔ work item)
 - Worktree workspace provider for coding work items
 - Side-effect permission gate as a pi extension (`tool_call` intercept)
+- Web UI (chat, work items, events, worklog, status) with SSE + i18n
+
+## Roadmap
+
 - Escalation policy & digests on the main thread
+- Perspective-diverse verification for high-stakes executions
