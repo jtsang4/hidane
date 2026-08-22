@@ -71,6 +71,36 @@ describe("layered memory files", () => {
   });
 });
 
+describe("memory expiry channel", () => {
+  it("forgets an entry by id and records memory.forgotten", async () => {
+    const path = await tmpMemoryPath();
+    const keep = await appendMemory(path, "global", { kind: "fact", content: "keep me" });
+    const drop = await appendMemory(path, "global", {
+      kind: "lesson",
+      content: "stale workaround for a fixed bug",
+    });
+
+    const { forgetMemory } = await import("../src/kernel/memories.js");
+    expect(await forgetMemory(path, drop.id, "cli")).toBe(true);
+
+    const remaining = parseMemories(await readMemoryFile(path));
+    expect(remaining.map((m) => m.id)).toEqual([keep.id]);
+
+    const events = await listEvents({ kind: "memory.forgotten" });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload["memoryId"]).toBe(drop.id);
+  });
+
+  it("returns false for unknown ids and leaves the file untouched", async () => {
+    const path = await tmpMemoryPath();
+    await appendMemory(path, "global", { kind: "fact", content: "only entry" });
+    const before = await readMemoryFile(path);
+    const { forgetMemory } = await import("../src/kernel/memories.js");
+    expect(await forgetMemory(path, "mem_nope", "cli")).toBe(false);
+    expect(await readMemoryFile(path)).toBe(before);
+  });
+});
+
 describe("distiller filtering", () => {
   it("keeps durable-material kinds and drops connector noise", () => {
     let seq = 0;

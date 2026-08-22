@@ -104,6 +104,30 @@ export function parseMemories(text: string): MemoryEntry[] {
 }
 
 /**
+ * Forget a memory line by its id. Memory needs an expiry channel: a lesson
+ * distilled from a since-fixed bug becomes an actively wrong instruction, so
+ * removal must be as first-class as promotion (and equally recorded).
+ */
+export async function forgetMemory(
+  path: string,
+  memoryId: string,
+  source: string,
+): Promise<boolean> {
+  const text = await readMemoryFile(path);
+  if (text === "") return false;
+  const lines = text.split("\n");
+  const kept = lines.filter((line) => !line.includes(`<!-- ${memoryId} -->`));
+  if (kept.length === lines.length) return false;
+  await writeFile(path, kept.join("\n"), "utf8");
+  await appendEvent({
+    source,
+    kind: "memory.forgotten",
+    payload: { memoryId, path },
+  });
+  return true;
+}
+
+/**
  * Promote a memory: write it into the right layer file and record the fact.
  * Files are write-through targets, exactly like every other state change.
  */

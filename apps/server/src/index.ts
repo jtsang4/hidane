@@ -7,7 +7,12 @@ import { listWorkItems } from "./kernel/workItems.js";
 import { handleUserMessage } from "./agents/primary.js";
 import { disposeAgents, describeEffectiveModel } from "./agents/sdk.js";
 import { runDistillation } from "./agents/distiller.js";
-import { globalMemoryPath, readMemoryFile } from "./kernel/memories.js";
+import {
+  forgetMemory,
+  globalMemoryPath,
+  parseMemories,
+  readMemoryFile,
+} from "./kernel/memories.js";
 import { startHeartbeat } from "./connectors/timer.js";
 import { startHttp } from "./connectors/http.js";
 import { startTriageLoop } from "./connectors/triageLoop.js";
@@ -123,9 +128,31 @@ program
 program
   .command("memories")
   .description("print the global memory file")
-  .action(async () => {
+  .option("--ids", "list entries with their ids")
+  .action(async (opts: { ids?: boolean }) => {
     const text = await readMemoryFile(globalMemoryPath());
-    console.log(text.trim() === "" ? `(empty) ${globalMemoryPath()}` : text);
+    if (text.trim() === "") {
+      console.log(`(empty) ${globalMemoryPath()}`);
+      return;
+    }
+    if (opts.ids) {
+      for (const m of parseMemories(text)) {
+        console.log(`${m.id}  [${m.kind}] (${m.date}) ${m.content}`);
+      }
+      return;
+    }
+    console.log(text);
+  });
+
+program
+  .command("forget")
+  .description("remove a memory entry by id (memories age out; this is the expiry channel)")
+  .argument("<id>", "memory id, e.g. mem_ab12cd")
+  .action(async (id: string) => {
+    await migrate();
+    const ok = await forgetMemory(globalMemoryPath(), id, "cli");
+    console.log(ok ? `forgot ${id}` : `not found: ${id}`);
+    await closeDb();
   });
 
 program

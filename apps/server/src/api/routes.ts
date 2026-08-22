@@ -6,6 +6,12 @@ import { renderDay, today } from "../projections/worklog.js";
 import { handleUserMessage } from "../agents/primary.js";
 import { handleThreadMessage } from "../agents/manager.js";
 import { describeEffectiveModel } from "../agents/sdk.js";
+import {
+  forgetMemory,
+  globalMemoryPath,
+  parseMemories,
+  readMemoryFile,
+} from "../kernel/memories.js";
 
 /**
  * Read API = queries over the event log and its state tables.
@@ -137,6 +143,16 @@ export function registerApi(app: Hono): void {
       }).catch(() => {});
     });
     return c.json({ ok: true, accepted: true }, 202);
+  });
+
+  app.get("/api/memories", async (c) => {
+    const text = await readMemoryFile(globalMemoryPath());
+    return c.json({ path: globalMemoryPath(), entries: parseMemories(text), markdown: text });
+  });
+
+  app.delete("/api/memories/:id", async (c) => {
+    const ok = await forgetMemory(globalMemoryPath(), c.req.param("id"), "connector:web");
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not found" }, 404);
   });
 
   app.get("/api/worklog/:day", async (c) => {

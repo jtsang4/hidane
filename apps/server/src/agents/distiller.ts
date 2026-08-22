@@ -23,8 +23,17 @@ DURABLE memories worth recalling in future sessions:
 - stable facts about the user or their environment
 - explicit user preferences ("prefer X", "never do Y")
 - decisions made and their reasons
-- reusable lessons from execution successes/failures
-NOT ephemeral task state, NOT things already in the existing-memories list.
+- reusable lessons that stay true after the current work is done
+
+NEVER record any of the following — they age into actively harmful instructions:
+- current bugs, crashes, missing files/paths, or deployment breakage (these get
+  fixed; a memory telling future agents to work around them is then wrong)
+- workarounds that disable safety or tooling (e.g. "use --no-extensions",
+  "skip verification", "bypass the guard")
+- transient environment state (a service being down, a variable being unset)
+- ephemeral task state, or anything already in the existing-memories list
+
+A lesson qualifies only if it would still be true and useful a month from now.
 
 Respond with ONLY JSON:
 {"memories":[{"kind":"fact|preference|decision|lesson","scope":"global|work_item","work_item_id":null,"content":"<one concise sentence in the user's language>","confidence":0.0}]}
