@@ -9,8 +9,10 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { Flame, ListTodo, MessageCircle, ScrollText, Activity, Logs } from "lucide-react";
+import { Flame, ListTodo, MessageCircle, ScrollText, Activity, Logs, Languages } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import "./styles.css";
+import i18n, { switchLanguage } from "./i18n/index.js";
 import { eventStreamUrl, getToken, setToken } from "./lib/api.js";
 import { Button, Card, Input } from "./components/ui/primitives.js";
 import { ChatPage } from "./pages/ChatPage.js";
@@ -34,6 +36,7 @@ function useEventStream(enabled: boolean) {
 }
 
 function TokenGate({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -41,11 +44,11 @@ function TokenGate({ onDone }: { onDone: () => void }) {
         <div className="flex items-center gap-2 text-lg font-semibold">
           <Flame className="h-5 w-5 text-primary" /> hidane
         </div>
-        <p className="text-sm text-muted">输入 API Token（HIDANE_API_TOKEN）。</p>
+        <p className="text-sm text-muted">{t("token.prompt")}</p>
         <Input
           type="password"
           value={value}
-          placeholder="token"
+          placeholder={t("token.placeholder")}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && value.trim()) {
@@ -63,7 +66,7 @@ function TokenGate({ onDone }: { onDone: () => void }) {
             }
           }}
         >
-          进入
+          {t("token.enter")}
         </Button>
       </Card>
     </div>
@@ -71,26 +74,28 @@ function TokenGate({ onDone }: { onDone: () => void }) {
 }
 
 const NAV = [
-  { to: "/", label: "会话", icon: MessageCircle },
-  { to: "/items", label: "工作项", icon: ListTodo },
-  { to: "/events", label: "事件", icon: Logs },
-  { to: "/log", label: "日志", icon: ScrollText },
-  { to: "/status", label: "状态", icon: Activity },
+  { to: "/", key: "nav.chat", icon: MessageCircle },
+  { to: "/items", key: "nav.items", icon: ListTodo },
+  { to: "/events", key: "nav.events", icon: Logs },
+  { to: "/log", key: "nav.log", icon: ScrollText },
+  { to: "/status", key: "nav.status", icon: Activity },
 ] as const;
 
 function RootLayout() {
+  const { t } = useTranslation();
   const [authed, setAuthed] = useState(() => getToken().length > 0);
   useEventStream(authed);
 
   if (!authed) return <TokenGate onDone={() => setAuthed(true)} />;
 
+  const nextLang = i18n.language === "en" ? "zh" : "en";
   return (
     <div className="flex h-full flex-col-reverse sm:flex-row">
       <nav className="flex shrink-0 justify-around border-t border-border bg-surface p-2 sm:w-44 sm:flex-col sm:justify-start sm:gap-1 sm:border-t-0 sm:border-r sm:p-3">
         <div className="hidden items-center gap-2 px-2 pb-3 text-base font-semibold sm:flex">
           <Flame className="h-5 w-5 text-primary" /> hidane
         </div>
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {NAV.map(({ to, key, icon: Icon }) => (
           <Link
             key={to}
             to={to}
@@ -98,9 +103,17 @@ function RootLayout() {
             activeOptions={{ exact: to === "/" }}
           >
             <Icon className="h-4 w-4" />
-            <span className="hidden sm:inline">{label}</span>
+            <span className="hidden sm:inline">{t(key)}</span>
           </Link>
         ))}
+        <button
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2 sm:mt-auto"
+          onClick={() => switchLanguage(nextLang)}
+          aria-label="switch language"
+        >
+          <Languages className="h-4 w-4" />
+          <span className="hidden sm:inline">{nextLang === "en" ? "English" : "中文"}</span>
+        </button>
       </nav>
       <main className="min-h-0 flex-1">
         <Outlet />

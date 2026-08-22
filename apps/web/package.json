@@ -15,9 +15,11 @@
     "@tanstack/react-router": "^1.170.31",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "i18next": "^26.4.0",
     "lucide-react": "^1.33.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-i18next": "^17.0.12",
     "react-markdown": "^10.1.0",
     "tailwind-merge": "^3.6.0"
   },

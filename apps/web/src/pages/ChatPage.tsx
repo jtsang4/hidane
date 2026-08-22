@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { SendHorizonal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { api, type HidaneEvent } from "../lib/api.js";
 import { conversationEvents, payloadText } from "../lib/grouping.js";
 import { cn, fmtTime } from "../lib/utils.js";
@@ -46,6 +47,7 @@ function Bubble({ event }: { event: HidaneEvent }) {
 }
 
 export function ChatPage() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -77,9 +79,7 @@ export function ChatPage() {
     <div className="flex h-full flex-col">
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {events.length === 0 && (
-          <p className="pt-16 text-center text-sm text-muted">
-            对 Primary 说点什么——它会回复、建工作项或路由到已有工作项。
-          </p>
+          <p className="pt-16 text-center text-sm text-muted">{t("chat.empty")}</p>
         )}
         {events.map((e) => (
           <Bubble key={e.id} event={e} />
@@ -90,7 +90,7 @@ export function ChatPage() {
         <Textarea
           rows={2}
           value={text}
-          placeholder="消息 Primary…（Enter 发送，Shift+Enter 换行）"
+          placeholder={t("chat.placeholder")}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -99,7 +99,7 @@ export function ChatPage() {
             }
           }}
         />
-        <Button onClick={submit} disabled={send.isPending} aria-label="发送">
+        <Button onClick={submit} disabled={send.isPending} aria-label={t("common.send")}>
           <SendHorizonal className="h-4 w-4" />
         </Button>
       </div>

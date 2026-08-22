@@ -2,15 +2,18 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, SendHorizonal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { api, type HidaneEvent } from "../lib/api.js";
 import { conversationEvents, executionGroups, payloadText, type ExecutionGroup } from "../lib/grouping.js";
 import { cn, fmtTime, fmtDateTime } from "../lib/utils.js";
 import { Badge, Button, Card, Textarea } from "../components/ui/primitives.js";
 
 function Execution({ group }: { group: ExecutionGroup }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const tone = group.ok === null ? "muted" : group.ok ? "success" : "danger";
-  const label = group.ok === null ? "运行中" : group.ok ? "成功" : "失败";
+  const label =
+    group.ok === null ? t("item.running") : group.ok ? t("item.success") : t("item.failed");
   return (
     <Card className="p-3">
       <button
@@ -22,14 +25,17 @@ function Execution({ group }: { group: ExecutionGroup }) {
         <Badge tone={tone}>{label}</Badge>
         <span className="ml-auto text-xs text-muted">
           {group.started ? fmtTime(group.started.ts) : ""}
-          {group.sideEffects.length > 0 && ` · ${group.sideEffects.length / 2 | 0} 次工具调用`}
+          {group.sideEffects.length > 0 &&
+            ` · ${t("item.toolCalls", { n: (group.sideEffects.length / 2) | 0 })}`}
         </span>
       </button>
       {open && (
         <div className="mt-2 space-y-1 border-t border-border pt-2 text-xs">
           {group.started && (
             <p className="whitespace-pre-wrap text-muted">
-              指令：{String(group.started.payload["instructions"] ?? "")}
+              {t("item.instructions", {
+                text: String(group.started.payload["instructions"] ?? ""),
+              })}
             </p>
           )}
           {group.sideEffects.map((e: HidaneEvent) => (
@@ -59,6 +65,7 @@ function Execution({ group }: { group: ExecutionGroup }) {
 }
 
 export function ItemDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams({ from: "/items/$id" });
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
@@ -76,7 +83,7 @@ export function ItemDetailPage() {
     },
   });
 
-  if (!data) return <p className="p-6 text-sm text-muted">加载中…</p>;
+  if (!data) return <p className="p-6 text-sm text-muted">{t("common.loading")}</p>;
   const { item, events } = data;
   const conversation = conversationEvents(events);
   const executions = executionGroups(events);
@@ -94,7 +101,11 @@ export function ItemDetailPage() {
           <Badge tone={item.status === "open" ? "success" : "muted"}>{item.status}</Badge>
         </div>
         <p className="mt-1 text-xs text-muted">
-          {item.id} · 创建于 {fmtDateTime(item.createdAt)} · workspace {item.workspace}
+          {t("item.meta", {
+            id: item.id,
+            time: fmtDateTime(item.createdAt),
+            workspace: item.workspace,
+          })}
         </p>
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
@@ -115,7 +126,7 @@ export function ItemDetailPage() {
         </section>
         {executions.length > 0 && (
           <section className="space-y-2">
-            <h2 className="text-sm font-medium text-muted">执行时间线</h2>
+            <h2 className="text-sm font-medium text-muted">{t("item.timeline")}</h2>
             {executions.map((g) => (
               <Execution key={g.executionId} group={g} />
             ))}
@@ -126,7 +137,7 @@ export function ItemDetailPage() {
         <Textarea
           rows={2}
           value={text}
-          placeholder="在此工作项线程里回复 Manager…"
+          placeholder={t("item.replyPlaceholder")}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -135,7 +146,7 @@ export function ItemDetailPage() {
             }
           }}
         />
-        <Button onClick={submit} disabled={send.isPending} aria-label="发送">
+        <Button onClick={submit} disabled={send.isPending} aria-label={t("common.send")}>
           <SendHorizonal className="h-4 w-4" />
         </Button>
       </div>

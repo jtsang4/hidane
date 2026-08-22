@@ -1,0 +1,103 @@
+export const zh = {
+  translation: {
+    nav: { chat: "会话", items: "工作项", events: "事件", log: "日志", status: "状态" },
+    common: { send: "发送", loading: "加载中…" },
+    token: {
+      prompt: "输入 API Token（HIDANE_API_TOKEN）。",
+      placeholder: "token",
+      enter: "进入",
+    },
+    chat: {
+      empty: "对 Primary 说点什么——它会回复、建工作项或路由到已有工作项。",
+      placeholder: "消息 Primary…（Enter 发送，Shift+Enter 换行）",
+    },
+    items: {
+      title: "工作项",
+      onlyOpen: "只看进行中",
+      includeAll: "包含已完成",
+      empty: "还没有工作项。",
+      updatedAt: "更新于 {{time}}",
+    },
+    item: {
+      timeline: "执行时间线",
+      running: "运行中",
+      success: "成功",
+      failed: "失败",
+      instructions: "指令：{{text}}",
+      toolCalls: "{{n}} 次工具调用",
+      replyPlaceholder: "在此工作项线程里回复 Manager…",
+      meta: "{{id}} · 创建于 {{time}} · workspace {{workspace}}",
+    },
+    events: {
+      title: "事件日志",
+      filterKind: "按 kind 过滤，如 execution.finished",
+      filterItem: "按工作项过滤，如 wi_xxx",
+      empty: "没有匹配的事件。",
+    },
+    log: { title: "工作日志" },
+    status: {
+      title: "运行状态",
+      latestSeq: "最新事件 seq",
+      triageLag: "分诊游标滞后",
+      lastHeartbeat: "上次心跳",
+      openItems: "进行中工作项",
+      ok: "正常",
+      attention: "注意",
+      none: "无",
+      heartbeatAt: "{{time}}（{{s}}s 前）",
+    },
+  },
+} as const;
+
+export const en = {
+  translation: {
+    nav: { chat: "Chat", items: "Work Items", events: "Events", log: "Worklog", status: "Status" },
+    common: { send: "Send", loading: "Loading…" },
+    token: {
+      prompt: "Enter the API token (HIDANE_API_TOKEN).",
+      placeholder: "token",
+      enter: "Enter",
+    },
+    chat: {
+      empty: "Say something to the Primary — it replies, opens a work item, or routes to an existing one.",
+      placeholder: "Message the Primary… (Enter to send, Shift+Enter for newline)",
+    },
+    items: {
+      title: "Work Items",
+      onlyOpen: "Open only",
+      includeAll: "Include finished",
+      empty: "No work items yet.",
+      updatedAt: "updated {{time}}",
+    },
+    item: {
+      timeline: "Execution timeline",
+      running: "running",
+      success: "success",
+      failed: "failed",
+      instructions: "Instructions: {{text}}",
+      toolCalls: "{{n}} tool calls",
+      replyPlaceholder: "Reply to the Manager in this work item thread…",
+      meta: "{{id}} · created {{time}} · workspace {{workspace}}",
+    },
+    events: {
+      title: "Event Log",
+      filterKind: "Filter by kind, e.g. execution.finished",
+      filterItem: "Filter by work item, e.g. wi_xxx",
+      empty: "No matching events.",
+    },
+    log: { title: "Worklog" },
+    status: {
+      title: "Runtime Status",
+      latestSeq: "Latest event seq",
+      triageLag: "Triage cursor lag",
+      lastHeartbeat: "Last heartbeat",
+      openItems: "Open work items",
+      ok: "ok",
+      attention: "attention",
+      none: "none",
+      heartbeatAt: "{{time}} ({{s}}s ago)",
+    },
+  },
+} as const;
+
+export type AppResources = typeof zh;

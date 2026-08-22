@@ -61,7 +61,8 @@ Rules for AI coding agents working in this repository. Project introduction live
 - Production deploys via Coolify using `docker-compose.yml`. Env vars only reach containers if referenced in the compose `environment:` block — adding them in the Coolify UI alone is not enough.
 - Local development and verification never involve Coolify.
 
-## Language
+## Language & i18n
 
 - Code identifiers, comments, and README are English. Acceptance scenarios and other operator-facing docs may be Chinese.
 - Comments state constraints the code cannot express; no narrating what the next line does.
+- **UI strings go through react-i18next** (`apps/web/src/i18n/resources.ts`): never hardcode user-visible literals in components. Supported locales are `zh` (default) and `en` — every new key must be added to BOTH, and keys are typo-checked at compile time via the typed resources declaration.

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api.js";
 import { today } from "../lib/utils.js";
 import { Input } from "../components/ui/primitives.js";
 
 export function LogPage() {
+  const { t } = useTranslation();
   const [day, setDay] = useState(today());
   const { data } = useQuery({
     queryKey: ["worklog", day],
@@ -16,7 +18,7 @@ export function LogPage() {
   return (
     <div className="space-y-3 p-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">工作日志</h1>
+        <h1 className="text-lg font-semibold">{t("log.title")}</h1>
         <Input
           type="date"
           className="w-44"

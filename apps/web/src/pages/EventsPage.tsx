@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { api, type HidaneEvent } from "../lib/api.js";
 import { fmtDateTime } from "../lib/utils.js";
 import { Badge, Card, Input } from "../components/ui/primitives.js";
@@ -29,6 +30,7 @@ function EventRow({ event }: { event: HidaneEvent }) {
 }
 
 export function EventsPage() {
+  const { t } = useTranslation();
   const [kind, setKind] = useState("");
   const [item, setItem] = useState("");
   const { data } = useQuery({
@@ -39,17 +41,17 @@ export function EventsPage() {
 
   return (
     <div className="space-y-3 p-4">
-      <h1 className="text-lg font-semibold">事件日志</h1>
+      <h1 className="text-lg font-semibold">{t("events.title")}</h1>
       <div className="flex gap-2">
-        <Input placeholder="按 kind 过滤，如 execution.finished" value={kind} onChange={(e) => setKind(e.target.value)} />
-        <Input placeholder="按工作项过滤，如 wi_xxx" value={item} onChange={(e) => setItem(e.target.value)} />
+        <Input placeholder={t("events.filterKind")} value={kind} onChange={(e) => setKind(e.target.value)} />
+        <Input placeholder={t("events.filterItem")} value={item} onChange={(e) => setItem(e.target.value)} />
       </div>
       <div className="space-y-2">
         {events.map((e) => (
           <EventRow key={e.id} event={e} />
         ))}
         {events.length === 0 && (
-          <p className="pt-8 text-center text-sm text-muted">没有匹配的事件。</p>
+          <p className="pt-8 text-center text-sm text-muted">{t("events.empty")}</p>
         )}
       </div>
     </div>

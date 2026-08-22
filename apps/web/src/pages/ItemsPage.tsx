@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "../lib/api.js";
 import { fmtDateTime } from "../lib/utils.js";
 import { Badge, Button, Card } from "../components/ui/primitives.js";
 
 export function ItemsPage() {
+  const { t } = useTranslation();
   const [all, setAll] = useState(false);
   const { data } = useQuery({
     queryKey: ["items", all],
@@ -15,9 +17,9 @@ export function ItemsPage() {
   return (
     <div className="space-y-3 p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">工作项</h1>
+        <h1 className="text-lg font-semibold">{t("items.title")}</h1>
         <Button variant="outline" size="sm" onClick={() => setAll((v) => !v)}>
-          {all ? "只看进行中" : "包含已完成"}
+          {all ? t("items.onlyOpen") : t("items.includeAll")}
         </Button>
       </div>
       {(data?.items ?? []).map((item) => (
@@ -27,7 +29,7 @@ export function ItemsPage() {
               <div>
                 <div className="font-medium">{item.title}</div>
                 <div className="mt-1 text-xs text-muted">
-                  {item.id} · 更新于 {fmtDateTime(item.updatedAt)}
+                  {item.id} · {t("items.updatedAt", { time: fmtDateTime(item.updatedAt) })}
                 </div>
               </div>
               <Badge tone={item.status === "open" ? "success" : "muted"}>{item.status}</Badge>
@@ -36,7 +38,7 @@ export function ItemsPage() {
         </Link>
       ))}
       {data?.items.length === 0 && (
-        <p className="pt-8 text-center text-sm text-muted">还没有工作项。</p>
+        <p className="pt-8 text-center text-sm text-muted">{t("items.empty")}</p>
       )}
     </div>
   );
