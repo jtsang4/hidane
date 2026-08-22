@@ -73,20 +73,31 @@ async function createRoleSession(opts: RoleSessionOptions): Promise<AgentSession
   return session;
 }
 
-let primarySession: Promise<AgentSession> | undefined;
-const managerSessions = new Map<string, Promise<AgentSession>>();
+const roleSessions = new Map<string, Promise<AgentSession>>();
+
+/** Named session cache: one persistent session per role instance. */
+export function getRoleSession(
+  name: string,
+  opts: RoleSessionOptions,
+): Promise<AgentSession> {
+  let existing = roleSessions.get(name);
+  if (!existing) {
+    existing = (async () => {
+      await mkdir(opts.cwd, { recursive: true });
+      return createRoleSession(opts);
+    })();
+    roleSessions.set(name, existing);
+  }
+  return existing;
+}
 
 export function getPrimarySession(charter: string): Promise<AgentSession> {
-  primarySession ??= (async () => {
-    await mkdir(config.home, { recursive: true });
-    return createRoleSession({
-      charter,
-      cwd: config.home,
-      sessionDir: sessionsDir(),
-      thinking: config.routeThinking,
-    });
-  })();
-  return primarySession;
+  return getRoleSession("primary", {
+    charter,
+    cwd: config.home,
+    sessionDir: sessionsDir(),
+    thinking: config.routeThinking,
+  });
 }
 
 export function getManagerSession(
@@ -95,17 +106,12 @@ export function getManagerSession(
   sessionDir: string,
   charter: string,
 ): Promise<AgentSession> {
-  let existing = managerSessions.get(workItemId);
-  if (!existing) {
-    existing = createRoleSession({
-      charter,
-      cwd: workspace,
-      sessionDir,
-      thinking: config.routeThinking,
-    });
-    managerSessions.set(workItemId, existing);
-  }
-  return existing;
+  return getRoleSession(`manager:${workItemId}`, {
+    charter,
+    cwd: workspace,
+    sessionDir,
+    thinking: config.routeThinking,
+  });
 }
 
 /** Pull the last assistant text out of a session's message history. */
@@ -172,11 +178,8 @@ export async function promptRole(
 
 /** Dispose all live sessions (daemon shutdown / one-shot CLI exit). */
 export async function disposeAgents(): Promise<void> {
-  const sessions: Promise<AgentSession>[] = [];
-  if (primarySession) sessions.push(primarySession);
-  sessions.push(...managerSessions.values());
-  primarySession = undefined;
-  managerSessions.clear();
+  const sessions = [...roleSessions.values()];
+  roleSessions.clear();
   for (const p of sessions) {
     try {
       (await p).dispose();

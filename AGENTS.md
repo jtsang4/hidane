@@ -38,6 +38,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 - Triage is rules-first; models wake rarely. Events from `agent:*` / `kernel:*` sources must never re-enter triage (loop protection).
 - Side effects are two-phase: `side_effect.intent` before the action, `side_effect.result` after.
 - The kernel stays domain-agnostic: work items, threads, executions, workspaces, artifacts. No software-engineering semantics in the kernel (no built-in CI/CD, dependency graphs, deploy pipelines).
+- **Database vs files boundary**: the database holds ONLY what needs atomic multi-writer ordering and queries — the event log spine plus small state tables (work_items, threads, cursors). Everything agents or humans consume is FILES: layered memory (`memory/MEMORY.md`, `<workspace>/MEMORY.md`), daily worklog + session-trace archives (`worklogs/YYYY/MM/DD/`), session traces, workspace artifacts. Never add a table for content that agents read — write a file projection instead; never make agents query the database directly.
 - Three agent roles (Primary / Manager / Worker) are **one loop at three scopes**. Differences live in charter, context, and lifecycle only. Do not fork per-role frameworks.
 - Skills are a shared global pool loaded by pi's native discovery. Do not build skill routing, scoping, or injection mechanisms.
 - Every work item owns exactly one workspace directory; an execution's cwd is always inside its work item's workspace.

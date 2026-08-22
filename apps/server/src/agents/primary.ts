@@ -5,6 +5,7 @@ import { extractJson } from "./pi.js";
 import { PRIMARY_CHARTER } from "./charters.js";
 import { getPrimarySession, promptRole } from "./sdk.js";
 import { handleThreadMessage } from "./manager.js";
+import { recallForPrimary } from "./distiller.js";
 
 interface RouteDecision {
   action: "reply" | "new_work_item" | "route_to_work_item";
@@ -43,10 +44,13 @@ export async function handleUserMessage(
       ? open.map((i) => `- ${i.id}: ${i.title}`).join("\n")
       : "(none)";
 
+  const memories = await recallForPrimary();
   const session = await getPrimarySession(PRIMARY_CHARTER);
   const routing = await promptRole(
     session,
-    `Open work items:\n${itemsList}\n\nIncoming message:\n${text}`,
+    [memories, `Open work items:\n${itemsList}`, `Incoming message:\n${text}`]
+      .filter(Boolean)
+      .join("\n\n"),
     config.routeTimeoutSec,
   );
 

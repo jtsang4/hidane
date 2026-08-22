@@ -7,6 +7,7 @@ import { extractJson } from "./pi.js";
 import { MANAGER_CHARTER, WORKER_CHARTER } from "./charters.js";
 import { getManagerSession, promptRole } from "./sdk.js";
 import { runWorkerExecution } from "./rpcWorker.js";
+import { recallForManager } from "./distiller.js";
 
 interface ManagerDecision {
   instructions?: string | null;
@@ -37,9 +38,11 @@ export async function handleThreadMessage(
     join(sessionsRoot, "manager"),
     MANAGER_CHARTER,
   );
+  const memories = await recallForManager(workItemId);
   const planning = await promptRole(
     session,
     [
+      memories,
       `Work item: ${item.id} — ${item.title} (status: ${item.status})`,
       `Workspace: ${item.workspace}`,
       historyText ? `Recent thread:\n${historyText}` : "",

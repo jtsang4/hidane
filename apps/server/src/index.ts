@@ -6,10 +6,13 @@ import { listEvents } from "./kernel/events.js";
 import { listWorkItems } from "./kernel/workItems.js";
 import { handleUserMessage } from "./agents/primary.js";
 import { disposeAgents } from "./agents/sdk.js";
+import { runDistillation } from "./agents/distiller.js";
+import { globalMemoryPath, readMemoryFile } from "./kernel/memories.js";
 import { startHeartbeat } from "./connectors/timer.js";
 import { startHttp } from "./connectors/http.js";
 import { startTriageLoop } from "./connectors/triageLoop.js";
 import { renderDay, writeDay, today } from "./projections/worklog.js";
+import { archiveDay } from "./projections/archive.js";
 
 const program = new Command();
 program
@@ -94,6 +97,38 @@ program
   });
 
 program
+  .command("archive")
+  .description("archive a day: worklog + session traces into worklogs/YYYY/MM/DD/")
+  .argument("[day]", "YYYY-MM-DD", today())
+  .action(async (day: string) => {
+    await migrate();
+    const result = await archiveDay(day);
+    console.log(`${result.dir} (${result.sessions} session files)`);
+    await closeDb();
+  });
+
+program
+  .command("distill")
+  .description("run one memory distillation pass over new events")
+  .option("--min <n>", "minimum meaningful events required", "1")
+  .action(async (opts: { min: string }) => {
+    await migrate();
+    const result = await runDistillation({ minEvents: Number(opts.min) });
+    console.log(JSON.stringify(result));
+    await disposeAgents();
+    await closeDb();
+    process.exit(0);
+  });
+
+program
+  .command("memories")
+  .description("print the global memory file")
+  .action(async () => {
+    const text = await readMemoryFile(globalMemoryPath());
+    console.log(text.trim() === "" ? `(empty) ${globalMemoryPath()}` : text);
+  });
+
+program
   .command("daemon")
   .description("run the resident runtime: http connector, heartbeat, triage loop")
   .action(async () => {
@@ -101,10 +136,20 @@ program
     const server = startHttp(config.port);
     const stopHeartbeat = startHeartbeat(config.heartbeatIntervalSec);
     const stopTriage = startTriageLoop(5);
-    console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s`);
+    const distillTimer = setInterval(() => {
+      runDistillation({ minEvents: 10 }).catch((err) =>
+        console.error("distill loop error:", err),
+      );
+    }, config.distillIntervalSec * 1000);
+    const archiveTimer = setInterval(() => {
+      archiveDay(today()).catch((err) => console.error("archive loop error:", err));
+    }, 3600 * 1000);
+    console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, distill ${config.distillIntervalSec}s`);
     const shutdown = async () => {
       stopHeartbeat();
       stopTriage();
+      clearInterval(distillTimer);
+      clearInterval(archiveTimer);
       server.close();
       await disposeAgents();
       await closeDb();

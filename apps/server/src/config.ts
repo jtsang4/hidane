@@ -33,6 +33,8 @@ export const config = {
   webhookSecret: env("HIDANE_WEBHOOK_SECRET"),
   /** Directory of the built web app, served statically when it exists. */
   webDist: env("HIDANE_WEB_DIST") ?? "../web/dist",
+  /** Memory distiller interval in seconds (daemon). */
+  distillIntervalSec: Number(env("HIDANE_DISTILL_SEC") ?? 600),
 };
 
 export function workspacesDir(): string {

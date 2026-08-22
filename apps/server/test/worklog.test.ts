@@ -36,7 +36,7 @@ describe("worklog projection", () => {
       payload: { text: "file check" },
     });
     const path = await writeDay(today());
-    expect(path).toMatch(/worklogs\/\d{4}\/\d{2}\/\d{4}-\d{2}-\d{2}\.md$/);
+    expect(path).toMatch(/worklogs\/\d{4}\/\d{2}\/\d{2}\/worklog\.md$/);
     const content = await readFile(path, "utf8");
     expect(content).toContain("file check");
   });

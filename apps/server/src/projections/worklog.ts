@@ -60,13 +60,13 @@ export async function renderDay(day: string): Promise<string> {
   return parts.join("\n");
 }
 
-/** Write the projection to worklogs/YYYY/MM/YYYY-MM-DD.md and return the path. */
+/** Write the projection to worklogs/YYYY/MM/DD/worklog.md and return the path. */
 export async function writeDay(day: string): Promise<string> {
   const md = await renderDay(day);
-  const [year, month] = [day.slice(0, 4), day.slice(5, 7)];
-  const dir = join(worklogsDir(), year, month);
+  const [year, month, dom] = [day.slice(0, 4), day.slice(5, 7), day.slice(8, 10)];
+  const dir = join(worklogsDir(), year, month, dom);
   await mkdir(dir, { recursive: true });
-  const path = join(dir, `${day}.md`);
+  const path = join(dir, "worklog.md");
   await writeFile(path, md, "utf8");
   return path;
 }
