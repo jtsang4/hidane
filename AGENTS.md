@@ -51,6 +51,10 @@ Rules for AI coding agents working in this repository. Project introduction live
 - Any direct pi subprocess must set `stdin: "ignore"` (pi waits forever on an open piped stdin) and `PI_OFFLINE=1`.
 - Use the exported `RpcClient`; never hand-roll the RPC JSONL protocol.
 
+## External integrations
+
+- Prefer official SDKs over hand-rolled protocol code. The Feishu connector uses `@larksuiteoapi/node-sdk` for token refresh, AES decryption, the challenge handshake, signature verification and dispatch — do not reintroduce hand-written crypto or token caching. Same principle as pi (native skill discovery) and memory (files).
+
 ## Security
 
 - `/health` is the only open endpoint. `/api/*` requires `HIDANE_API_TOKEN` (Bearer); `/webhook/:name` requires an `x-hidane-signature` HMAC-SHA256 when `HIDANE_WEBHOOK_SECRET` is set. Production sets both — never remove these gates or add unauthenticated write endpoints.
