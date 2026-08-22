@@ -102,6 +102,40 @@ describe("feishu connector (official SDK)", () => {
     expect(handleUserMessage).toHaveBeenCalledWith("你好 hidane", "connector:feishu");
   });
 
+  it("deduplicates retried events by event_id (Feishu retries until 200)", async () => {
+    enableFeishu();
+    const app = buildApp();
+    const payload = JSON.stringify({
+      schema: "2.0",
+      header: { event_id: "evt_retry_1", event_type: "im.message.receive_v1", token: "" },
+      event: {
+        sender: { sender_type: "user" },
+        message: {
+          message_id: "om_r",
+          chat_id: "oc_r",
+          chat_type: "p2p",
+          message_type: "text",
+          create_time: "0",
+          content: JSON.stringify({ text: "重复推送测试" }),
+        },
+      },
+    });
+    const send = () =>
+      app.request("/feishu/events", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: payload,
+      });
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 100));
+    // Exactly one capture and one LLM chain despite three deliveries.
+    expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(1);
+    const { handleUserMessage } = await import("../src/agents/primary.js");
+    expect(handleUserMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores bot echoes (sender_type != user)", async () => {
     enableFeishu();
     const app = buildApp();

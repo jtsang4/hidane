@@ -138,6 +138,23 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
   await deliverOutcome(chatId, outcome);
 }
 
+/**
+ * Feishu retries an event until it gets a 200, and the SDK dispatcher does not
+ * deduplicate. Without this guard a retry would run the whole LLM/worker chain
+ * a second time — an at-most-once gate on event_id is required.
+ */
+const seenEventIds = new Set<string>();
+
+export function isDuplicateEvent(eventId: string | undefined): boolean {
+  if (!eventId) return false;
+  if (seenEventIds.has(eventId)) return true;
+  seenEventIds.add(eventId);
+  if (seenEventIds.size > 2000) {
+    for (const id of [...seenEventIds].slice(0, 1000)) seenEventIds.delete(id);
+  }
+  return false;
+}
+
 let dispatcher: lark.EventDispatcher | undefined;
 function eventDispatcher(): lark.EventDispatcher {
   if (dispatcher) return dispatcher;
@@ -146,6 +163,8 @@ function eventDispatcher(): lark.EventDispatcher {
     encryptKey: config.feishuEncryptKey ?? "",
   }).register({
     "im.message.receive_v1": async (data) => {
+      const eventId = (data as { event_id?: string }).event_id;
+      if (isDuplicateEvent(eventId)) return { code: 0 };
       // Respond fast; the LLM path runs detached (Feishu needs a <3s ack).
       void handleMessageEvent(data as unknown as MessageEventData).catch(async (err) => {
         await appendEvent({
