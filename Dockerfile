@@ -23,6 +23,8 @@ COPY --from=build /repo/node_modules /repo/node_modules
 COPY --from=build /repo/apps/server/node_modules ./node_modules
 COPY --from=build /repo/apps/server/package.json ./
 COPY --from=build /repo/apps/server/dist ./dist
+# pi extensions are loaded from source at runtime (rpcWorker resolves ../../extensions)
+COPY --from=build /repo/apps/server/extensions ./extensions
 COPY --from=build /repo/apps/web/dist /repo/apps/web/dist
 ENV NODE_ENV=production
 ENV HIDANE_HOME=/data
