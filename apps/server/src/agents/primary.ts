@@ -31,12 +31,13 @@ export interface PrimaryOutcome {
 export async function handleUserMessage(
   text: string,
   source = "connector:cli",
+  images: { data: string; mimeType: string }[] = [],
 ): Promise<PrimaryOutcome> {
   await appendEvent({
     source,
     kind: "user.message",
     threadId: "main",
-    payload: { text },
+    payload: { text, ...(images.length > 0 ? { imageCount: images.length } : {}) },
   });
 
   const open = await listWorkItems("open");
@@ -53,6 +54,7 @@ export async function handleUserMessage(
       .filter(Boolean)
       .join("\n\n"),
     config.routeTimeoutSec,
+    images,
   );
 
   const decision = routing.ok ? extractJson<RouteDecision>(routing.text) : null;

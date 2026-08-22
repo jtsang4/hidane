@@ -99,7 +99,8 @@ describe("feishu connector (official SDK)", () => {
     expect(captured[0]!.payload["text"]).toBe("你好 hidane");
 
     const { handleUserMessage } = await import("../src/agents/primary.js");
-    expect(handleUserMessage).toHaveBeenCalledWith("你好 hidane", "connector:feishu");
+    // third arg: inbound images (empty for a plain text message)
+    expect(handleUserMessage).toHaveBeenCalledWith("你好 hidane", "connector:feishu", []);
   });
 
   it("deduplicates retried events by event_id (Feishu retries until 200)", async () => {
@@ -160,6 +161,27 @@ describe("feishu connector (official SDK)", () => {
     });
     await new Promise((r) => setTimeout(r, 60));
     expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(0);
+  });
+
+  it("extracts image keys from image and post messages (vision model input)", async () => {
+    const { imageKeys } = await import("../src/connectors/feishu.js");
+    expect(imageKeys("image", JSON.stringify({ image_key: "img_v3_abc" }))).toEqual([
+      "img_v3_abc",
+    ]);
+    expect(
+      imageKeys(
+        "post",
+        JSON.stringify({
+          title: "t",
+          content: [
+            [{ tag: "text", text: "看这张" }, { tag: "img", image_key: "img_1" }],
+            [{ tag: "img", image_key: "img_2" }],
+          ],
+        }),
+      ),
+    ).toEqual(["img_1", "img_2"]);
+    expect(imageKeys("text", JSON.stringify({ text: "hi" }))).toEqual([]);
+    expect(imageKeys("image", "not json")).toEqual([]);
   });
 
   it("extractText parses text payloads and strips mentions", () => {

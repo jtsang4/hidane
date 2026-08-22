@@ -55,6 +55,67 @@ export function extractText(content: string): string {
   }
 }
 
+export interface InboundImage {
+  data: string;
+  mimeType: string;
+}
+
+/** Image keys carried by a Feishu message (image, or post with embedded images). */
+export function imageKeys(messageType: string, content: string): string[] {
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (messageType === "image") {
+      const key = parsed["image_key"];
+      return typeof key === "string" ? [key] : [];
+    }
+    if (messageType === "post") {
+      // Rich post: content is a matrix of element rows.
+      const rows = (parsed["content"] ?? []) as unknown[][];
+      return rows
+        .flat()
+        .filter(
+          (el): el is { tag: string; image_key: string } =>
+            typeof el === "object" &&
+            el !== null &&
+            (el as { tag?: string }).tag === "img" &&
+            typeof (el as { image_key?: string }).image_key === "string",
+        )
+        .map((el) => el.image_key);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** Download message images so the vision model actually receives them. */
+async function fetchImages(
+  messageId: string,
+  keys: string[],
+): Promise<InboundImage[]> {
+  const images: InboundImage[] = [];
+  for (const key of keys.slice(0, 4)) {
+    try {
+      const res = await larkClient().im.messageResource.get({
+        params: { type: "image" },
+        path: { message_id: messageId, file_key: key },
+      });
+      const chunks: Buffer[] = [];
+      for await (const chunk of res.getReadableStream()) {
+        chunks.push(Buffer.from(chunk as Buffer));
+      }
+      const buf = Buffer.concat(chunks);
+      const mimeType =
+        (res.headers?.["content-type"] as string | undefined)?.split(";")[0] ??
+        "image/png";
+      images.push({ data: buf.toString("base64"), mimeType });
+    } catch {
+      // A failed image must not sink the whole message.
+    }
+  }
+  return images;
+}
+
 interface MessageEventData {
   sender: { sender_type: string };
   message: {
@@ -103,7 +164,14 @@ async function deliverOutcome(
 async function handleMessageEvent(data: MessageEventData): Promise<void> {
   if (data.sender?.sender_type !== "user") return; // bot echoes never re-enter
   const chatId = data.message?.chat_id;
-  const text = extractText(data.message?.content ?? "");
+  const messageType = data.message?.message_type ?? "";
+  const rawContent = data.message?.content ?? "";
+  const keys = imageKeys(messageType, rawContent);
+  const images =
+    keys.length > 0 ? await fetchImages(data.message.message_id, keys) : [];
+  const text =
+    extractText(rawContent) ||
+    (images.length > 0 ? "(图片消息，请查看附带图片)" : "");
   if (!chatId || !text) return;
 
   await appendEvent({
@@ -113,6 +181,8 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
       chatId,
       rootId: data.message.root_id ?? null,
       messageId: data.message.message_id ?? null,
+      messageType,
+      imageCount: images.length,
       text: text.slice(0, 2000),
     },
   });
@@ -134,7 +204,7 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
     return;
   }
 
-  const outcome = await handleUserMessage(text, "connector:feishu");
+  const outcome = await handleUserMessage(text, "connector:feishu", images);
   await deliverOutcome(chatId, outcome);
 }
 

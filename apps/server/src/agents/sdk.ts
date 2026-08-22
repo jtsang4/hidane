@@ -166,6 +166,8 @@ export async function promptRole(
   session: AgentSession,
   text: string,
   timeoutSec: number,
+  /** Inbound images (e.g. from Feishu) forwarded to the vision model. */
+  images: { data: string; mimeType: string }[] = [],
 ): Promise<{ ok: boolean; text: string; error?: string; durationMs: number }> {
   const prev = promptQueues.get(session) ?? Promise.resolve();
   const run = prev
@@ -174,8 +176,18 @@ export async function promptRole(
       const started = Date.now();
       let timer: NodeJS.Timeout | undefined;
       try {
+        const promptOptions =
+          images.length > 0
+            ? {
+                images: images.map((img) => ({
+                  type: "image" as const,
+                  data: img.data,
+                  mimeType: img.mimeType,
+                })),
+              }
+            : undefined;
         await Promise.race([
-          session.prompt(text),
+          promptOptions ? session.prompt(text, promptOptions) : session.prompt(text),
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => {
               void session.abort();
