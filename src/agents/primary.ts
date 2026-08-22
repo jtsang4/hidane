@@ -1,8 +1,9 @@
 import { appendEvent } from "../kernel/events.js";
 import { createWorkItem, listWorkItems } from "../kernel/workItems.js";
 import { config } from "../config.js";
-import { runPi, extractJson } from "./pi.js";
+import { extractJson } from "./pi.js";
 import { PRIMARY_CHARTER } from "./charters.js";
+import { getPrimarySession, promptRole } from "./sdk.js";
 import { handleThreadMessage } from "./manager.js";
 
 interface RouteDecision {
@@ -23,6 +24,7 @@ export interface PrimaryOutcome {
 /**
  * Fast lane: a user message reaches the Primary directly (no triage queue),
  * is recorded to the log, routed, and answered synchronously.
+ * The Primary is a persistent SDK session — one identity across turns.
  */
 export async function handleUserMessage(
   text: string,
@@ -41,18 +43,14 @@ export async function handleUserMessage(
       ? open.map((i) => `- ${i.id}: ${i.title}`).join("\n")
       : "(none)";
 
-  const routing = await runPi({
-    prompt: `Open work items:\n${itemsList}\n\nIncoming message:\n${text}`,
-    charter: PRIMARY_CHARTER,
-    tools: false,
-    skills: false,
-    thinking: config.routeThinking,
-    timeoutSec: config.routeTimeoutSec,
-  });
+  const session = await getPrimarySession(PRIMARY_CHARTER);
+  const routing = await promptRole(
+    session,
+    `Open work items:\n${itemsList}\n\nIncoming message:\n${text}`,
+    config.routeTimeoutSec,
+  );
 
-  const decision = routing.ok
-    ? extractJson<RouteDecision>(routing.text)
-    : null;
+  const decision = routing.ok ? extractJson<RouteDecision>(routing.text) : null;
 
   await appendEvent({
     source: "agent:primary",
@@ -61,7 +59,10 @@ export async function handleUserMessage(
     payload: {
       ok: routing.ok,
       durationMs: routing.durationMs,
-      decision: (decision ?? { action: "reply", raw: routing.text.slice(0, 500) }) as Record<string, unknown>,
+      decision: (decision ?? {
+        action: "reply",
+        raw: routing.text.slice(0, 500),
+      }) as Record<string, unknown>,
     } as Record<string, unknown>,
   });
 
@@ -106,7 +107,7 @@ export async function handleUserMessage(
       kind: "escalation",
       threadId: "main",
       workItemId: item.id,
-      payload: { note: `work item ${item.id} (${title}) finished a run`, },
+      payload: { note: `work item ${item.id} (${title}) finished a run` },
     });
     return { action: "new_work_item", reply, workItemId: item.id };
   }

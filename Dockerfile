@@ -9,8 +9,8 @@ RUN pnpm build && pnpm prune --prod
 
 FROM node:24-alpine
 WORKDIR /app
-RUN apk add --no-cache git python3 \
-  && npm install -g @earendil-works/pi-coding-agent
+# git/python3 for worker executions; pi ships inside node_modules (SDK + RPC CLI)
+RUN apk add --no-cache git python3
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./

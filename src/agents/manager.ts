@@ -1,10 +1,12 @@
+import { join } from "node:path";
 import { appendEvent, listEvents } from "../kernel/events.js";
 import { getWorkItem } from "../kernel/workItems.js";
 import { genId } from "../kernel/ids.js";
 import { config } from "../config.js";
-import { runPi, extractJson } from "./pi.js";
+import { extractJson } from "./pi.js";
 import { MANAGER_CHARTER, WORKER_CHARTER } from "./charters.js";
-import { join } from "node:path";
+import { getManagerSession, promptRole } from "./sdk.js";
+import { runWorkerExecution } from "./rpcWorker.js";
 
 interface ManagerDecision {
   instructions?: string | null;
@@ -13,22 +15,31 @@ interface ManagerDecision {
 }
 
 /**
- * Manager: default addressee of a work item's thread. Plans one execution
- * per incoming message and spawns a worker in the work item's workspace.
+ * Manager: default addressee of a work item's thread — a persistent SDK
+ * session scoped to the work item. Plans one execution per incoming message
+ * and spawns an isolated RPC worker in the work item's workspace.
  */
 export async function handleThreadMessage(
   workItemId: string,
   message: string,
 ): Promise<string> {
   const item = await getWorkItem(workItemId);
+  const sessionsRoot = join(item.workspace, ".hidane", "sessions");
   const history = await listEvents({ threadId: item.threadId, tail: 12 });
   const historyText = history
     .filter((e) => ["user.message", "agent.reply"].includes(e.kind))
     .map((e) => `[${e.kind}] ${String(e.payload["text"] ?? "")}`)
     .join("\n");
 
-  const planning = await runPi({
-    prompt: [
+  const session = await getManagerSession(
+    item.id,
+    item.workspace,
+    join(sessionsRoot, "manager"),
+    MANAGER_CHARTER,
+  );
+  const planning = await promptRole(
+    session,
+    [
       `Work item: ${item.id} — ${item.title} (status: ${item.status})`,
       `Workspace: ${item.workspace}`,
       historyText ? `Recent thread:\n${historyText}` : "",
@@ -36,12 +47,8 @@ export async function handleThreadMessage(
     ]
       .filter(Boolean)
       .join("\n\n"),
-    charter: MANAGER_CHARTER,
-    tools: false,
-    skills: false,
-    thinking: config.routeThinking,
-    timeoutSec: config.routeTimeoutSec,
-  });
+    config.routeTimeoutSec,
+  );
 
   await appendEvent({
     source: "agent:manager",
@@ -66,7 +73,11 @@ export async function handleThreadMessage(
   const decision = extractJson<ManagerDecision>(planning.text);
 
   // No execution needed: manager answers in-thread directly.
-  if (decision && (decision.instructions === null || decision.instructions === undefined) && decision.reply) {
+  if (
+    decision &&
+    (decision.instructions === null || decision.instructions === undefined) &&
+    decision.reply
+  ) {
     await appendEvent({
       source: "agent:manager",
       kind: "agent.reply",
@@ -89,15 +100,28 @@ export async function handleThreadMessage(
     payload: { instructions, expect: decision?.expect ?? null },
   });
 
-  const run = await runPi({
-    prompt: instructions,
-    charter: WORKER_CHARTER,
+  const run = await runWorkerExecution({
+    instructions,
     cwd: item.workspace,
-    tools: true,
-    skills: true,
-    thinking: config.workerThinking,
+    charter: WORKER_CHARTER,
+    sessionDir: sessionsRoot,
     timeoutSec: config.workerTimeoutSec,
-    sessionDir: join(item.workspace, ".hidane", "sessions"),
+    // Two-phase side-effect trail: intent before the tool acts, result after.
+    onToolEvent: (e) => {
+      void appendEvent({
+        source: "agent:worker",
+        kind: e.phase === "start" ? "side_effect.intent" : "side_effect.result",
+        threadId: item.threadId,
+        workItemId,
+        executionId,
+        payload: {
+          tool: e.toolName,
+          ...(e.phase === "start"
+            ? { input: e.detail ?? "" }
+            : { isError: e.isError ?? false }),
+        },
+      });
+    },
   });
 
   await appendEvent({
@@ -109,6 +133,7 @@ export async function handleThreadMessage(
     payload: {
       ok: run.ok,
       durationMs: run.durationMs,
+      toolCalls: run.toolCalls,
       summary: run.text.slice(0, 8000),
       error: run.error ?? null,
     },

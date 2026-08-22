@@ -5,6 +5,7 @@ import { migrate, closeDb } from "./kernel/db.js";
 import { listEvents } from "./kernel/events.js";
 import { listWorkItems } from "./kernel/workItems.js";
 import { handleUserMessage } from "./agents/primary.js";
+import { disposeAgents } from "./agents/sdk.js";
 import { startHeartbeat } from "./connectors/timer.js";
 import { startHttp } from "./connectors/http.js";
 import { startTriageLoop } from "./connectors/triageLoop.js";
@@ -34,7 +35,9 @@ program
     const outcome = await handleUserMessage(parts.join(" "));
     console.log(`\n[${outcome.action}${outcome.workItemId ? ` → ${outcome.workItemId}` : ""}]`);
     console.log(outcome.reply);
+    await disposeAgents();
     await closeDb();
+    process.exit(0);
   });
 
 program
@@ -103,6 +106,7 @@ program
       stopHeartbeat();
       stopTriage();
       server.close();
+      await disposeAgents();
       await closeDb();
       process.exit(0);
     };
