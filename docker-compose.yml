@@ -1,0 +1,38 @@
+# Production compose for Coolify: deploy this repo as a Docker Compose service.
+# Coolify injects env vars; set POSTGRES_PASSWORD and provider API keys there.
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hidane
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in Coolify}
+      POSTGRES_DB: hidane
+    volumes:
+      - hidane-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hidane"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://hidane:${POSTGRES_PASSWORD}@db:5432/hidane
+      PORT: "2718"
+      HIDANE_HOME: /data
+      # pi provider credentials for agent calls, e.g.:
+      # DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    volumes:
+      - hidane-data:/data
+    ports:
+      - "2718:2718"
+
+volumes:
+  hidane-db:
+  hidane-data:

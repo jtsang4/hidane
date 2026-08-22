@@ -1,0 +1,16 @@
+# Local development database only. App runs on the host (pnpm dev) where pi lives.
+services:
+  db:
+    image: postgres:18
+    container_name: hidane-pg
+    environment:
+      POSTGRES_USER: hidane
+      POSTGRES_PASSWORD: hidane
+      POSTGRES_DB: hidane
+    ports:
+      - "2716:5432"
+    volumes:
+      - hidane-dev-db:/var/lib/postgresql
+
+volumes:
+  hidane-dev-db:
