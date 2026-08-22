@@ -43,6 +43,7 @@ under `<workspace>/.hidane/sessions`.
 Requirements: Node ≥ 24, pnpm, Docker, [pi](https://github.com/earendil-works/pi-mono) installed and authed.
 
 ```bash
+cp .env.example .env                              # fill in the provider API key
 docker compose -f docker-compose.dev.yml up -d   # postgres on localhost:2716
 pnpm install
 pnpm dev init                                     # create schema
@@ -90,16 +91,28 @@ session traces live in the `/data` volume.
 
 ## Environment
 
+`.env.example` is the full annotated list; copy it to `.env` (gitignored). Local
+dev loads it from the repo root, and docker compose / Coolify substitute it into
+`docker-compose.yml`.
+
 | Var | Default | Meaning |
 |---|---|---|
 | `DATABASE_URL` | `postgres://hidane:hidane@localhost:2716/hidane` | Postgres connection |
-| `HIDANE_HOME` | `~/.hidane` | workspaces / worklogs / session traces |
+| `HIDANE_HOME` | `~/.hidane` | workspaces / worklogs / memory / session traces |
 | `PORT` | `2718` | daemon http port |
 | `HIDANE_HEARTBEAT_SEC` | `300` | heartbeat connector interval |
-| `HIDANE_PI_PROVIDER` / `HIDANE_PI_MODEL` | pi defaults | model override |
+| `HIDANE_DISTILL_SEC` | `600` | memory distiller interval |
+| `HIDANE_PI_PROVIDER` / `HIDANE_PI_MODEL` | pi defaults | model override — set both or neither |
 | `HIDANE_ROUTE_THINKING` | `low` | thinking level for routing/planning |
 | `HIDANE_WORKER_THINKING` | `medium` | thinking level for executions |
+| `HIDANE_ROUTE_TIMEOUT_SEC` | `180` | per-routing-call timeout |
 | `HIDANE_WORKER_TIMEOUT_SEC` | `600` | per-execution timeout |
+| `HIDANE_API_TOKEN` | unset | bearer token for `/api/*` — **required in production** |
+| `HIDANE_WEBHOOK_SECRET` | unset | HMAC-SHA256 secret for `/webhook/*` — **required in production** |
+
+`HIDANE_PI_PROVIDER`/`HIDANE_PI_MODEL` must be set together: a half-configured
+pair raises at startup rather than silently falling back to pi's own default.
+The effective model is printed on boot and reported by `/api/status`.
 
 ## Design principles
 
@@ -120,12 +133,13 @@ Set these in the environment (production: Coolify) to enable the Feishu connecto
 |---|---|
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | app credentials (open.feishu.cn) |
 | `FEISHU_VERIFICATION_TOKEN` | optional; verifies event authenticity when set |
-| `FEISHU_ENCRYPT_KEY` | optional; AES-256-CBC decrypt when encrypt策略 enabled |
+| `FEISHU_ENCRYPT_KEY` | optional; AES-256-CBC decrypt when encrypted callbacks are enabled |
 
 Point the app's event subscription callback at `https://<host>/feishu/events`
 and subscribe to `im.message.receive_v1`. Grant `im:message:send_as_bot`,
 `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`,
-`im:chat:readonly`. A p2p message maps to the main thread; the reply-thread
+`im:chat:readonly`, and `im:resource` (without the last one, image messages
+arrive but their bytes cannot be downloaded for the vision model). A p2p message maps to the main thread; the reply-thread
 under a bot-posted `📋 wi_x` root maps to that work item's thread.
 
 ## Done in v1
