@@ -11,6 +11,8 @@ FROM node:24-alpine
 WORKDIR /app
 # git/python3 for worker executions; pi ships inside node_modules (SDK + RPC CLI)
 RUN apk add --no-cache git python3
+# custom pi model catalog (models not yet in pi's built-in registry)
+COPY deploy/pi-models.json /root/.pi/agent/models.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./

@@ -27,7 +27,7 @@ services:
       PORT: "2718"
       HIDANE_HOME: /data
       HIDANE_PI_PROVIDER: ${HIDANE_PI_PROVIDER:-deepseek}
-      HIDANE_PI_MODEL: ${HIDANE_PI_MODEL:-deepseek-v4-pro}
+      HIDANE_PI_MODEL: ${HIDANE_PI_MODEL:-deepseek-v4-flash-vision-exp}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set in Coolify}
     volumes:
       - hidane-data:/data
