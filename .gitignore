@@ -1,8 +1,8 @@
-node_modules/
-dist/
-.env
 *.log
-.test-home/
 .DS_Store
 .acceptance-report.json
 .acceptance-sessions/
+.env
+.test-home/
+dist/
+node_modules/

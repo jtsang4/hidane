@@ -13,7 +13,12 @@ import { join } from "node:path";
 import { execa } from "execa";
 
 const REPO = join(import.meta.dirname, "..");
-const REPORT = join(REPO, ".acceptance-report.json");
+/** The tester agent may write the report at the workspace root or the repo
+ *  root (it treats the git root as "repo root"); accept either. */
+const REPORT_PATHS = [
+  join(REPO, ".acceptance-report.json"),
+  join(REPO, "..", "..", ".acceptance-report.json"),
+];
 
 const CHARTER = `
 You are the acceptance tester for hidane, a persistent personal agent runtime.
@@ -42,7 +47,7 @@ interface Report {
 }
 
 async function main(): Promise<void> {
-  await rm(REPORT, { force: true });
+  for (const path of REPORT_PATHS) await rm(path, { force: true });
   const scenarios = await readFile(join(REPO, "acceptance", "scenarios.md"), "utf8");
 
   console.log("== agent-driven acceptance: spawning tester agent ==\n");
@@ -78,7 +83,13 @@ async function main(): Promise<void> {
 
   let report: Report;
   try {
-    report = JSON.parse(await readFile(REPORT, "utf8")) as Report;
+    let raw: string | undefined;
+    for (const path of REPORT_PATHS) {
+      raw = await readFile(path, "utf8").catch(() => undefined);
+      if (raw) break;
+    }
+    if (!raw) throw new Error("report not found");
+    report = JSON.parse(raw) as Report;
   } catch {
     console.error("\nno valid .acceptance-report.json produced — treating as failure");
     process.exit(1);
