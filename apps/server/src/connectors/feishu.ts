@@ -36,18 +36,37 @@ function larkClient(): lark.Client {
 }
 
 /**
+ * Fenced code is the one construct Feishu renders in neither card version
+ * (the docs exclude CodeBlock explicitly), so the fence markers would show up
+ * literally. Indenting the body and dropping the fences at least keeps it
+ * visually separated instead of looking like stray backticks.
+ */
+export function flattenCodeFences(text: string): string {
+  return text.replace(/```[^\n]*\n([\s\S]*?)```/g, (_m, body: string) =>
+    body
+      .replace(/\n$/, "")
+      .split("\n")
+      .map((line) => `    ${line}`)
+      .join("\n"),
+  );
+}
+
+/**
  * Agent replies are markdown. Delivered as `msg_type: "text"` they arrive as a
  * wall of `#` and `**` — readable only by mentally stripping the syntax, which
- * is exactly what made long answers unusable. An interactive card renders it.
+ * is exactly what made long answers unusable.
  *
- * The card is built by hand rather than through a template: it is three lines
- * of JSON, and a template would put the layout on Feishu's side where it could
- * not be tested here.
+ * Card JSON 2.0 is required, not 1.0: 1.0 supports only a subset of markdown
+ * (bold, italic, links) and leaves lists, tables and headings-with-structure
+ * as literal text — verified against a real reply, where the table arrived as
+ * raw pipes. 2.0 supports all standard markdown except SetextHeading,
+ * CodeBlock and HTMLBlock.
  */
-function markdownCard(text: string): string {
+export function markdownCard(text: string): string {
   return JSON.stringify({
-    config: { wide_screen_mode: true },
-    elements: [{ tag: "markdown", content: text }],
+    schema: "2.0",
+    config: { width_mode: "fill", update_multi: true },
+    body: { elements: [{ tag: "markdown", content: flattenCodeFences(text) }] },
   });
 }
 

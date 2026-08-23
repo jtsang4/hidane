@@ -449,11 +449,27 @@ describe("markdown delivery", () => {
     // Plain text arrives as a wall of "#" and "**"; a card renders it.
     const card = sent.find((m) => m.data["msg_type"] === "interactive");
     expect(card).toBeDefined();
-    const content = JSON.parse(String(card!.data["content"])) as {
-      elements: { tag: string; content: string }[];
+    // Card 2.0 specifically: 1.0 only renders a subset and leaves lists and
+    // tables as literal text, which is the problem being fixed.
+    const card2 = JSON.parse(String(card!.data["content"])) as {
+      schema: string;
+      body: { elements: { tag: string; content: string }[] };
     };
-    expect(content.elements[0]!.tag).toBe("markdown");
-    expect(content.elements[0]!.content).toBe("stub");
+    expect(card2.schema).toBe("2.0");
+    expect(card2.body.elements[0]!.tag).toBe("markdown");
+    expect(card2.body.elements[0]!.content).toBe("stub");
+  });
+
+  it("flattens fenced code, the one thing Feishu renders in no card version", async () => {
+    const { flattenCodeFences } = await import("../src/connectors/feishu.js");
+    const out = flattenCodeFences('说明\n```bash\necho hi\nls -la\n```\n结束');
+    expect(out).not.toContain("```");
+    expect(out).toContain("    echo hi");
+    expect(out).toContain("    ls -la");
+    expect(out).toContain("说明");
+    expect(out).toContain("结束");
+    // Everything else is left exactly as written.
+    expect(flattenCodeFences("**粗体** 与 `行内`")).toBe("**粗体** 与 `行内`");
   });
 
   it("keeps the work item thread root as plain text", async () => {
