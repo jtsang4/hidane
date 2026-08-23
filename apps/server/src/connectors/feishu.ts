@@ -403,6 +403,12 @@ export function registerFeishu(app: Hono): void {
               ? "rejected a Feishu event: set FEISHU_VERIFICATION_TOKEN or FEISHU_ENCRYPT_KEY — the endpoint runs agent executions and must not be open"
               : "rejected a Feishu event: verification token mismatch",
           eventId: (body["header"] as { event_id?: string } | undefined)?.event_id ?? null,
+          // Enough to tell "wrong value" from "Feishu did not send the field at
+          // all" without writing the token itself into the log.
+          tokenFieldPresent:
+            typeof (body["header"] as { token?: unknown } | undefined)?.token === "string" ||
+            typeof body["token"] === "string",
+          bodyKeys: Object.keys(body).slice(0, 8),
         },
       }).catch(() => {});
       return c.json({ ok: false, error: "unauthorized" }, 401);
