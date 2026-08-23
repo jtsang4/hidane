@@ -155,6 +155,49 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - 非文本文件返回 `reason: "binary"`、超大文本返回 `reason: "too-large"`（不内联）
 - `?download` 返回附件流；无 token 一律 401
 
+## 场景 4K：工作项可直接创建、可归档
+
+不是每个任务都从对话开始。`POST /api/work-items` 直接开一个工作项。期望：
+
+- 只给 `title` → 201，工作项 status 为 `open`，**不**触发 Manager（没有 brief 就没有派活）
+- 给 `title` + `brief` → 201，brief 先落 `user.message` 事件**再**派发（崩在中间也留证据），
+  且 Manager 真被调起（可观察到 `manager.decision` 或后续执行事件）
+- `title` 为空或纯空白 → 400
+- `PATCH {status:"closed"}` 归档后：`GET /api/work-items` 默认列表**不含**它，
+  `GET /api/work-items?all` **含**它，且事件与工作区产物均保留（归档不是删除）
+- `closed` 与 `done` 是两种状态，不要混用
+
+## 场景 4L：定时任务的运行历史可读回
+
+`GET /api/schedules/:id/runs`。期望：
+
+- 建两个调度 A、B，分别触发（A 两次、B 一次）→ A 的 runs **只**含 A 的事件，
+  绝不混入 B 的；含 `schedule.fired` 与对应结果事件
+- 顺序为**新的在前**（历史从下往上读是错的）
+- 未知 id → 404
+- 结束后删除你创建的调度
+
+## 场景 4M：飞书回复以卡片 2.0 下发
+
+飞书 msg_type=text 会把 Markdown 当字面文本显示（一堆 `#` 和 `**`）。
+本地模拟一条入站消息，检查出站投递形态。期望：
+
+- 出站 `msg_type` 为 `interactive`（不是 `text`）
+- 卡片 JSON 的 `schema` 为 `"2.0"`（**1.0 只支持 Markdown 子集**，列表与表格会退化成
+  字面文本——这是本场景要守住的回归）
+- 卡片正文元素 `tag` 为 `markdown`
+- 代码围栏（```）在发送前被压平为缩进块（飞书两个卡片版本都不渲染 CodeBlock）
+- 工作项线程根消息「📋 wi_x — title」仍是 `text`（它是回复话题挂载点，不是正文）
+
+## 场景 4N：并发事件流不会返回空 body
+
+SSE 曾在并发下出现「200 头 + 空 body」——首次写入前先查库，查询失败时响应已提交。
+期望：
+
+- 同时开 8 条 `/api/events/stream` 连接，**每条**都能读到首个 `hello` 事件（无空 body）
+- 期间正常发一条 chat，各连接都能收到新事件
+- 全部断开后 daemon 仍健康（`/health` ok）
+
 ## 场景 4：事件不灭与重放
 
 期望：
