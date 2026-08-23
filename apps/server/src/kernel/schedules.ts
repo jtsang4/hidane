@@ -253,12 +253,48 @@ export async function dueSchedules(now = new Date()): Promise<Schedule[]> {
 }
 
 /**
- * Bookkeeping after a firing. The next run is computed from NOW, not from the
- * missed slot — after daemon downtime a schedule fires once, never in a storm.
+ * When an interval schedule should next run, given when it was *due*.
+ *
+ * Computing from the firing time instead looks equivalent and is not: a firing
+ * lands slightly after the tick that triggered it, so the next due time lands
+ * slightly after the following tick — which therefore skips it. With a tick
+ * period close to the interval, the schedule fires every other tick and its
+ * real cadence is double what was asked for. Measured: a 15s schedule fired
+ * every 30s. The same slippage accumulates for longer intervals as drift,
+ * since each period is measured from a progressively later start.
+ *
+ * Anchoring to the due time keeps the cadence on-grid. Missed periods are
+ * skipped rather than replayed, so downtime still costs one firing, not a
+ * storm of backdated ones.
+ */
+export function nextAfterRun(
+  schedule: Pick<Schedule, "cron" | "intervalSec" | "timezone" | "nextRunAt">,
+  now = new Date(),
+): Date {
+  // croner already returns the next cron moment after `now`, on-grid by design.
+  if (schedule.cron) return computeNextRun(schedule, now);
+  const intervalMs = Number(schedule.intervalSec) * 1000;
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return computeNextRun(schedule, now);
+  }
+  const anchor = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : now.getTime();
+  let next = anchor + intervalMs;
+  // Advance in whole periods past now: keeps the grid, skips missed slots.
+  if (next <= now.getTime()) {
+    const periods = Math.ceil((now.getTime() - anchor) / intervalMs);
+    next = anchor + periods * intervalMs;
+    if (next <= now.getTime()) next += intervalMs;
+  }
+  return new Date(next);
+}
+
+/**
+ * Bookkeeping after a firing. Missed slots are skipped, never replayed — after
+ * daemon downtime a schedule fires once, not in a storm.
  */
 export async function markRun(id: string, status: string, now = new Date()): Promise<void> {
   const schedule = await getSchedule(id);
-  const nextRun = schedule.enabled ? computeNextRun(schedule, now) : null;
+  const nextRun = schedule.enabled ? nextAfterRun(schedule, now) : null;
   const db = sql();
   await db`
     UPDATE schedules

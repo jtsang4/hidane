@@ -18,6 +18,7 @@ import {
   dueSchedules,
   getSchedule,
   listSchedules,
+  nextAfterRun,
   validateInput,
 } from "../src/kernel/schedules.js";
 
@@ -35,6 +36,37 @@ describe("schedule definitions", () => {
       from,
     );
     expect(next.toISOString()).toBe("2026-08-23T09:00:00.000Z");
+  });
+
+  it("keeps an interval on-grid instead of doubling or drifting", () => {
+    const base = { cron: null, timezone: null, intervalSec: 15 };
+    // The firing lands just after the tick that triggered it. Measuring the
+    // next period from THAT put the due time just after the following tick,
+    // so the following tick skipped it — a 15s schedule fired every 30s.
+    const due = new Date("2026-08-24T00:00:15.000Z");
+    const firedAt = new Date("2026-08-24T00:00:15.007Z");
+    const next = nextAfterRun({ ...base, nextRunAt: due.toISOString() }, firedAt);
+    expect(next.toISOString()).toBe("2026-08-24T00:00:30.000Z");
+
+    // Drift: a run that takes most of the period must not push the grid out.
+    const slowFire = new Date("2026-08-24T00:00:29.500Z");
+    expect(
+      nextAfterRun({ ...base, nextRunAt: due.toISOString() }, slowFire).toISOString(),
+    ).toBe("2026-08-24T00:00:30.000Z");
+
+    // Downtime: skip the missed slots, fire once, stay on the same grid.
+    const afterOutage = new Date("2026-08-24T00:05:02.000Z");
+    const resumed = nextAfterRun({ ...base, nextRunAt: due.toISOString() }, afterOutage);
+    expect(resumed.getTime()).toBeGreaterThan(afterOutage.getTime());
+    // On-grid means a whole number of periods from the original anchor.
+    expect((resumed.getTime() - due.getTime()) % 15000).toBe(0);
+
+    // Cron is croner's grid already; it just needs the next moment after now.
+    const cron = nextAfterRun(
+      { cron: "0 17 * * *", timezone: "Asia/Shanghai", intervalSec: null, nextRunAt: null },
+      new Date("2026-08-24T00:00:00Z"),
+    );
+    expect(cron.toISOString()).toBe("2026-08-24T09:00:00.000Z");
   });
 
   it("rejects broken definitions at creation time, loudly", () => {
