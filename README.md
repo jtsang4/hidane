@@ -132,8 +132,13 @@ Set these in the environment (production: Coolify) to enable the Feishu connecto
 | Var | Meaning |
 |---|---|
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | app credentials (open.feishu.cn) |
-| `FEISHU_VERIFICATION_TOKEN` | optional; verifies event authenticity when set |
-| `FEISHU_ENCRYPT_KEY` | optional; AES-256-CBC decrypt when encrypted callbacks are enabled |
+| `FEISHU_VERIFICATION_TOKEN` | authenticates inbound events — one of these two is **required** |
+| `FEISHU_ENCRYPT_KEY` | AES-256-CBC decrypt; an encrypted envelope authenticates itself |
+
+`/feishu/events` runs agent executions, so it fails closed: events are rejected
+with 401 unless a verification token matches or the envelope is encrypted. The
+SDK's own token check is a no-op for plaintext schema-2.0 events, so hidane does
+not rely on it.
 
 Point the app's event subscription callback at `https://<host>/feishu/events`
 and subscribe to `im.message.receive_v1`. Grant `im:message:send_as_bot`,

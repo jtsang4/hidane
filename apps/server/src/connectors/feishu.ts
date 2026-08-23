@@ -352,8 +352,34 @@ function eventDispatcher(): lark.EventDispatcher {
   return dispatcher;
 }
 
+export type EventAuthVerdict = "ok" | "reject" | "unconfigured";
+
+/**
+ * Authenticate an inbound event ourselves.
+ *
+ * The SDK's own check is a no-op for plaintext schema-2.0 events — its
+ * `checkIsEventValidated` returns true whenever no encrypt key is configured —
+ * which left `/feishu/events` open to anyone who knew the URL, on an endpoint
+ * that spends model tokens and runs worker executions. The guarantee must not
+ * depend on SDK internals, so it is enforced here.
+ */
+export function verifyEventAuth(body: Record<string, unknown>): EventAuthVerdict {
+  // An encrypted envelope authenticates itself: forging one needs the key.
+  if (config.feishuEncryptKey && typeof body["encrypt"] === "string") return "ok";
+  const expected = config.feishuVerificationToken;
+  if (!expected) return "unconfigured";
+  const header = body["header"] as { token?: unknown } | undefined;
+  const got =
+    typeof header?.token === "string"
+      ? header.token
+      : typeof body["token"] === "string"
+        ? (body["token"] as string)
+        : "";
+  return got === expected ? "ok" : "reject";
+}
+
 /** Mount the Feishu event endpoint. The SDK owns decryption, the challenge
- *  handshake, token verification and dispatch to the registered handler. */
+ *  handshake and dispatch; authenticity is enforced here. */
 export function registerFeishu(app: Hono): void {
   app.post("/feishu/events", async (c) => {
     if (!feishuEnabled()) return c.json({ ok: false, error: "feishu disabled" }, 503);
@@ -363,7 +389,26 @@ export function registerFeishu(app: Hono): void {
       encryptKey: config.feishuEncryptKey ?? "",
     });
     if (isChallenge) return c.json(challenge);
-    // Real events: dispatcher decrypts, verifies, and routes to the handler.
+
+    const verdict = verifyEventAuth(body);
+    if (verdict !== "ok") {
+      // Fail closed, and leave evidence: a silently-dropped real message is
+      // exactly the failure mode this connector already had once.
+      await appendEvent({
+        source: "connector:feishu",
+        kind: "agent.error",
+        payload: {
+          error:
+            verdict === "unconfigured"
+              ? "rejected a Feishu event: set FEISHU_VERIFICATION_TOKEN or FEISHU_ENCRYPT_KEY — the endpoint runs agent executions and must not be open"
+              : "rejected a Feishu event: verification token mismatch",
+          eventId: (body["header"] as { event_id?: string } | undefined)?.event_id ?? null,
+        },
+      }).catch(() => {});
+      return c.json({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    // Real events: dispatcher decrypts and routes to the handler.
     const result = (await eventDispatcher().invoke(body)) as Record<string, unknown>;
     return c.json(result ?? { code: 0 });
   });

@@ -67,6 +67,19 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 - 携带正确 verification token 的 `im.message.receive_v1` 用户消息事件被接受，`connector.feishu` 事件落日志（可设 `FEISHU_VERIFICATION_TOKEN` 与假 app 凭证启动 daemon 验证；注意消息处理会尝试回调飞书 API 失败属预期，验证捕获层即可）
 - 相同 event_id 的重复推送被去重（只落一条）
 
+## 场景 4D：连接器只捕获、不判断
+
+飞书图片下载在本地必然失败（无真实凭证），正好用来验证「读不懂的消息也不许丢」。
+向 `/feishu/events` 投递一条 `message_type: image` 的用户消息事件。期望：
+
+- `connector.feishu` 事件**照样落库**（曾经的缺陷：纯图片消息在 appendEvent 之前就被
+  `if (!text) return` 丢掉，用户发的图在日志里毫无痕迹，模型只会答「没收到图片」）
+- 该事件 payload 里 `imageCount` 为 0 且带 `imageFailures`，并另有一条 `agent.error`
+  记录失败原因——失败必须可见，不许被裸 `catch` 吞掉
+- 转给 Agent 的文本诚实说明图片无法查看，而不是谎称「请查看附带图片」
+- 再投递一条 `message_type: sticker`（无 text、无图片）的消息：事件落库，但**不**触发
+  任何模型调用（日志里不应出现对应的 `route.decision`）——记录归记录，唤醒是另一回事
+
 ## 场景 4：事件不灭与重放
 
 期望：

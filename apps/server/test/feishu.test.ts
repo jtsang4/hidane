@@ -40,6 +40,13 @@ import { listEvents } from "../src/kernel/events.js";
 function enableFeishu() {
   config.feishuAppId = "cli_test";
   config.feishuAppSecret = "secret_test";
+  config.feishuVerificationToken = "verify_test";
+}
+
+/** Every event body must now carry the verification token to be accepted. */
+function signed(body: Record<string, unknown>): string {
+  const header = { ...(body["header"] as Record<string, unknown>), token: "verify_test" };
+  return JSON.stringify({ ...body, header });
 }
 
 afterEach(() => {
@@ -79,7 +86,7 @@ describe("feishu connector (official SDK)", () => {
     const res = await app.request("/feishu/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+      body: signed({
         schema: "2.0",
         header: {
           event_id: "evt_1",
@@ -117,7 +124,7 @@ describe("feishu connector (official SDK)", () => {
   it("deduplicates retried events by event_id (Feishu retries until 200)", async () => {
     enableFeishu();
     const app = buildApp();
-    const payload = JSON.stringify({
+    const payload = signed({
       schema: "2.0",
       header: { event_id: "evt_retry_1", event_type: "im.message.receive_v1", token: "" },
       event: {
@@ -154,7 +161,7 @@ describe("feishu connector (official SDK)", () => {
     await app.request("/feishu/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+      body: signed({
         schema: "2.0",
         header: { event_id: "evt_2", event_type: "im.message.receive_v1", token: "" },
         event: {
@@ -172,6 +179,79 @@ describe("feishu connector (official SDK)", () => {
     });
     await new Promise((r) => setTimeout(r, 60));
     expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(0);
+  });
+
+  it("rejects a forged event: the SDK does not enforce the token on plaintext v2 events", async () => {
+    enableFeishu();
+    const app = buildApp();
+    const res = await app.request("/feishu/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schema: "2.0",
+        header: { event_id: "evt_forged", event_type: "im.message.receive_v1", token: "wrong" },
+        event: {
+          sender: { sender_type: "user" },
+          message: {
+            message_id: "om_f",
+            chat_id: "oc_f",
+            chat_type: "p2p",
+            message_type: "text",
+            create_time: "0",
+            content: JSON.stringify({ text: "run something expensive" }),
+          },
+        },
+      }),
+    });
+    expect(res.status).toBe(401);
+    await new Promise((r) => setTimeout(r, 60));
+    // Nothing captured, and above all no model call: this endpoint runs
+    // worker executions, so an open door costs money and grants execution.
+    expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(0);
+    const { handleUserMessage } = await import("../src/agents/primary.js");
+    expect(handleUserMessage).not.toHaveBeenCalled();
+    // The rejection is recorded rather than silent.
+    expect(await listEvents({ kind: "agent.error" })).toHaveLength(1);
+  });
+
+  it("fails closed when neither verification token nor encrypt key is set", async () => {
+    config.feishuAppId = "cli_test";
+    config.feishuAppSecret = "secret_test"; // deliberately no token / encrypt key
+    const app = buildApp();
+    const res = await app.request("/feishu/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schema: "2.0",
+        header: { event_id: "evt_open", event_type: "im.message.receive_v1" },
+        event: {
+          sender: { sender_type: "user" },
+          message: {
+            message_id: "om_o",
+            chat_id: "oc_o",
+            chat_type: "p2p",
+            message_type: "text",
+            create_time: "0",
+            content: JSON.stringify({ text: "hi" }),
+          },
+        },
+      }),
+    });
+    expect(res.status).toBe(401);
+    const errors = await listEvents({ kind: "agent.error" });
+    expect(String(errors[0]!.payload["error"])).toContain("FEISHU_VERIFICATION_TOKEN");
+  });
+
+  it("accepts an encrypted envelope on the encrypt key alone", async () => {
+    const { verifyEventAuth } = await import("../src/connectors/feishu.js");
+    config.feishuEncryptKey = "k";
+    expect(verifyEventAuth({ encrypt: "base64blob" })).toBe("ok");
+    // Plaintext still needs the token even when an encrypt key exists.
+    expect(verifyEventAuth({ header: { token: "x" } })).toBe("unconfigured");
+    config.feishuVerificationToken = "t";
+    expect(verifyEventAuth({ header: { token: "t" } })).toBe("ok");
+    expect(verifyEventAuth({ header: { token: "x" } })).toBe("reject");
+    expect(verifyEventAuth({ token: "t" })).toBe("ok"); // schema 1.0 shape
   });
 
   it("extracts image keys from image and post messages (vision model input)", async () => {
@@ -201,7 +281,7 @@ describe("feishu connector (official SDK)", () => {
     await app.request("/feishu/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+      body: signed({
         schema: "2.0",
         header: { event_id: "evt_img_fail", event_type: "im.message.receive_v1", token: "" },
         event: {
@@ -245,7 +325,7 @@ describe("feishu connector (official SDK)", () => {
     await app.request("/feishu/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+      body: signed({
         schema: "2.0",
         header: { event_id: "evt_sticker", event_type: "im.message.receive_v1", token: "" },
         event: {
