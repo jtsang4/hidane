@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, authHeaders, type ArtifactEntry } from "../lib/api.js";
-import { fmtDateTime } from "../lib/utils.js";
+import { Time } from "./Time.js";
 import { Button, Card } from "./ui/primitives.js";
 import { Rich } from "./Markdown.js";
 
@@ -65,7 +65,9 @@ function ArtifactRow({ workItemId, file }: { workItemId: string; file: ArtifactE
       </div>
       {open && (
         <div className="mt-2 space-y-1">
-          <p className="text-xs text-muted">{fmtDateTime(file.modifiedAt)}</p>
+          <p className="text-xs text-muted">
+            <Time iso={file.modifiedAt} />
+          </p>
           {isLoading && <p className="text-xs text-muted">{t("common.loading")}</p>}
           {data?.reason === "binary" && (
             <p className="text-xs text-muted">{t("item.binaryFile")}</p>

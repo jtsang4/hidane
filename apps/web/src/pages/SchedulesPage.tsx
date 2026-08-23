@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Play, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type Schedule, type ScheduleInput } from "../lib/api.js";
 import { pushToast } from "../lib/toast.js";
 import { cn, fmtDateTime } from "../lib/utils.js";
+import { Time } from "../components/Time.js";
 import { Badge, Button, Card, Input, Textarea } from "../components/ui/primitives.js";
 
 function TimingBadge({ schedule }: { schedule: Schedule }) {
@@ -17,6 +18,69 @@ function TimingBadge({ schedule }: { schedule: Schedule }) {
 
 function errText(err: unknown): string {
   return err instanceof ApiError ? err.message : String(err);
+}
+
+/**
+ * What the schedule has actually been doing. "last status: error" tells you it
+ * broke but not when it started failing or what it said — the firings are
+ * already facts in the log, they just needed reading back.
+ */
+function RunHistory({ scheduleId }: { scheduleId: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["schedule-runs", scheduleId],
+    queryFn: () => api.scheduleRuns(scheduleId),
+    enabled: open,
+  });
+  const runs = data?.runs ?? [];
+
+  return (
+    <div className="border-t border-border pt-2">
+      <button
+        className="flex items-center gap-1 text-xs text-muted"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {t("schedules.history")}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {isLoading && <p className="text-xs text-muted">{t("common.loading")}</p>}
+          {!isLoading && runs.length === 0 && (
+            <p className="text-xs text-muted">{t("schedules.historyEmpty")}</p>
+          )}
+          {runs.map((run) => {
+            const failed =
+              run.kind === "agent.error" || run.payload["ok"] === false;
+            const detail =
+              run.kind === "schedule.fired"
+                ? t("schedules.fired")
+                : String(
+                    run.payload["error"] ??
+                      (run.payload["status"] !== undefined
+                        ? `HTTP ${String(run.payload["status"])}`
+                        : run.kind),
+                  );
+            return (
+              <div key={run.id} className="flex items-center gap-2 text-xs">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    failed ? "bg-danger" : "bg-success",
+                  )}
+                  aria-hidden="true"
+                />
+                <Time iso={run.ts} className="shrink-0 text-muted" />
+                <span className="truncate text-muted">{detail}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ScheduleCard({ schedule }: { schedule: Schedule }) {
@@ -95,6 +159,7 @@ function ScheduleCard({ schedule }: { schedule: Schedule }) {
         {schedule.lastRunAt &&
           ` · ${t("schedules.lastRun", { time: fmtDateTime(schedule.lastRunAt), status: schedule.lastStatus ?? "" })}`}
       </p>
+      <RunHistory scheduleId={schedule.id} />
     </Card>
   );
 }

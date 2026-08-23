@@ -1,7 +1,12 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { appendEvent, getCursor, listEvents } from "../kernel/events.js";
-import { getWorkItem, listWorkItems, setWorkItemStatus } from "../kernel/workItems.js";
+import {
+  createWorkItem,
+  getWorkItem,
+  listWorkItems,
+  setWorkItemStatus,
+} from "../kernel/workItems.js";
 import { renderDay, today } from "../projections/worklog.js";
 import { handleUserMessage } from "../agents/primary.js";
 import { handleThreadMessage } from "../agents/manager.js";
@@ -164,6 +169,42 @@ export function registerApi(app: Hono): void {
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }
+  });
+
+  // Not every task starts as a conversation: sometimes you already know what
+  // the work item is and routing through chat only adds a guess in the middle.
+  app.post("/api/work-items", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      brief?: string;
+      repo?: string;
+    };
+    const title = (body.title ?? "").trim();
+    if (!title) return c.json({ ok: false, error: "title required" }, 400);
+    const item = await createWorkItem(title, "connector:web", {
+      repo: body.repo?.trim() || undefined,
+    });
+    const brief = (body.brief ?? "").trim();
+    if (brief) {
+      await appendEvent({
+        source: "connector:web",
+        kind: "user.message",
+        threadId: item.threadId,
+        workItemId: item.id,
+        payload: { text: brief },
+      });
+      // Dispatch detached: the manager may run for minutes.
+      void handleThreadMessage(item.id, brief).catch(async (err) => {
+        await appendEvent({
+          source: "connector:web",
+          kind: "agent.error",
+          threadId: item.threadId,
+          workItemId: item.id,
+          payload: { error: String(err) },
+        }).catch(() => {});
+      });
+    }
+    return c.json({ ok: true, item, dispatched: brief.length > 0 }, 201);
   });
 
   // Worker output lives in the workspace and was otherwise unreachable: the
@@ -365,6 +406,26 @@ export function registerApi(app: Hono): void {
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }
+  });
+
+  // What a schedule has actually been doing. The firings are already facts in
+  // the log; without a way to read them back, "last status: error" is a dead
+  // end — you can see that it broke but not when it started or what it said.
+  app.get("/api/schedules/:id/runs", async (c) => {
+    const id = c.req.param("id");
+    try {
+      await getSchedule(id);
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+    const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+    // Firings and their captured results both carry the schedule id.
+    const events = await listEvents({ tail: 500 });
+    const runs = events
+      .filter((e) => e.payload["scheduleId"] === id)
+      .slice(-limit * 3)
+      .reverse();
+    return c.json({ runs });
   });
 
   // Run-now: without it every definition mistake takes one full period to see.

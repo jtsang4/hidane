@@ -217,6 +217,13 @@ export const api = {
       `/api/schedules/${id}/run`,
       { method: "POST" },
     ),
+  createWorkItem: (input: { title: string; brief?: string; repo?: string }) =>
+    apiFetch<{ ok: boolean; item: WorkItem; dispatched: boolean }>(`/api/work-items`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  scheduleRuns: (id: string) =>
+    apiFetch<{ runs: HidaneEvent[] }>(`/api/schedules/${id}/runs`),
   workItemFiles: (id: string) =>
     apiFetch<{ workspace: string; files: ArtifactEntry[] }>(`/api/work-items/${id}/files`),
   workItemFile: (id: string, path: string) =>

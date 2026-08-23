@@ -157,6 +157,65 @@ describe("api", () => {
     expect(busy.eventCount).toBeGreaterThan(0);
   });
 
+  it("creates a work item directly, optionally dispatching a first brief", async () => {
+    const app = buildApp();
+    const plain = await app.request("/api/work-items", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "手工建的工作项" }),
+    });
+    expect(plain.status).toBe(201);
+    const created = (await plain.json()) as {
+      item: { id: string; title: string; status: string };
+      dispatched: boolean;
+    };
+    expect(created.item.title).toBe("手工建的工作项");
+    expect(created.item.status).toBe("open");
+    // No brief means nothing is dispatched — an empty item is a valid outcome.
+    expect(created.dispatched).toBe(false);
+    expect(handleThreadMessage).not.toHaveBeenCalled();
+
+    const withBrief = await app.request("/api/work-items", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "带首条指令", brief: "先做第一步" }),
+    });
+    const dispatched = (await withBrief.json()) as { item: { id: string } };
+    await new Promise((r) => setTimeout(r, 50));
+    expect(handleThreadMessage).toHaveBeenCalledWith(dispatched.item.id, "先做第一步");
+    // The brief is recorded before dispatch, so a crash mid-run leaves evidence.
+    const recorded = await listEvents({ workItemId: dispatched.item.id, kind: "user.message" });
+    expect(recorded).toHaveLength(1);
+
+    const bad = await app.request("/api/work-items", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "   " }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("archives a work item as closed, distinct from done", async () => {
+    const item = await createWorkItem("archivable", "test");
+    const app = buildApp();
+    const res = await app.request(`/api/work-items/${item.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "closed" }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { item: { status: string } }).item.status).toBe("closed");
+    // Archived items drop out of the default list but survive in the log.
+    const open = (await (await app.request("/api/work-items")).json()) as {
+      items: { id: string }[];
+    };
+    expect(open.items.map((i) => i.id)).not.toContain(item.id);
+    const all = (await (await app.request("/api/work-items?all")).json()) as {
+      items: { id: string }[];
+    };
+    expect(all.items.map((i) => i.id)).toContain(item.id);
+  });
+
   it("changes work item status and records the transition as a fact", async () => {
     const item = await createWorkItem("closable", "test");
     const app = buildApp();

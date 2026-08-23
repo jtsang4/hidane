@@ -8,7 +8,8 @@ import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js
 import { conversationEvents, payloadText } from "../lib/grouping.js";
 import { pendingState } from "../lib/pending.js";
 import { pushToast } from "../lib/toast.js";
-import { cn, fmtTime } from "../lib/utils.js";
+import { cn } from "../lib/utils.js";
+import { Time } from "../components/Time.js";
 import { Badge, Button, Textarea } from "../components/ui/primitives.js";
 import { Pending } from "../components/Pending.js";
 import { Rich } from "../components/Markdown.js";
@@ -52,7 +53,9 @@ function Bubble({ event, ghost = false }: { event: HidaneEvent; ghost?: boolean 
         ) : (
           <Rich>{payloadText(event)}</Rich>
         )}
-        <div className="mt-1 text-[10px] opacity-60">{ghost ? "…" : fmtTime(event.ts)}</div>
+        <div className="mt-1 text-[10px] opacity-60">
+          {ghost ? "…" : <Time iso={event.ts} />}
+        </div>
       </div>
     </div>
   );

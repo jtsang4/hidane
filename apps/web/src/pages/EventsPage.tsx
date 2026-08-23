@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, type HidaneEvent } from "../lib/api.js";
-import { fmtDateTime } from "../lib/utils.js";
+import { Time } from "../components/Time.js";
 import { Badge, Button, Card, Input } from "../components/ui/primitives.js";
 import { matchesQuery } from "../lib/search.js";
 
@@ -31,7 +31,9 @@ function EventRow({ event }: { event: HidaneEvent }) {
             {event.workItemId}
           </Link>
         )}
-        <span className="ml-auto text-xs text-muted">{fmtDateTime(event.ts)}</span>
+        <span className="ml-auto text-xs text-muted">
+          <Time iso={event.ts} />
+        </span>
       </div>
       {open && (
         <div className="mt-2 space-y-1">

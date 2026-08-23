@@ -146,6 +146,40 @@ describe("schedule firing", () => {
   });
 });
 
+describe("schedule run history", () => {
+  it("returns the firings for one schedule, newest first", async () => {
+    const a = await createSchedule({
+      name: "history a",
+      action: "prompt",
+      spec: { prompt: "x" },
+      intervalSec: 3600,
+    });
+    const b = await createSchedule({
+      name: "history b",
+      action: "prompt",
+      spec: { prompt: "y" },
+      intervalSec: 3600,
+    });
+    await fireSchedule(a);
+    await fireSchedule(b);
+    await fireSchedule(a);
+
+    const app = buildApp();
+    const res = await app.request(`/api/schedules/${a.id}/runs`);
+    expect(res.status).toBe(200);
+    const { runs } = (await res.json()) as {
+      runs: { kind: string; seq: number; payload: Record<string, unknown> }[];
+    };
+    // Only this schedule's events, and never the other's.
+    expect(runs.every((r) => r.payload["scheduleId"] === a.id)).toBe(true);
+    expect(runs.filter((r) => r.kind === "schedule.fired")).toHaveLength(2);
+    // Newest first: a history read bottom-up is the wrong way round.
+    expect(runs[0]!.seq).toBeGreaterThan(runs[runs.length - 1]!.seq);
+
+    expect((await app.request("/api/schedules/sc_nope/runs")).status).toBe(404);
+  });
+});
+
 describe("schedule api", () => {
   it("CRUD round trip with validation and run-now", async () => {
     const app = buildApp();

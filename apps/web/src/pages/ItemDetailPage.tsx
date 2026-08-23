@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, SendHorizonal, Square } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, SendHorizonal, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type HidaneEvent } from "../lib/api.js";
 import {
@@ -12,7 +12,8 @@ import {
 } from "../lib/grouping.js";
 import { pendingState } from "../lib/pending.js";
 import { pushToast } from "../lib/toast.js";
-import { cn, fmtTime, fmtDateTime } from "../lib/utils.js";
+import { cn, fmtDateTime } from "../lib/utils.js";
+import { Time } from "../components/Time.js";
 import { Badge, Button, Card, Textarea } from "../components/ui/primitives.js";
 import { Pending } from "../components/Pending.js";
 import { Artifacts } from "../components/Artifacts.js";
@@ -36,7 +37,7 @@ function Execution({ group }: { group: ExecutionGroup }) {
         <span className="font-mono text-xs">{group.executionId}</span>
         <Badge tone={tone}>{label}</Badge>
         <span className="ml-auto text-xs text-muted">
-          {group.started ? fmtTime(group.started.ts) : ""}
+          {group.started ? <Time iso={group.started.ts} /> : ""}
           {group.sideEffects.length > 0 &&
             ` · ${t("item.toolCalls", { n: (group.sideEffects.length / 2) | 0 })}`}
         </span>
@@ -124,7 +125,7 @@ export function ItemDetailPage() {
   });
 
   const setStatus = useMutation({
-    mutationFn: (status: "open" | "done") => api.setWorkItemStatus(id, status),
+    mutationFn: (status: "open" | "done" | "closed") => api.setWorkItemStatus(id, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["item", id] });
       void queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -179,6 +180,22 @@ export function ItemDetailPage() {
             >
               {item.status === "open" ? t("item.markDone") : t("item.reopen")}
             </Button>
+            {/* Archiving is not "done": it retires an item that will not be
+                finished, and keeps it out of the working list either way. */}
+            {item.status !== "closed" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("item.archive")}
+                title={t("item.archive")}
+                disabled={setStatus.isPending}
+                onClick={() => {
+                  if (confirm(t("item.confirmArchive"))) setStatus.mutate("closed");
+                }}
+              >
+                <Archive className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
         <p className="mt-1 text-xs text-muted">
@@ -207,7 +224,9 @@ export function ItemDetailPage() {
                 ) : (
                   <Rich>{payloadText(e)}</Rich>
                 )}
-                <div className="mt-1 text-[10px] opacity-60">{fmtTime(e.ts)}</div>
+                <div className="mt-1 text-[10px] opacity-60">
+                  <Time iso={e.ts} />
+                </div>
               </div>
             </div>
           ))}
