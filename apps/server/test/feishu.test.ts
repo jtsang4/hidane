@@ -362,6 +362,40 @@ describe("feishu connector (official SDK)", () => {
     expect(extractText("not json")).toBe("");
   });
 
+  it("records the p2p chat as the main binding so schedules can deliver outbound", async () => {
+    enableFeishu();
+    const app = buildApp();
+    const message = (eventId: string, text: string) =>
+      app.request("/feishu/events", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: signed({
+          schema: "2.0",
+          header: { event_id: eventId, event_type: "im.message.receive_v1" },
+          event: {
+            sender: { sender_type: "user" },
+            message: {
+              message_id: `om_${eventId}`,
+              chat_id: "oc_main_bind",
+              chat_type: "p2p",
+              message_type: "text",
+              create_time: "0",
+              content: JSON.stringify({ text }),
+            },
+          },
+        }),
+      });
+    await message("evt_bind_1", "第一条");
+    await new Promise((r) => setTimeout(r, 80));
+    const binding = await findByChannelRef("feishu", "oc_main_bind", null);
+    expect(binding?.kind).toBe("main");
+    // Idempotent: a second message must not create a second row.
+    await message("evt_bind_2", "第二条");
+    await new Promise((r) => setTimeout(r, 80));
+    const { findMainBinding } = await import("../src/kernel/bindings.js");
+    expect((await findMainBinding("feishu"))?.chatId).toBe("oc_main_bind");
+  });
+
   it("binding lookups route by chat/root and by work item", async () => {
     await createBinding({ channel: "feishu", kind: "main", chatId: "oc_9" });
     const wi = await createBinding({

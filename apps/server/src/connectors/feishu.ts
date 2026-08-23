@@ -310,6 +310,13 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
   // Stickers, audio and Feishu's own system notices are recorded and stop here.
   if (!extractText(rawContent) && keys.length === 0) return;
 
+  // Remember the p2p chat as the main-thread binding. Inbound routing never
+  // needed the row (top-level p2p is implicitly main), but outbound-without-
+  // inbound does: a scheduled reminder cannot reach a chat nobody recorded.
+  if (data.message.chat_type === "p2p" && !(await findByChannelRef("feishu", chatId, null))) {
+    await createBinding({ channel: "feishu", kind: "main", chatId });
+  }
+
   const rootId = data.message.root_id ?? null;
   const binding = rootId ? await findByChannelRef("feishu", chatId, rootId) : undefined;
 
