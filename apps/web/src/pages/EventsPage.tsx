@@ -4,11 +4,14 @@ import { useTranslation } from "react-i18next";
 import { api, type HidaneEvent } from "../lib/api.js";
 import { fmtDateTime } from "../lib/utils.js";
 import { Badge, Button, Card, Input } from "../components/ui/primitives.js";
+import { matchesQuery } from "../lib/search.js";
 
 const PAGE_SIZE = 50;
 
 function EventRow({ event }: { event: HidaneEvent }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   return (
     <Card className="cursor-pointer p-3 text-sm" onClick={() => setOpen((v) => !v)}>
       <div className="flex flex-wrap items-center gap-2">
@@ -23,9 +26,23 @@ function EventRow({ event }: { event: HidaneEvent }) {
         <span className="ml-auto text-xs text-muted">{fmtDateTime(event.ts)}</span>
       </div>
       {open && (
-        <pre className="mt-2 overflow-x-auto rounded bg-background p-2 text-xs">
-          {JSON.stringify(event, null, 2)}
-        </pre>
+        <div className="mt-2 space-y-1">
+          <pre className="overflow-x-auto rounded bg-background p-2 text-xs">
+            {JSON.stringify(event, null, 2)}
+          </pre>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              void navigator.clipboard?.writeText(JSON.stringify(event, null, 2));
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+          >
+            {copied ? t("common.copied") : t("common.copy")}
+          </Button>
+        </div>
       )}
     </Card>
   );
@@ -40,6 +57,8 @@ export function EventsPage() {
   const { t } = useTranslation();
   const [kind, setKind] = useState("");
   const [item, setItem] = useState("");
+  /** Client-side, over what is already loaded: no round trip, no cursor reset. */
+  const [query, setQuery] = useState("");
   const [olderPages, setOlderPages] = useState<HidaneEvent[][]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [exhausted, setExhausted] = useState(false);
@@ -64,8 +83,10 @@ export function EventsPage() {
     () => olderPages.flatMap((page) => [...page].reverse()),
     [olderPages],
   );
-  const rows = [...newest, ...older];
+  const loaded = [...newest, ...older];
+  const rows = query.trim() ? loaded.filter((e) => matchesQuery(e, query)) : loaded;
   const hasMore = (data?.hasMore ?? false) && !exhausted;
+  const filtering = query.trim().length > 0;
 
   const loadMore = useCallback(async () => {
     // Rows are newest-first, so the oldest loaded event is the LAST row —
@@ -104,21 +125,43 @@ export function EventsPage() {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold">{t("events.title")}</h1>
         <span className="text-xs text-muted">
-          {t("events.showing", { n: rows.length })}
+          {t("events.showing", { n: loaded.length })}
+          {filtering ? ` ${t("events.filtered", { n: rows.length })}` : ""}
           {freshCount > 0 ? ` · ${t("events.fresh", { n: freshCount })}` : ""}
         </span>
       </div>
-      <div className="flex gap-2">
+      <div className="space-y-2">
         <Input
-          placeholder={t("events.filterKind")}
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
+          placeholder={t("events.search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
         />
-        <Input
-          placeholder={t("events.filterItem")}
-          value={item}
-          onChange={(e) => setItem(e.target.value)}
-        />
+        <div className="flex gap-2">
+          <Input
+            placeholder={t("events.filterKind")}
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+          />
+          <Input
+            placeholder={t("events.filterItem")}
+            value={item}
+            onChange={(e) => setItem(e.target.value)}
+          />
+          {(kind || item || query) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => {
+                setKind("");
+                setItem("");
+                setQuery("");
+              }}
+            >
+              {t("events.clear")}
+            </Button>
+          )}
+        </div>
       </div>
       <div className="space-y-2">
         {rows.map((e) => (
@@ -128,7 +171,7 @@ export function EventsPage() {
           <p className="pt-8 text-center text-sm text-muted">{t("events.empty")}</p>
         )}
       </div>
-      {rows.length > 0 && (
+      {loaded.length > 0 && (
         <div className="pt-2 text-center">
           {hasMore ? (
             <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={loadingMore}>

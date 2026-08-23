@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { appendEvent, getCursor, listEvents } from "../kernel/events.js";
-import { getWorkItem, listWorkItems } from "../kernel/workItems.js";
+import { getWorkItem, listWorkItems, setWorkItemStatus } from "../kernel/workItems.js";
 import { renderDay, today } from "../projections/worklog.js";
 import { handleUserMessage } from "../agents/primary.js";
 import { handleThreadMessage } from "../agents/manager.js";
@@ -12,6 +12,10 @@ import {
   parseMemories,
   readMemoryFile,
 } from "../kernel/memories.js";
+
+/** Interval between SSE keep-alives; clients treat prolonged silence as a
+ *  dropped stream, so this bounds how long a stale view can look current. */
+const SSE_PING_MS = 15_000;
 
 /**
  * Read API = queries over the event log and its state tables.
@@ -68,6 +72,7 @@ export function registerApi(app: Hono): void {
         open = false;
       });
       await stream.writeSSE({ event: "hello", data: JSON.stringify({ cursor }) });
+      let lastWrite = Date.now();
       while (open) {
         const fresh = await listEvents({ afterSeq: cursor, limit: 100 });
         for (const event of fresh) {
@@ -77,6 +82,15 @@ export function registerApi(app: Hono): void {
             id: String(event.seq),
             data: JSON.stringify(event),
           });
+          lastWrite = Date.now();
+        }
+        // Keep-alive. A dead server does not close the socket in a way the
+        // browser reports: an open EventSource stays readyState OPEN forever
+        // and fires no error, so clients can only detect the loss by silence.
+        // This also stops idle proxies from dropping a quiet stream.
+        if (Date.now() - lastWrite >= SSE_PING_MS) {
+          await stream.writeSSE({ event: "ping", data: String(Date.now()) });
+          lastWrite = Date.now();
         }
         await stream.sleep(1500);
       }
@@ -94,6 +108,20 @@ export function registerApi(app: Hono): void {
       const item = await getWorkItem(c.req.param("id"));
       const events = await listEvents({ threadId: item.threadId });
       return c.json({ item, events });
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+  });
+
+  app.patch("/api/work-items/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { status?: string };
+    const status = body.status;
+    if (status !== "open" && status !== "done" && status !== "closed") {
+      return c.json({ ok: false, error: "status must be open | done | closed" }, 400);
+    }
+    try {
+      const item = await setWorkItemStatus(c.req.param("id"), status, "connector:web");
+      return c.json({ ok: true, item });
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }
@@ -160,7 +188,10 @@ export function registerApi(app: Hono): void {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
       return c.json({ ok: false, error: "day must be YYYY-MM-DD" }, 400);
     }
-    return c.json({ day, markdown: await renderDay(day) });
+    // The count is reported separately: an empty day still renders a heading,
+    // so clients cannot tell "nothing happened" from the markdown alone.
+    const [markdown, events] = await Promise.all([renderDay(day), listEvents({ day })]);
+    return c.json({ day, markdown, eventCount: events.length });
   });
 
   app.get("/api/status", async (c) => {

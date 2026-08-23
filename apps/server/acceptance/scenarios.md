@@ -80,6 +80,27 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 - 再投递一条 `message_type: sticker`（无 text、无图片）的消息：事件落库，但**不**触发
   任何模型调用（日志里不应出现对应的 `route.decision`）——记录归记录，唤醒是另一回事
 
+## 场景 4E：事件流保活与异步写口
+
+`/api/events/stream` 是前端所有实时性的唯一来源。期望：
+
+- 订阅后立即收到 `event: hello`
+- **在没有任何新事件的空闲期内，20 秒内必须收到 `event: ping`**——浏览器端的
+  EventSource 在服务端进程被杀死后仍会停留在 `readyState: OPEN` 且**不触发 error**，
+  客户端只能靠「静默」判断连接已死；没有 ping 就无法区分「系统很安静」和「连接已断」，
+  界面会一直显示过期数据却看起来一切正常。同时也防止空闲连接被反向代理掐断。
+- 有新事件时 `event: hidane` 正常推送，且 `id` 为事件 seq
+- 写口是异步的：`POST /api/chat` 立刻返回 202（不等模型），随后 `user.message`
+  与回复才作为事件出现——请确认返回码与事件到达确实是分离的两件事
+
+## 场景 4F：工作项状态可改
+
+- `PATCH /api/work-items/:id` 传 `{"status":"done"}` 返回 200，工作项状态变为 done，
+  且落一条 `work_item.status_changed`（含 from/to）
+- 传回 `{"status":"open"}` 可重新打开
+- 传非法状态（如 `banana`）返回 400 且**不**落事件
+- 未知 id 返回 404
+
 ## 场景 4：事件不灭与重放
 
 期望：

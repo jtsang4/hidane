@@ -96,6 +96,64 @@ describe("api", () => {
     expect((await app.request("/api/work-items/wi_nope")).status).toBe(404);
   });
 
+  it("reports the worklog event count so an empty day is distinguishable", async () => {
+    const app = buildApp();
+    const empty = (await (await app.request("/api/worklog/2020-01-01")).json()) as {
+      markdown: string;
+      eventCount: number;
+    };
+    // The markdown is never empty — it always renders a heading.
+    expect(empty.markdown.length).toBeGreaterThan(0);
+    expect(empty.eventCount).toBe(0);
+
+    await appendEvent({ source: "s", kind: "worklog.count.test", payload: {} });
+    const busy = (await (await app.request("/api/worklog/today")).json()) as {
+      eventCount: number;
+    };
+    expect(busy.eventCount).toBeGreaterThan(0);
+  });
+
+  it("changes work item status and records the transition as a fact", async () => {
+    const item = await createWorkItem("closable", "test");
+    const app = buildApp();
+
+    const res = await app.request(`/api/work-items/${item.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { item: { status: string } }).item.status).toBe("done");
+
+    const changes = await listEvents({ kind: "work_item.status_changed" });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.payload).toMatchObject({ from: "open", to: "done" });
+
+    // Reopening is the same path, so the UI toggle cannot strand an item.
+    const reopened = await app.request(`/api/work-items/${item.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "open" }),
+    });
+    expect(((await reopened.json()) as { item: { status: string } }).item.status).toBe("open");
+
+    // Bad input is rejected before it can write an unknown status.
+    const bad = await app.request(`/api/work-items/${item.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "banana" }),
+    });
+    expect(bad.status).toBe(400);
+    expect((await listEvents({ kind: "work_item.status_changed" })).length).toBe(2);
+
+    const missing = await app.request("/api/work-items/wi_nope", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "done" }),
+    });
+    expect(missing.status).toBe(404);
+  });
+
   it("paginates events backwards with a seq cursor and reports hasMore", async () => {
     for (let i = 0; i < 12; i++) {
       await appendEvent({ source: "s", kind: "page.test", payload: { i } });

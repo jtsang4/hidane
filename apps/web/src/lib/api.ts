@@ -10,10 +10,19 @@ export interface HidaneEvent {
   payload: Record<string, unknown>;
 }
 
+export type WorkItemStatus = "open" | "done" | "closed";
+
+export interface MemoryEntry {
+  kind: "fact" | "preference" | "decision" | "lesson";
+  content: string;
+  date: string;
+  id: string;
+}
+
 export interface WorkItem {
   id: string;
   title: string;
-  status: "open" | "done" | "closed";
+  status: WorkItemStatus;
   workspace: string;
   threadId: string;
   createdAt: string;
@@ -39,6 +48,10 @@ export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -48,20 +61,42 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A rejected token used to strand the app: every query 401'd and each page
+ * rendered blank with no way back to the prompt short of clearing storage.
+ * The token is dropped and listeners return the user to the gate instead.
+ */
+const unauthorizedListeners = new Set<() => void>();
+
+export function onUnauthorized(fn: () => void): () => void {
+  unauthorizedListeners.add(fn);
+  return () => unauthorizedListeners.delete(fn);
+}
+
 export function authHeaders(token = getToken()): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders(),
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...authHeaders(),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    // A dead server is a 0, not an HTTP status — surface it as one error type.
+    throw new ApiError(0, err instanceof Error ? err.message : String(err));
+  }
   if (!res.ok) {
+    if (res.status === 401) {
+      clearToken();
+      for (const fn of unauthorizedListeners) fn();
+    }
     throw new ApiError(res.status, `${res.status} ${await res.text()}`);
   }
   return (await res.json()) as T;
@@ -106,8 +141,17 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
   worklog: (day: string) =>
-    apiFetch<{ day: string; markdown: string }>(`/api/worklog/${day}`),
+    apiFetch<{ day: string; markdown: string; eventCount: number }>(`/api/worklog/${day}`),
   status: () => apiFetch<StatusInfo>(`/api/status`),
+  setWorkItemStatus: (id: string, status: WorkItemStatus) =>
+    apiFetch<{ ok: boolean; item: WorkItem }>(`/api/work-items/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+  memories: () =>
+    apiFetch<{ path: string; entries: MemoryEntry[]; markdown: string }>(`/api/memories`),
+  forgetMemory: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/memories/${id}`, { method: "DELETE" }),
 };
 
 export function eventStreamUrl(): string {

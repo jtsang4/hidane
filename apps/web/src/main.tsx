@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createRootRoute,
@@ -8,36 +8,102 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { Flame, ListTodo, MessageCircle, ScrollText, Activity, Logs, Languages } from "lucide-react";
+import {
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  Flame,
+  ListTodo,
+  MessageCircle,
+  ScrollText,
+  Activity,
+  Logs,
+  Languages,
+  Brain,
+  LogOut,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./styles.css";
 import i18n, { switchLanguage } from "./i18n/index.js";
-import { eventStreamUrl, getToken, setToken } from "./lib/api.js";
+import {
+  ApiError,
+  clearToken,
+  eventStreamUrl,
+  getToken,
+  onUnauthorized,
+  setToken,
+} from "./lib/api.js";
+import { livenessFrom, shouldReconnect, type LiveState } from "./lib/live.js";
+import { clearToasts, pushToast } from "./lib/toast.js";
+import { cn } from "./lib/utils.js";
 import { Button, Card, Input } from "./components/ui/primitives.js";
+import { Toaster } from "./components/Toaster.js";
 import { ChatPage } from "./pages/ChatPage.js";
 import { ItemsPage } from "./pages/ItemsPage.js";
 import { ItemDetailPage } from "./pages/ItemDetailPage.js";
 import { EventsPage } from "./pages/EventsPage.js";
 import { LogPage } from "./pages/LogPage.js";
+import { MemoryPage } from "./pages/MemoryPage.js";
 import { StatusPage } from "./pages/StatusPage.js";
 
-/** Live lane: one SSE stream drives every view via query invalidation. */
-function useEventStream(enabled: boolean) {
+/**
+ * Live lane: one SSE stream drives every view via query invalidation.
+ * Its state is surfaced because a silently-dead stream leaves every view
+ * showing stale data that looks perfectly current — and that death really is
+ * silent: a killed server leaves EventSource at readyState OPEN with no error,
+ * so liveness is decided by the absence of the server's keep-alive ping.
+ */
+function useEventStream(enabled: boolean): LiveState {
   const queryClient = useQueryClient();
+  const [state, setState] = useState<LiveState>("connecting");
+  const [attempt, setAttempt] = useState(0);
+  // These span reconnect attempts on purpose — see livenessFrom.
+  const lastHeardAt = useRef(Date.now());
+  const everHeard = useRef(false);
+
   useEffect(() => {
     if (!enabled) return;
+    const connectedAt = Date.now();
     const source = new EventSource(eventStreamUrl());
+    const heard = () => {
+      lastHeardAt.current = Date.now();
+      everHeard.current = true;
+      setState("live");
+    };
+    source.addEventListener("hello", heard);
+    source.addEventListener("ping", heard);
     source.addEventListener("hidane", () => {
+      heard();
       void queryClient.invalidateQueries();
     });
-    return () => source.close();
-  }, [enabled, queryClient]);
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setState(livenessFrom(lastHeardAt.current, everHeard.current, now));
+      if (shouldReconnect(lastHeardAt.current, connectedAt, now)) {
+        setAttempt((n) => n + 1);
+      }
+    }, 5_000);
+    return () => {
+      clearInterval(timer);
+      source.close();
+    };
+  }, [enabled, queryClient, attempt]);
+
+  return state;
 }
 
 function TokenGate({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
+  const submit = () => {
+    if (!value.trim()) return;
+    setToken(value.trim());
+    clearToasts();
+    onDone();
+  };
   return (
     <div className="flex h-full items-center justify-center p-6">
       <Card className="w-full max-w-sm space-y-3">
@@ -47,28 +113,19 @@ function TokenGate({ onDone }: { onDone: () => void }) {
         <p className="text-sm text-muted">{t("token.prompt")}</p>
         <Input
           type="password"
+          autoFocus
           value={value}
           placeholder={t("token.placeholder")}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && value.trim()) {
-              setToken(value.trim());
-              onDone();
-            }
+            if (e.key === "Enter") submit();
           }}
         />
-        <Button
-          className="w-full"
-          onClick={() => {
-            if (value.trim()) {
-              setToken(value.trim());
-              onDone();
-            }
-          }}
-        >
+        <Button className="w-full" onClick={submit} disabled={!value.trim()}>
           {t("token.enter")}
         </Button>
       </Card>
+      <Toaster />
     </div>
   );
 }
@@ -78,13 +135,65 @@ const NAV = [
   { to: "/items", key: "nav.items", icon: ListTodo },
   { to: "/events", key: "nav.events", icon: Logs },
   { to: "/log", key: "nav.log", icon: ScrollText },
+  { to: "/memory", key: "nav.memory", icon: Brain },
   { to: "/status", key: "nav.status", icon: Activity },
 ] as const;
+
+function LiveDot({ state }: { state: LiveState }) {
+  const { t } = useTranslation();
+  const label =
+    state === "live"
+      ? t("live.live")
+      : state === "connecting"
+        ? t("live.connecting")
+        : t("live.offline");
+  return (
+    <span
+      className="flex items-center gap-2 px-3 py-2 text-xs text-muted"
+      title={t("live.hint")}
+      // The label is announced once from here; the text node below is visual
+      // only, and on narrow screens it is not rendered at all.
+      role="status"
+      aria-label={`${t("live.hint")}: ${label}`}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "h-2 w-2 rounded-full",
+          state === "live"
+            ? "bg-success"
+            : state === "connecting"
+              ? "animate-pulse bg-primary"
+              : "bg-danger",
+        )}
+      />
+      <span aria-hidden="true" className="hidden sm:inline">
+        {label}
+      </span>
+    </span>
+  );
+}
 
 function RootLayout() {
   const { t } = useTranslation();
   const [authed, setAuthed] = useState(() => getToken().length > 0);
-  useEventStream(authed);
+  const live = useEventStream(authed);
+
+  // A rejected token drops the app back to the prompt instead of stranding it.
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        setAuthed(false);
+        pushToast(i18n.t("token.invalid"));
+      }),
+    [],
+  );
+
+  const signOut = useCallback(() => {
+    clearToken();
+    clearToasts();
+    setAuthed(false);
+  }, []);
 
   if (!authed) return <TokenGate onDone={() => setAuthed(true)} />;
 
@@ -106,29 +215,53 @@ function RootLayout() {
             <span className="hidden sm:inline">{t(key)}</span>
           </Link>
         ))}
+        <div className="hidden sm:mt-auto sm:block">
+          <LiveDot state={live} />
+        </div>
         <button
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2 sm:mt-auto"
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2"
           onClick={() => switchLanguage(nextLang)}
           aria-label="switch language"
         >
           <Languages className="h-4 w-4" />
           <span className="hidden sm:inline">{nextLang === "en" ? "English" : "中文"}</span>
         </button>
+        <button
+          className="hidden items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2 sm:flex"
+          onClick={signOut}
+        >
+          <LogOut className="h-4 w-4" />
+          <span>{t("token.signOut")}</span>
+        </button>
       </nav>
       <main className="min-h-0 flex-1">
         <Outlet />
       </main>
+      <Toaster />
     </div>
   );
 }
 
-const rootRoute = createRootRoute({ component: RootLayout });
+function NotFound() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+      <p className="text-sm text-muted">{t("notFound.title")}</p>
+      <Link to="/" className="text-sm text-primary underline">
+        {t("notFound.back")}
+      </Link>
+    </div>
+  );
+}
+
+const rootRoute = createRootRoute({ component: RootLayout, notFoundComponent: NotFound });
 const routes = [
   createRoute({ getParentRoute: () => rootRoute, path: "/", component: ChatPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/items", component: ItemsPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/items/$id", component: ItemDetailPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/events", component: EventsPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/log", component: LogPage }),
+  createRoute({ getParentRoute: () => rootRoute, path: "/memory", component: MemoryPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/status", component: StatusPage }),
 ];
 
@@ -142,6 +275,18 @@ declare module "@tanstack/react-router" {
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 3_000, retry: 1 } },
+  // 401 is handled by the gate; every other failure must be visible rather than
+  // rendering an empty page that reads as "nothing here yet".
+  queryCache: new QueryCache({
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 401) return;
+      pushToast(
+        error instanceof ApiError && error.status === 0
+          ? i18n.t("error.offline")
+          : `${i18n.t("error.title")}: ${error.message}`,
+      );
+    },
+  }),
 });
 
 createRoot(document.getElementById("root")!).render(

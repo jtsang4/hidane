@@ -19,8 +19,21 @@ export function fmtDateTime(iso: string): string {
   return `${d.toLocaleDateString(dateLocale())} ${fmtTime(iso)}`;
 }
 
-export function today(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function ymd(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function today(): string {
+  return ymd(new Date());
+}
+
+/** Step a YYYY-MM-DD day, staying in local time so DST cannot shift the date. */
+export function shiftDay(day: string, delta: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  if (!y || !m || !d) return day;
+  return ymd(new Date(y, m - 1, d + delta));
 }
