@@ -152,7 +152,7 @@ function LiveDot({ state }: { state: LiveState }) {
         : t("live.offline");
   return (
     <span
-      className="flex items-center gap-2 px-3 py-2 text-xs text-muted"
+      className="flex items-center gap-2 px-1 py-2 text-xs text-muted sm:px-3"
       title={t("live.hint")}
       // The label is announced once from here; the text node below is visual
       // only, and on narrow screens it is not rendered at all.
@@ -203,7 +203,9 @@ function RootLayout() {
   const nextLang = i18n.language === "en" ? "zh" : "en";
   return (
     <div className="flex h-full flex-col-reverse sm:flex-row">
-      <nav className="flex shrink-0 justify-around border-t border-border bg-surface p-2 sm:w-44 sm:flex-col sm:justify-start sm:gap-1 sm:border-t-0 sm:border-r sm:p-3">
+      {/* pb-safe: the bar sits at the very bottom on a phone, where the home
+          indicator would otherwise overlap the last row of tap targets. */}
+      <nav className="flex shrink-0 justify-around border-t border-border bg-surface p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:w-44 sm:flex-col sm:justify-start sm:gap-1 sm:border-t-0 sm:border-r sm:p-3 sm:pb-3">
         <div className="hidden items-center gap-2 px-2 pb-3 text-base font-semibold sm:flex">
           <Flame className="h-5 w-5 text-primary" /> hidane
         </div>
@@ -211,18 +213,18 @@ function RootLayout() {
           <Link
             key={to}
             to={to}
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2 [&.active]:bg-surface-2 [&.active]:text-foreground"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-sm text-muted hover:bg-surface-2 sm:flex-none sm:justify-start sm:px-3 [&.active]:bg-surface-2 [&.active]:text-foreground"
             activeOptions={{ exact: to === "/" }}
           >
             <Icon className="h-4 w-4" />
             <span className="hidden sm:inline">{t(key)}</span>
           </Link>
         ))}
-        <div className="flex items-center sm:mt-auto sm:block">
+        <div className="flex shrink-0 items-center sm:mt-auto sm:block">
           <LiveDot state={live} />
         </div>
         <button
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2"
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-sm text-muted hover:bg-surface-2 sm:flex-none sm:justify-start sm:px-3"
           onClick={() => switchLanguage(nextLang)}
           aria-label="switch language"
         >
@@ -230,7 +232,7 @@ function RootLayout() {
           <span className="hidden sm:inline">{nextLang === "en" ? "English" : "中文"}</span>
         </button>
         <button
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2"
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-sm text-muted hover:bg-surface-2 sm:flex-none sm:justify-start sm:px-3"
           onClick={signOut}
           aria-label={t("token.signOut")}
         >

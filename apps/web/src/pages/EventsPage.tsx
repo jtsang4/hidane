@@ -136,13 +136,15 @@ export function EventsPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Input
+            className="min-w-0 flex-1"
             placeholder={t("events.filterKind")}
             value={kind}
             onChange={(e) => setKind(e.target.value)}
           />
           <Input
+            className="min-w-0 flex-1"
             placeholder={t("events.filterItem")}
             value={item}
             onChange={(e) => setItem(e.target.value)}

@@ -28,7 +28,7 @@ export function LogPage() {
     <div className="space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold">{t("log.title")}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="icon"
@@ -39,7 +39,7 @@ export function LogPage() {
           </Button>
           <Input
             type="date"
-            className="w-40"
+            className="w-36 sm:w-40"
             value={day}
             onChange={(e) => setDay(e.target.value)}
           />
@@ -59,7 +59,9 @@ export function LogPage() {
       </div>
       {isLoading && <p className="text-sm text-muted">{t("common.loading")}</p>}
       {empty && <p className="pt-8 text-center text-sm text-muted">{t("log.empty")}</p>}
-      <article className="prose-sm max-w-none space-y-2 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mt-4 [&_h2]:text-base [&_h2]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:text-xs">
+      {/* Worklog lines carry absolute paths and shell commands; without an
+          explicit wrap they push the whole page sideways on a phone. */}
+      <article className="prose-sm max-w-none space-y-2 break-words [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mt-4 [&_h2]:text-base [&_h2]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:text-xs [&_code]:break-all [&_pre]:overflow-x-auto">
         <Markdown>{markdown}</Markdown>
       </article>
     </div>

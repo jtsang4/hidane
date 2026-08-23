@@ -6,7 +6,10 @@ import { cn } from "../../lib/utils.js";
 /** shadcn-style primitives on the Base UI + Tailwind stack, dark-first. */
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-2 focus-visible:outline-primary",
+  // whitespace-nowrap is not cosmetic: CJK breaks between any two characters,
+  // so a squeezed button renders one glyph per line — "新建" became a vertical
+  // column on a phone. shrink-0 keeps a flex sibling from doing the squeezing.
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-2 focus-visible:outline-primary",
   {
     variants: {
       variant: {

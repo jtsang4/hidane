@@ -197,14 +197,14 @@ function CreateForm({ onDone }: { onDone: () => void }) {
           onChange={(e) => set("intervalSec", e.target.value)}
         />
       ) : (
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             placeholder={t("schedules.form.cron")}
             value={form.cron}
             onChange={(e) => set("cron", e.target.value)}
           />
           <Input
-            className="w-44"
+            className="sm:w-44"
             placeholder={t("schedules.form.timezone")}
             value={form.timezone}
             onChange={(e) => set("timezone", e.target.value)}
@@ -263,8 +263,9 @@ export function SchedulesPage() {
 
   return (
     <div className="space-y-3 p-4">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        {/* min-w-0 lets the subtitle shrink instead of squeezing the button. */}
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold">{t("schedules.title")}</h1>
           <p className="mt-1 text-xs text-muted">{t("schedules.subtitle")}</p>
         </div>
