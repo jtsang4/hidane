@@ -131,3 +131,30 @@ describe("distiller filtering", () => {
     ]);
   });
 });
+
+describe("memory log reconciliation", () => {
+  it("records entries that appear in the file without a promotion event", async () => {
+    const { reconcileMemoryLog } = await import("../src/agents/distiller.js");
+    const entries = [
+      { kind: "preference" as const, content: "written by a worker", date: "2026-08-23", id: "mem_worker1" },
+      { kind: "fact" as const, content: "also unlogged", date: "2026-08-23", id: "mem_worker2" },
+    ];
+    expect(await reconcileMemoryLog(entries)).toBe(2);
+
+    const events = await listEvents({ kind: "memory.promoted" });
+    expect(events).toHaveLength(2);
+    // Marked so a reconciled find is never mistaken for a distiller decision.
+    expect(events[0]!.payload["observedInFile"]).toBe(true);
+    expect(events.map((e) => e.payload["memoryId"]).sort()).toEqual(["mem_worker1", "mem_worker2"]);
+
+    // Idempotent: a second pass must not duplicate the record.
+    expect(await reconcileMemoryLog(entries)).toBe(0);
+    expect(await listEvents({ kind: "memory.promoted" })).toHaveLength(2);
+  });
+
+  it("does nothing when the memory file is empty", async () => {
+    const { reconcileMemoryLog } = await import("../src/agents/distiller.js");
+    expect(await reconcileMemoryLog([])).toBe(0);
+    expect(await listEvents({ kind: "memory.promoted" })).toHaveLength(0);
+  });
+});

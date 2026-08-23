@@ -1,4 +1,10 @@
-import { commitCursor, nextBatch, appendEvent, type HidaneEvent } from "../kernel/events.js";
+import {
+  commitCursor,
+  listEvents,
+  nextBatch,
+  appendEvent,
+  type HidaneEvent,
+} from "../kernel/events.js";
 import {
   globalMemoryPath,
   parseMemories,
@@ -6,6 +12,7 @@ import {
   readMemoryFile,
   workItemMemoryPath,
   MEMORY_KINDS,
+  type MemoryEntry,
   type MemoryKind,
 } from "../kernel/memories.js";
 import { getWorkItem } from "../kernel/workItems.js";
@@ -78,6 +85,37 @@ export interface DistillResult {
 }
 
 /**
+ * Memory files are editable by design — the header says so, and workers reach
+ * them as ordinary files in their cwd. That leaves entries in MEMORY.md that no
+ * `memory.promoted` event ever explains, and a memory whose provenance the log
+ * cannot account for is exactly the kind of thing that later steers work with
+ * nobody able to say why. Record what is there but unrecorded, rather than
+ * forbidding the edit.
+ */
+export async function reconcileMemoryLog(entries: MemoryEntry[]): Promise<number> {
+  if (entries.length === 0) return 0;
+  const recorded = new Set(
+    (await listEvents({ kind: "memory.promoted" })).map((e) => String(e.payload["memoryId"])),
+  );
+  const unlogged = entries.filter((entry) => !recorded.has(entry.id));
+  for (const entry of unlogged) {
+    await appendEvent({
+      source: "agent:distiller",
+      kind: "memory.promoted",
+      payload: {
+        memoryId: entry.id,
+        kind: entry.kind,
+        content: entry.content,
+        scope: "global",
+        // Distinguishes a reconciled find from a real promotion decision.
+        observedInFile: true,
+      },
+    });
+  }
+  return unlogged.length;
+}
+
+/**
  * Log consumer: batch events → extract candidate memories → high-confidence
  * ones land in the layered memory files. Cursor advances only when the batch
  * was processed (or contained nothing meaningful), so sparse material
@@ -109,6 +147,7 @@ export async function runDistillation(
   }
 
   const existing = parseMemories(await readMemoryFile(globalMemoryPath()));
+  await reconcileMemoryLog(existing);
   const existingText =
     existing.length > 0
       ? `Existing memories (do not duplicate):\n${existing.map((m) => `- ${m.content}`).join("\n")}`
