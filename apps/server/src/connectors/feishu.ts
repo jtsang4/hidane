@@ -148,6 +148,8 @@ export interface FetchImagesResult {
  * construction: a failed download says so rather than pretending an image is
  * attached (the model then denies seeing one, and the user cannot tell why).
  */
+export const IMAGE_ONLY_TEXT = "(图片消息，请查看附带图片)";
+
 export function describeMessage(
   messageType: string,
   keys: string[],
@@ -157,7 +159,7 @@ export function describeMessage(
   if (images.length > 0) {
     return failures.length > 0
       ? `(图片消息：附带 ${images.length} 张图片，另有 ${failures.length} 张下载失败)`
-      : "(图片消息，请查看附带图片)";
+      : IMAGE_ONLY_TEXT;
   }
   if (keys.length > 0) {
     return `(收到 ${keys.length} 张图片，但下载失败，无法查看内容)`;

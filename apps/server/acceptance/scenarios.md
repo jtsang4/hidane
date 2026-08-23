@@ -41,7 +41,7 @@
 期望：
 
 - `pnpm dev log` 渲染出的当日工作日志包含主线程和场景 1 的工作项分区，内容能对应上真实发生的事
-- 写盘版本落在 `~/.hidane/worklogs/YYYY/MM/` 下且内容一致
+- 写盘版本落在 `~/.hidane/worklogs/YYYY/MM/DD/worklog.md` 且内容一致
 
 ## 场景 4A：认证边界
 
@@ -100,6 +100,17 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 - 传回 `{"status":"open"}` 可重新打开
 - 传非法状态（如 `banana`）返回 400 且**不**落事件
 - 未知 id 返回 404
+
+## 场景 4G：Web 通道也能发图给多模态模型
+
+`POST /api/chat` 接受 `{"text": "...", "images": [{"data": "<base64>", "mimeType": "image/png"}]}`。
+期望（需 daemon 以 `HIDANE_PI_PROVIDER`/`HIDANE_PI_MODEL` 指向多模态模型启动）：
+
+- 带图请求返回 202，`user.message` 事件 payload 带 `imageCount`
+- 模型**真的看到了图**：自己构造一张内容明确的图（例如中间一个洋红色方块），
+  问它"图里是什么颜色的形状"，回复必须与你画的内容相符，而不是"我没有收到图片"
+- 只有图片、没有文字时同样接受（202），文字与图片都没有时返回 400
+- 非图片 mimeType、超过 6MB、超过 4 张的部分被丢弃而不是让整条请求失败
 
 ## 场景 4：事件不灭与重放
 

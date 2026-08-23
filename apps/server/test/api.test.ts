@@ -51,7 +51,8 @@ describe("api", () => {
       body: JSON.stringify({ text: "hello" }),
     });
     expect(res.status).toBe(202);
-    expect(handleUserMessage).toHaveBeenCalledWith("hello", "connector:web");
+    // third arg: attached images (empty for a plain text message)
+    expect(handleUserMessage).toHaveBeenCalledWith("hello", "connector:web", []);
     const empty = await app.request("/api/chat", {
       method: "POST",
       body: JSON.stringify({ text: " " }),
@@ -94,6 +95,49 @@ describe("api", () => {
     expect(body.item.id).toBe(item.id);
     expect(body.events.length).toBeGreaterThanOrEqual(1);
     expect((await app.request("/api/work-items/wi_nope")).status).toBe(404);
+  });
+
+  it("forwards chat images to the vision model and bounds what it accepts", async () => {
+    const app = buildApp();
+    const png = "iVBORw0KGgo=";
+    const res = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "what is this",
+        images: [
+          { data: png, mimeType: "image/png" },
+          { data: png, mimeType: "application/pdf" }, // not an image: dropped
+          { data: png }, // malformed: dropped
+        ],
+      }),
+    });
+    expect(res.status).toBe(202);
+    expect(handleUserMessage).toHaveBeenCalledWith("what is this", "connector:web", [
+      { data: png, mimeType: "image/png" },
+    ]);
+
+    vi.clearAllMocks();
+    // Images alone are a valid message; the model still needs words to route on.
+    const imageOnly = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ images: [{ data: png, mimeType: "image/jpeg" }] }),
+    });
+    expect(imageOnly.status).toBe(202);
+    const call = (handleUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(String(call[0])).toContain("图片");
+    expect(call[2]).toHaveLength(1);
+
+    vi.clearAllMocks();
+    // Neither text nor images is still a bad request.
+    const nothing = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ images: [] }),
+    });
+    expect(nothing.status).toBe(400);
+    expect(handleUserMessage).not.toHaveBeenCalled();
   });
 
   it("reports the worklog event count so an empty day is distinguishable", async () => {

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { SendHorizonal } from "lucide-react";
+import { ImagePlus, SendHorizonal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type HidaneEvent } from "../lib/api.js";
+import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
 import { conversationEvents, payloadText } from "../lib/grouping.js";
 import { pendingState } from "../lib/pending.js";
 import { pushToast } from "../lib/toast.js";
@@ -56,7 +57,23 @@ export function ChatPage() {
   const [text, setText] = useState("");
   /** Held until the same text comes back from the log — POST only returns 202. */
   const [optimistic, setOptimistic] = useState<string | null>(null);
+  const [attached, setAttached] = useState<AttachedImage[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const attach = async (files: File[]) => {
+    const accepted = acceptableSlice(files, attached.length);
+    if (accepted.length < files.length) pushToast(t("chat.imageRejected"));
+    const read = await Promise.all(accepted.map(readImage));
+    setAttached((current) => [...current, ...read]);
+  };
+
+  const dropAttachment = (index: number) =>
+    setAttached((current) => {
+      const target = current[index];
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return current.filter((_, i) => i !== index);
+    });
 
   const { data } = useQuery({
     queryKey: ["events", "main"],
@@ -75,14 +92,19 @@ export function ChatPage() {
   }, [events, optimistic]);
 
   const send = useMutation({
-    mutationFn: (body: string) => api.chat(body),
+    mutationFn: ({ body, images }: { body: string; images: AttachedImage[] }) =>
+      api.chat(
+        body,
+        images.map(({ data, mimeType }) => ({ data, mimeType })),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["events", "main"] });
     },
-    onError: (err, body) => {
-      // Give the text back rather than losing what the user typed.
+    onError: (err, variables) => {
+      // Give the text and the attachments back rather than losing them.
       setOptimistic(null);
-      setText((current) => (current.length > 0 ? current : body));
+      setText((current) => (current.length > 0 ? current : variables.body));
+      setAttached((current) => (current.length > 0 ? current : variables.images));
       pushToast(err instanceof ApiError ? err.message : String(err));
     },
   });
@@ -93,10 +115,12 @@ export function ChatPage() {
 
   const submit = () => {
     const body = text.trim();
-    if (!body || send.isPending) return;
-    setOptimistic(body);
+    if ((!body && attached.length === 0) || send.isPending) return;
+    setOptimistic(body || t("chat.imageOnly"));
     setText("");
-    send.mutate(body);
+    const images = attached;
+    setAttached([]);
+    send.mutate({ body, images });
   };
 
   // While the ghost is up the log has not caught up yet, so show the wait state
@@ -132,26 +156,75 @@ export function ChatPage() {
         <Pending state={waiting} />
         <div ref={endRef} />
       </div>
-      <div className="flex gap-2 border-t border-border p-3">
-        <Textarea
-          rows={2}
-          value={text}
-          placeholder={t("chat.placeholder")}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
-        <Button
-          onClick={submit}
-          disabled={send.isPending || text.trim().length === 0}
-          aria-label={t("common.send")}
-        >
-          <SendHorizonal className="h-4 w-4" />
-        </Button>
+      <div className="border-t border-border p-3">
+        {attached.length > 0 && (
+          <div className="flex flex-wrap gap-2 pb-2">
+            {attached.map((image, index) => (
+              <div key={image.previewUrl} className="relative">
+                <img
+                  src={image.previewUrl}
+                  alt={image.name}
+                  className="h-16 w-16 rounded-md border border-border object-cover"
+                />
+                <button
+                  className="absolute -top-1.5 -right-1.5 rounded-full bg-surface-2 p-0.5 text-muted hover:text-foreground"
+                  aria-label={`${t("chat.removeImage")} ${image.name}`}
+                  onClick={() => dropAttachment(index)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void attach([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label={t("chat.addImage")}
+            onClick={() => fileRef.current?.click()}
+          >
+            <ImagePlus className="h-4 w-4" />
+          </Button>
+          <Textarea
+            rows={2}
+            value={text}
+            placeholder={t("chat.placeholder")}
+            onChange={(e) => setText(e.target.value)}
+            // Pasting a screenshot is how people actually attach images.
+            onPaste={(e) => {
+              const files = [...e.clipboardData.files];
+              if (files.length > 0) {
+                e.preventDefault();
+                void attach(files);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <Button
+            onClick={submit}
+            disabled={send.isPending || (text.trim().length === 0 && attached.length === 0)}
+            aria-label={t("common.send")}
+          >
+            <SendHorizonal className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );

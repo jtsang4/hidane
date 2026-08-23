@@ -6,12 +6,35 @@ import { renderDay, today } from "../projections/worklog.js";
 import { handleUserMessage } from "../agents/primary.js";
 import { handleThreadMessage } from "../agents/manager.js";
 import { describeEffectiveModel } from "../agents/sdk.js";
+import { IMAGE_ONLY_TEXT } from "../connectors/feishu.js";
 import {
   forgetMemory,
   globalMemoryPath,
   parseMemories,
   readMemoryFile,
 } from "../kernel/memories.js";
+
+/** The web channel feeds the same vision model as Feishu, so its uploads go
+ *  through the same shape. Bounded here: base64 rides in the JSON body, and an
+ *  unbounded one would be a trivial way to exhaust memory. */
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+
+function parseInboundImages(
+  raw: { data?: unknown; mimeType?: unknown }[] | undefined,
+): { data: string; mimeType: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const images: { data: string; mimeType: string }[] = [];
+  for (const item of raw.slice(0, MAX_IMAGES)) {
+    const { data, mimeType } = item ?? {};
+    if (typeof data !== "string" || typeof mimeType !== "string") continue;
+    if (!mimeType.startsWith("image/")) continue;
+    // base64 inflates by 4/3; compare against the decoded size.
+    if (data.length * 0.75 > MAX_IMAGE_BYTES) continue;
+    images.push({ data, mimeType });
+  }
+  return images;
+}
 
 /** Interval between SSE keep-alives; clients treat prolonged silence as a
  *  dropped stream, so this bounds how long a stale view can look current. */
@@ -128,11 +151,20 @@ export function registerApi(app: Hono): void {
   });
 
   app.post("/api/chat", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { text?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      text?: string;
+      images?: { data?: unknown; mimeType?: unknown }[];
+    };
     const text = (body.text ?? "").trim();
-    if (!text) return c.json({ ok: false, error: "text required" }, 400);
+    const images = parseInboundImages(body.images);
+    if (!text && images.length === 0) {
+      return c.json({ ok: false, error: "text or images required" }, 400);
+    }
+    // An image-only message still needs words for the routing prompt; the same
+    // stand-in the Feishu connector uses, so both channels read alike.
+    const prompt = text || IMAGE_ONLY_TEXT;
     // Fire and forget: the fast lane records + routes; outcome arrives as events.
-    void handleUserMessage(text, "connector:web").catch(async (err) => {
+    void handleUserMessage(prompt, "connector:web", images).catch(async (err) => {
       await appendEvent({
         source: "connector:web",
         kind: "agent.error",

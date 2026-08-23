@@ -215,7 +215,7 @@ function RootLayout() {
             <span className="hidden sm:inline">{t(key)}</span>
           </Link>
         ))}
-        <div className="hidden sm:mt-auto sm:block">
+        <div className="flex items-center sm:mt-auto sm:block">
           <LiveDot state={live} />
         </div>
         <button
@@ -227,11 +227,12 @@ function RootLayout() {
           <span className="hidden sm:inline">{nextLang === "en" ? "English" : "中文"}</span>
         </button>
         <button
-          className="hidden items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2 sm:flex"
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2"
           onClick={signOut}
+          aria-label={t("token.signOut")}
         >
           <LogOut className="h-4 w-4" />
-          <span>{t("token.signOut")}</span>
+          <span className="hidden sm:inline">{t("token.signOut")}</span>
         </button>
       </nav>
       <main className="min-h-0 flex-1">

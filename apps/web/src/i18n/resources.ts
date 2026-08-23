@@ -42,7 +42,11 @@ export const zh = {
     },
     chat: {
       empty: "对 Primary 说点什么——它会回复、建工作项或路由到已有工作项。",
-      placeholder: "消息 Primary…（Enter 发送，Shift+Enter 换行）",
+      placeholder: "消息 Primary…（Enter 发送，Shift+Enter 换行，可粘贴图片）",
+      addImage: "添加图片",
+      removeImage: "移除图片",
+      imageOnly: "（图片消息）",
+      imageRejected: "部分图片被跳过：仅支持图片，单张不超过 6MB，最多 4 张。",
     },
     items: {
       title: "工作项",
@@ -160,7 +164,11 @@ export const en = {
     },
     chat: {
       empty: "Say something to the Primary — it replies, opens a work item, or routes to an existing one.",
-      placeholder: "Message the Primary… (Enter to send, Shift+Enter for newline)",
+      placeholder: "Message the Primary… (Enter to send, Shift+Enter for newline, paste images)",
+      addImage: "Add image",
+      removeImage: "Remove image",
+      imageOnly: "(image message)",
+      imageRejected: "Some images were skipped: images only, 6MB each, 4 at most.",
     },
     items: {
       title: "Work Items",

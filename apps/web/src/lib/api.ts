@@ -12,6 +12,12 @@ export interface HidaneEvent {
 
 export type WorkItemStatus = "open" | "done" | "closed";
 
+/** Base64 payload for the vision model — same shape the Feishu connector sends. */
+export interface OutboundImage {
+  data: string;
+  mimeType: string;
+}
+
 export interface MemoryEntry {
   kind: "fact" | "preference" | "decision" | "lesson";
   content: string;
@@ -130,10 +136,10 @@ export const api = {
     apiFetch<{ items: WorkItem[] }>(`/api/work-items${all ? "?all" : ""}`),
   workItem: (id: string) =>
     apiFetch<{ item: WorkItem; events: HidaneEvent[] }>(`/api/work-items/${id}`),
-  chat: (text: string) =>
+  chat: (text: string, images: OutboundImage[] = []) =>
     apiFetch<{ ok: boolean }>(`/api/chat`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(images.length > 0 ? { text, images } : { text }),
     }),
   threadMessage: (id: string, text: string) =>
     apiFetch<{ ok: boolean }>(`/api/work-items/${id}/messages`, {
