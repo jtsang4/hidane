@@ -142,6 +142,19 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - **手写记忆**：`POST /api/memories` 写入一条，出现在 `/api/memories` 列表中，
   并落 `memory.promoted` 且带 `manual: true`（与蒸馏产出可区分）；空内容返回 400。
 
+## 场景 4J：工作区产物可读可下载（含路径穿越防护）
+
+让一个工作项产出几个文件（含子目录、文本与非文本各一）。期望：
+
+- `GET /api/work-items/:id/files` 列出产物（含子目录路径），**不含** `node_modules` / `.git`
+- `GET /api/work-items/:id/file?path=notes/detail.md` 返回文本内容
+- **路径穿越必须全部被拒（403）**：`../../../etc/passwd`、URL 编码变体、绝对路径
+  `/etc/passwd`、`notes/../../../../etc/passwd`。这是本功能的安全边界，
+  路径直接来自 URL；判定必须基于「解析后的绝对路径是否仍在工作区内」，
+  而不是检查输入里有没有 `..`
+- 非文本文件返回 `reason: "binary"`、超大文本返回 `reason: "too-large"`（不内联）
+- `?download` 返回附件流；无 token 一律 401
+
 ## 场景 4：事件不灭与重放
 
 期望：

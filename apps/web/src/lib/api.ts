@@ -67,6 +67,19 @@ export interface ScheduleInput {
   enabled?: boolean;
 }
 
+export interface ArtifactEntry {
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface ArtifactContent {
+  path: string;
+  size: number;
+  text?: string;
+  reason?: "binary" | "too-large";
+}
+
 export interface StatusInfo {
   latestSeq: number;
   triageCursor: number;
@@ -203,6 +216,12 @@ export const api = {
     apiFetch<{ ok: boolean; status: string; schedule: Schedule }>(
       `/api/schedules/${id}/run`,
       { method: "POST" },
+    ),
+  workItemFiles: (id: string) =>
+    apiFetch<{ workspace: string; files: ArtifactEntry[] }>(`/api/work-items/${id}/files`),
+  workItemFile: (id: string, path: string) =>
+    apiFetch<ArtifactContent>(
+      `/api/work-items/${id}/file?path=${encodeURIComponent(path)}`,
     ),
   cancelExecution: (id: string) =>
     apiFetch<{ ok: boolean; executionId: string | null }>(`/api/work-items/${id}/cancel`, {

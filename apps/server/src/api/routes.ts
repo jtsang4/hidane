@@ -26,6 +26,12 @@ import {
 } from "../kernel/schedules.js";
 import { fireSchedule } from "../connectors/scheduler.js";
 import { activeExecutionId, cancelActiveWorker, hasActiveWorker } from "../agents/rpcWorker.js";
+import {
+  listArtifacts,
+  readArtifact,
+  resolveInside,
+} from "../kernel/artifacts.js";
+import { createReadStream } from "node:fs";
 
 /** The web channel feeds the same vision model as Feishu, so its uploads go
  *  through the same shape. Bounded here: base64 rides in the JSON body, and an
@@ -98,27 +104,38 @@ export function registerApi(app: Hono): void {
   app.get("/api/events/stream", (c) => {
     const after = Number(c.req.query("after") ?? Number.MAX_SAFE_INTEGER);
     return streamSSE(c, async (stream) => {
-      let cursor = after;
-      if (!Number.isFinite(cursor) || cursor === Number.MAX_SAFE_INTEGER) {
-        const last = await listEvents({ tail: 1 });
-        cursor = last[0]?.seq ?? 0;
-      }
       let open = true;
       stream.onAbort(() => {
         open = false;
       });
-      await stream.writeSSE({ event: "hello", data: JSON.stringify({ cursor }) });
+      // Greet before touching the database. The tail lookup used to run first,
+      // and when it failed under connection pressure the response was already
+      // committed with 200 headers and no body at all — one connection in eight
+      // under concurrent load. A client cannot distinguish that from a hang.
+      await stream.writeSSE({ event: "hello", data: JSON.stringify({ after }) });
       let lastWrite = Date.now();
+      let cursor = after;
       while (open) {
-        const fresh = await listEvents({ afterSeq: cursor, limit: 100 });
-        for (const event of fresh) {
-          cursor = event.seq;
-          await stream.writeSSE({
-            event: "hidane",
-            id: String(event.seq),
-            data: JSON.stringify(event),
-          });
-          lastWrite = Date.now();
+        try {
+          if (!Number.isFinite(cursor) || cursor === Number.MAX_SAFE_INTEGER) {
+            const last = await listEvents({ tail: 1 });
+            cursor = last[0]?.seq ?? 0;
+          }
+          const fresh = await listEvents({ afterSeq: cursor, limit: 100 });
+          for (const event of fresh) {
+            cursor = event.seq;
+            await stream.writeSSE({
+              event: "hidane",
+              id: String(event.seq),
+              data: JSON.stringify(event),
+            });
+            lastWrite = Date.now();
+          }
+        } catch (err) {
+          // A transient query failure must not silently end the stream: keep
+          // the connection and let the next tick retry. The client's own
+          // staleness check still catches a genuinely dead server.
+          console.error("sse poll failed:", err);
         }
         // Keep-alive. A dead server does not close the socket in a way the
         // browser reports: an open EventSource stays readyState OPEN forever
@@ -147,6 +164,45 @@ export function registerApi(app: Hono): void {
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }
+  });
+
+  // Worker output lives in the workspace and was otherwise unreachable: the
+  // only way to read a produced file was to ask the agent to paste it back.
+  app.get("/api/work-items/:id/files", async (c) => {
+    try {
+      const item = await getWorkItem(c.req.param("id"));
+      return c.json({ workspace: item.workspace, files: await listArtifacts(item.workspace) });
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+  });
+
+  app.get("/api/work-items/:id/file", async (c) => {
+    const path = c.req.query("path") ?? "";
+    if (!path) return c.json({ ok: false, error: "path required" }, 400);
+    let item;
+    try {
+      item = await getWorkItem(c.req.param("id"));
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+    // The path comes from a URL; escaping the workspace must be impossible.
+    if (!resolveInside(item.workspace, path)) {
+      return c.json({ ok: false, error: "path outside workspace" }, 403);
+    }
+    if (c.req.query("download") !== undefined) {
+      const target = resolveInside(item.workspace, path)!;
+      const name = path.split("/").pop() ?? "file";
+      return new Response(createReadStream(target) as unknown as ReadableStream, {
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        },
+      });
+    }
+    const content = await readArtifact(item.workspace, path);
+    if (!content) return c.json({ ok: false, error: "not found" }, 404);
+    return c.json(content);
   });
 
   app.patch("/api/work-items/:id", async (c) => {

@@ -15,6 +15,7 @@ import { pushToast } from "../lib/toast.js";
 import { cn, fmtTime, fmtDateTime } from "../lib/utils.js";
 import { Badge, Button, Card, Textarea } from "../components/ui/primitives.js";
 import { Pending } from "../components/Pending.js";
+import { Artifacts } from "../components/Artifacts.js";
 
 function Execution({ group }: { group: ExecutionGroup }) {
   const { t } = useTranslation();
@@ -215,6 +216,7 @@ export function ItemDetailPage() {
           )}
           <Pending state={waiting} />
         </section>
+        <Artifacts workItemId={id} />
         {executions.length > 0 && (
           <section className="space-y-2">
             <h2 className="text-sm font-medium text-muted">{t("item.timeline")}</h2>

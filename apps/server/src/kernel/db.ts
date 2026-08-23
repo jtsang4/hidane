@@ -8,7 +8,10 @@ let sqlInstance: Sql | undefined;
 export function sql(): Sql {
   sqlInstance ??= postgres(config.databaseUrl, {
     onnotice: () => {},
-    max: 5,
+    // Every live browser tab holds an SSE stream that polls on a timer, so the
+    // pool has to cover concurrent readers plus the agent lanes; 5 starved
+    // under a handful of simultaneous connections.
+    max: 20,
   });
   return sqlInstance;
 }
