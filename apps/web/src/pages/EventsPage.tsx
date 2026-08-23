@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, type HidaneEvent } from "../lib/api.js";
 import { fmtDateTime } from "../lib/utils.js";
@@ -21,7 +22,14 @@ function EventRow({ event }: { event: HidaneEvent }) {
         </Badge>
         <span className="text-xs text-muted">{event.source}</span>
         {event.workItemId && (
-          <span className="font-mono text-xs text-muted">{event.workItemId}</span>
+          <Link
+            to="/items/$id"
+            params={{ id: event.workItemId }}
+            className="font-mono text-xs text-primary underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {event.workItemId}
+          </Link>
         )}
         <span className="ml-auto text-xs text-muted">{fmtDateTime(event.ts)}</span>
       </div>

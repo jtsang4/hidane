@@ -252,3 +252,43 @@ describe("api", () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe("memory and execution control", () => {
+  it("accepts a manually written memory and marks its provenance", async () => {
+    const app = buildApp();
+    const res = await app.request("/api/memories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "preference", content: "回复一律用中文" }),
+    });
+    expect(res.status).toBe(201);
+    const { entry } = (await res.json()) as { entry: { id: string; kind: string } };
+    expect(entry.kind).toBe("preference");
+
+    const events = await listEvents({ kind: "memory.promoted" });
+    expect(events).toHaveLength(1);
+    // Distinguishable from a distiller decision.
+    expect(events[0]!.payload["manual"]).toBe(true);
+    expect(events[0]!.payload["memoryId"]).toBe(entry.id);
+
+    // It shows up in the listing the UI reads.
+    const listed = (await (await app.request("/api/memories")).json()) as {
+      entries: { id: string }[];
+    };
+    expect(listed.entries.map((e) => e.id)).toContain(entry.id);
+
+    const empty = await app.request("/api/memories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "   " }),
+    });
+    expect(empty.status).toBe(400);
+  });
+
+  it("cancelling with nothing running is a 409, not a silent success", async () => {
+    const app = buildApp();
+    const res = await app.request("/api/work-items/wi_idle/cancel", { method: "POST" });
+    expect(res.status).toBe(409);
+    expect(await listEvents({ kind: "execution.cancelled" })).toHaveLength(0);
+  });
+});

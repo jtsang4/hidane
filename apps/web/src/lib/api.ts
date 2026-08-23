@@ -204,6 +204,15 @@ export const api = {
       `/api/schedules/${id}/run`,
       { method: "POST" },
     ),
+  cancelExecution: (id: string) =>
+    apiFetch<{ ok: boolean; executionId: string | null }>(`/api/work-items/${id}/cancel`, {
+      method: "POST",
+    }),
+  addMemory: (kind: MemoryEntry["kind"], content: string) =>
+    apiFetch<{ ok: boolean; entry: MemoryEntry }>(`/api/memories`, {
+      method: "POST",
+      body: JSON.stringify({ kind, content }),
+    }),
   memories: () =>
     apiFetch<{ path: string; entries: MemoryEntry[]; markdown: string }>(`/api/memories`),
   forgetMemory: (id: string) =>

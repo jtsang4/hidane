@@ -410,3 +410,33 @@ describe("feishu connector (official SDK)", () => {
     expect((await findByWorkItem("feishu", "wi_abc"))?.id).toBe(wi.id);
   });
 });
+
+describe("long reply delivery", () => {
+  it("splits instead of truncating — losing the tail read as a hang", async () => {
+    const { chunkText } = await import("../src/connectors/feishu.js");
+    // The real incident: an 8000-character reply arrived cut at 4000.
+    const long = Array.from({ length: 400 }, (_, i) => `第 ${i} 段内容`).join("\n\n");
+    expect(long.length).toBeGreaterThan(4000);
+    const chunks = chunkText(long, 3500);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(3500);
+    // Nothing is dropped: every source block survives somewhere.
+    const joined = chunks.join("\n\n");
+    expect(joined).toContain("第 0 段内容");
+    expect(joined).toContain("第 399 段内容");
+  });
+
+  it("leaves a short reply as a single message", async () => {
+    const { chunkText } = await import("../src/connectors/feishu.js");
+    expect(chunkText("短回复")).toEqual(["短回复"]);
+    expect(chunkText("")).toEqual([]);
+  });
+
+  it("hard-wraps a single line longer than the limit rather than dropping it", async () => {
+    const { chunkText } = await import("../src/connectors/feishu.js");
+    const line = "x".repeat(9000);
+    const chunks = chunkText(line, 3500);
+    expect(chunks).toHaveLength(3);
+    expect(chunks.join("")).toBe(line);
+  });
+});

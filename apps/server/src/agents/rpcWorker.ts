@@ -23,14 +23,20 @@ function guardExtensionPath(): string {
   return fileURLToPath(new URL("../../extensions/pi-guard.ts", import.meta.url));
 }
 
-interface Steerable {
+interface Controllable {
   steer(message: string): Promise<void>;
+  abort(): Promise<void>;
 }
 
 interface ActiveEntry {
-  client?: Steerable | undefined;
+  client?: Controllable | undefined;
   /** Steers arriving before the RPC client is up are buffered, then flushed. */
   buffer: string[];
+  /** Set by cancelActiveWorker so the failure reads as intent, not a crash. */
+  cancelled?: boolean;
+  /** Resolved on cancel; the run races it so a stop always terminates. */
+  onCancel?: (() => void) | undefined;
+  executionId?: string | undefined;
 }
 
 /** Running executions by work item — the "唯一在跑的 Execution" routing target. */
@@ -38,6 +44,32 @@ const activeWorkers = new Map<string, ActiveEntry>();
 
 export function hasActiveWorker(workItemId: string): boolean {
   return activeWorkers.has(workItemId);
+}
+
+/** Execution id currently running for this work item, if any. */
+export function activeExecutionId(workItemId: string): string | undefined {
+  return activeWorkers.get(workItemId)?.executionId;
+}
+
+/**
+ * Stop a running execution.
+ *
+ * Executions legitimately run for minutes, so a wrong one previously had to be
+ * waited out to the 600s timeout — the user could only watch.
+ *
+ * Two things are needed, and the first alone is not enough: `abort()` asks the
+ * agent to interrupt, but `waitForIdle` does not settle just because the run
+ * was aborted, so a cancel reported success while the execution hung on with
+ * no terminal event (measured: still running 90s after an accepted cancel).
+ * The run therefore also races an explicit cancellation signal.
+ */
+export async function cancelActiveWorker(workItemId: string): Promise<boolean> {
+  const entry = activeWorkers.get(workItemId);
+  if (!entry?.client) return false;
+  entry.cancelled = true;
+  await entry.client.abort().catch(() => {});
+  entry.onCancel?.();
+  return true;
 }
 
 /** Inject a message into the running (or starting) execution for this work item. */
@@ -73,6 +105,8 @@ export interface WorkerRunOptions {
   sessionDir: string;
   /** Registers the execution as steerable for this work item while it runs. */
   workItemId?: string | undefined;
+  /** Reported back so the UI can name what it is offering to cancel. */
+  executionId?: string | undefined;
   timeoutSec?: number | undefined;
   /** Called on tool execution boundaries — the two-phase side-effect hook. */
   onToolEvent?: ((e: WorkerToolEvent) => void | Promise<void>) | undefined;
@@ -82,6 +116,8 @@ export interface WorkerRunResult {
   ok: boolean;
   text: string;
   error?: string | undefined;
+  /** Distinguishes a deliberate stop from a failure, for the log and the UI. */
+  cancelled?: boolean | undefined;
   durationMs: number;
   toolCalls: number;
 }
@@ -149,7 +185,7 @@ export async function runWorkerExecution(
     }
   };
 
-  const entry: ActiveEntry = { buffer: [] };
+  const entry: ActiveEntry = { buffer: [], executionId: opts.executionId };
   if (opts.workItemId) activeWorkers.set(opts.workItemId, entry);
   try {
     await client.start();
@@ -159,11 +195,42 @@ export async function runWorkerExecution(
     for (const buffered of entry.buffer.splice(0)) {
       await client.steer(buffered).catch(() => {});
     }
-    await client.waitForIdle(timeoutSec * 1000);
+    // Wake on either normal completion or a cancellation.
+    const cancelSignal = new Promise<never>((_, reject) => {
+      entry.onCancel = () => reject(new Error("cancelled"));
+    });
+    try {
+      await Promise.race([client.waitForIdle(timeoutSec * 1000), cancelSignal]);
+    } catch (err) {
+      if (!entry.cancelled) throw err;
+    }
     unsubscribe();
     const text = lastAssistantText(finalMessages);
+    // The outcome follows the user's intent, not which promise won the race:
+    // abort() can make the agent go idle first, and reporting that as a clean
+    // success made a deliberately stopped run look like a completed one.
+    if (entry.cancelled) {
+      return {
+        ok: false,
+        text,
+        error: "cancelled",
+        cancelled: true,
+        durationMs: Date.now() - started,
+        toolCalls,
+      };
+    }
     return { ok: true, text, durationMs: Date.now() - started, toolCalls };
   } catch (err) {
+    if (entry.cancelled) {
+      return {
+        ok: false,
+        text: lastAssistantText(finalMessages),
+        error: "cancelled",
+        cancelled: true,
+        durationMs: Date.now() - started,
+        toolCalls,
+      };
+    }
     const stderr = client.getStderr().slice(0, 1000);
     return {
       ok: false,

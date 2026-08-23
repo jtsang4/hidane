@@ -129,6 +129,19 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - DELETE 落 `schedule.deleted` 事件
 - 结束后删除你创建的调度，不要留下每 15s 打点的常驻任务
 
+## 场景 4I：长回复不截断、执行可中止、记忆可手写
+
+- **长回复**：`chunkText` 把超长文本按段落切块而非截断。构造一段 >8000 字的文本，
+  确认切块后**每块不超上限、拼回来内容不丢**（真实事故：8000 字回复在飞书被 `slice(0,4000)`
+  砍掉一半，用户读到半截以为系统卡死，在执行早已成功 80 分钟后问「你是不是卡住了？」）
+- **中止执行**：让一个工作项跑起来（要求它做几十次工具调用），在执行中
+  `POST /api/work-items/:id/cancel`。期望：先落 `execution.cancelled`（意图在前），
+  执行**数秒内**结束并落 `execution.finished`，且 `cancelled: true` / `ok: false`
+  ——注意 `abort()` 会让 agent 自然 idle，若按「谁先完成」判定会把被中止的执行
+  错记为成功，结果标签必须跟随用户意图。没有执行在跑时 cancel 返回 409 且不落事件。
+- **手写记忆**：`POST /api/memories` 写入一条，出现在 `/api/memories` 列表中，
+  并落 `memory.promoted` 且带 `manual: true`（与蒸馏产出可区分）；空内容返回 400。
+
 ## 场景 4：事件不灭与重放
 
 期望：

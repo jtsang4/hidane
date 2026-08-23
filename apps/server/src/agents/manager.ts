@@ -141,6 +141,7 @@ async function managerCycle(workItemId: string, message: string): Promise<string
     charter: WORKER_CHARTER,
     sessionDir: sessionsRoot,
     workItemId,
+    executionId,
     timeoutSec: config.workerTimeoutSec,
     // Two-phase side-effect trail: intent before the tool acts, result after.
     onToolEvent: (e) => {
@@ -172,12 +173,15 @@ async function managerCycle(workItemId: string, message: string): Promise<string
       toolCalls: run.toolCalls,
       summary: run.text.slice(0, 8000),
       error: run.error ?? null,
+      cancelled: run.cancelled ?? false,
     },
   });
 
   const replyText = run.ok
     ? run.text
-    : `execution failed: ${run.error ?? "unknown"}\n${run.text}`;
+    : run.cancelled
+      ? `执行已取消。${run.text ? `\n已完成的部分：\n${run.text}` : ""}`
+      : `execution failed: ${run.error ?? "unknown"}\n${run.text}`;
 
   await appendEvent({
     source: "agent:manager",

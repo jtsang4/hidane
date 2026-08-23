@@ -8,10 +8,13 @@ import { handleThreadMessage } from "../agents/manager.js";
 import { describeEffectiveModel } from "../agents/sdk.js";
 import { IMAGE_ONLY_TEXT } from "../connectors/feishu.js";
 import {
+  appendMemory,
   forgetMemory,
   globalMemoryPath,
   parseMemories,
   readMemoryFile,
+  MEMORY_KINDS,
+  type MemoryKind,
 } from "../kernel/memories.js";
 import {
   createSchedule,
@@ -22,6 +25,7 @@ import {
   type ScheduleInput,
 } from "../kernel/schedules.js";
 import { fireSchedule } from "../connectors/scheduler.js";
+import { activeExecutionId, cancelActiveWorker, hasActiveWorker } from "../agents/rpcWorker.js";
 
 /** The web channel feeds the same vision model as Feishu, so its uploads go
  *  through the same shape. Bounded here: base64 rides in the JSON body, and an
@@ -159,6 +163,28 @@ export function registerApi(app: Hono): void {
     }
   });
 
+  // Stopping a runaway execution: without this the only option was waiting out
+  // the 600s timeout while watching it go.
+  app.post("/api/work-items/:id/cancel", async (c) => {
+    const id = c.req.param("id");
+    const executionId = activeExecutionId(id);
+    if (!executionId && !hasActiveWorker(id)) {
+      return c.json({ ok: false, error: "no running execution" }, 409);
+    }
+    // Intent before the effect, like every other side effect here — otherwise
+    // the stop lands in the log after the execution it stopped.
+    await appendEvent({
+      source: "connector:web",
+      kind: "execution.cancelled",
+      workItemId: id,
+      ...(executionId ? { executionId } : {}),
+      payload: { reason: "cancelled from the web ui" },
+    });
+    const cancelled = await cancelActiveWorker(id);
+    if (!cancelled) return c.json({ ok: false, error: "no running execution" }, 409);
+    return c.json({ ok: true, executionId: executionId ?? null });
+  });
+
   app.post("/api/chat", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       text?: string;
@@ -217,6 +243,34 @@ export function registerApi(app: Hono): void {
   app.get("/api/memories", async (c) => {
     const text = await readMemoryFile(globalMemoryPath());
     return c.json({ path: globalMemoryPath(), entries: parseMemories(text), markdown: text });
+  });
+
+  // Distillation is the automatic path, but a user who already knows a
+  // preference should not have to hint at it and hope the distiller notices.
+  app.post("/api/memories", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      kind?: string;
+      content?: string;
+    };
+    const content = (body.content ?? "").trim();
+    if (!content) return c.json({ ok: false, error: "content required" }, 400);
+    const kind = (MEMORY_KINDS as string[]).includes(body.kind ?? "")
+      ? (body.kind as MemoryKind)
+      : "fact";
+    const entry = await appendMemory(globalMemoryPath(), "global", { kind, content });
+    await appendEvent({
+      source: "connector:web",
+      kind: "memory.promoted",
+      payload: {
+        memoryId: entry.id,
+        kind: entry.kind,
+        content: entry.content,
+        scope: "global",
+        // Provenance matters: this one was a person's decision, not a distillation.
+        manual: true,
+      },
+    });
+    return c.json({ ok: true, entry }, 201);
   });
 
   app.delete("/api/memories/:id", async (c) => {

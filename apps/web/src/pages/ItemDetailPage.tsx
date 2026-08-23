@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, SendHorizonal } from "lucide-react";
+import { ChevronDown, ChevronRight, SendHorizonal, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, type HidaneEvent } from "../lib/api.js";
 import {
@@ -110,6 +110,17 @@ export function ItemDetailPage() {
     },
   });
 
+  // Executions legitimately run for minutes; without this the only option was
+  // waiting out the 600s timeout while watching it go wrong.
+  const cancel = useMutation({
+    mutationFn: () => api.cancelExecution(id),
+    onSuccess: () => {
+      pushToast(t("item.cancelled"), "default");
+      void queryClient.invalidateQueries({ queryKey: ["item", id] });
+    },
+    onError: (err) => pushToast(err instanceof ApiError ? err.message : String(err)),
+  });
+
   const setStatus = useMutation({
     mutationFn: (status: "open" | "done") => api.setWorkItemStatus(id, status),
     onSuccess: () => {
@@ -144,15 +155,29 @@ export function ItemDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-lg font-semibold">{item.title}</h1>
           <Badge tone={item.status === "open" ? "success" : "muted"}>{item.status}</Badge>
-          <Button
-            className="ml-auto"
-            variant="outline"
-            size="sm"
-            disabled={setStatus.isPending}
-            onClick={() => setStatus.mutate(item.status === "open" ? "done" : "open")}
-          >
-            {item.status === "open" ? t("item.markDone") : t("item.reopen")}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {pending.phase === "executing" && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={cancel.isPending}
+                onClick={() => {
+                  if (confirm(t("item.confirmCancel"))) cancel.mutate();
+                }}
+              >
+                <Square className="h-3 w-3" />
+                {t("item.cancel")}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={setStatus.isPending}
+              onClick={() => setStatus.mutate(item.status === "open" ? "done" : "open")}
+            >
+              {item.status === "open" ? t("item.markDone") : t("item.reopen")}
+            </Button>
+          </div>
         </div>
         <p className="mt-1 text-xs text-muted">
           {t("item.meta", {

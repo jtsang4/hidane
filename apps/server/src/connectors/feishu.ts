@@ -51,6 +51,66 @@ async function replyInThread(rootMessageId: string, text: string): Promise<strin
   return res.data?.message_id ?? "";
 }
 
+/** Feishu's own cap is far higher, but one message still has to be bounded. */
+const CHUNK_LIMIT = 3500;
+
+/**
+ * Split a long reply instead of cutting it off.
+ *
+ * `slice(0, 4000)` silently dropped the tail: a 8000-character paper summary
+ * arrived half-finished, the user read it as the runtime hanging and asked
+ * "你是不是卡住了？" 80 minutes after the execution had actually succeeded.
+ * Losing content is worse than sending two messages.
+ *
+ * Splits on blank lines first, then single lines, and only breaks mid-line for
+ * a line that is itself longer than the limit.
+ */
+export function chunkText(text: string, limit = CHUNK_LIMIT): string[] {
+  if (text.length <= limit) return text.length > 0 ? [text] : [];
+  const chunks: string[] = [];
+  let current = "";
+  const flush = (): void => {
+    if (current.length > 0) chunks.push(current);
+    current = "";
+  };
+  const push = (piece: string, sep: string): void => {
+    if (current.length + sep.length + piece.length <= limit) {
+      current = current.length > 0 ? current + sep + piece : piece;
+      return;
+    }
+    flush();
+    if (piece.length <= limit) {
+      current = piece;
+      return;
+    }
+    // A single oversized line: hard-wrap it, nothing smarter is possible.
+    for (let i = 0; i < piece.length; i += limit) chunks.push(piece.slice(i, i + limit));
+  };
+  for (const block of text.split("\n\n")) {
+    if (block.length <= limit) {
+      push(block, "\n\n");
+      continue;
+    }
+    for (const line of block.split("\n")) push(line, "\n");
+  }
+  flush();
+  return chunks;
+}
+
+/** Number the parts so a multi-message reply reads as one deliberate answer. */
+function labelled(chunks: string[]): string[] {
+  if (chunks.length <= 1) return chunks;
+  return chunks.map((c, i) => `${c}\n\n（${i + 1}/${chunks.length}）`);
+}
+
+async function sendChunked(chatId: string, text: string): Promise<void> {
+  for (const chunk of labelled(chunkText(text))) await sendText(chatId, chunk);
+}
+
+async function replyChunked(rootMessageId: string, text: string): Promise<void> {
+  for (const chunk of labelled(chunkText(text))) await replyInThread(rootMessageId, chunk);
+}
+
 export function extractText(content: string): string {
   try {
     const parsed = JSON.parse(content) as { text?: string };
@@ -226,7 +286,7 @@ export async function deliverToMain(text: string): Promise<boolean> {
   if (!feishuEnabled()) return false;
   const binding = await findMainBinding("feishu");
   if (!binding) return false;
-  await sendText(binding.chatId, text.slice(0, 4000));
+  await sendChunked(binding.chatId, text);
   return true;
 }
 
@@ -256,11 +316,11 @@ async function deliverOutcome(
       });
     }
     if (binding.rootId) {
-      await replyInThread(binding.rootId, outcome.reply.slice(0, 4000));
+      await replyChunked(binding.rootId, outcome.reply);
       return;
     }
   }
-  await sendText(chatId, outcome.reply.slice(0, 4000));
+  await sendChunked(chatId, outcome.reply);
 }
 
 async function handleMessageEvent(data: MessageEventData): Promise<void> {
@@ -330,7 +390,7 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
       payload: { text },
     });
     const reply = await handleThreadMessage(item.id, text);
-    if (binding.rootId) await replyInThread(binding.rootId, reply.slice(0, 4000));
+    if (binding.rootId) await replyChunked(binding.rootId, reply);
     return;
   }
 
