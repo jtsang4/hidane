@@ -23,6 +23,7 @@ import {
   Logs,
   Languages,
   Brain,
+  AlarmClock,
   LogOut,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -47,6 +48,7 @@ import { ItemDetailPage } from "./pages/ItemDetailPage.js";
 import { EventsPage } from "./pages/EventsPage.js";
 import { LogPage } from "./pages/LogPage.js";
 import { MemoryPage } from "./pages/MemoryPage.js";
+import { SchedulesPage } from "./pages/SchedulesPage.js";
 import { StatusPage } from "./pages/StatusPage.js";
 
 /**
@@ -136,6 +138,7 @@ const NAV = [
   { to: "/events", key: "nav.events", icon: Logs },
   { to: "/log", key: "nav.log", icon: ScrollText },
   { to: "/memory", key: "nav.memory", icon: Brain },
+  { to: "/schedules", key: "nav.schedules", icon: AlarmClock },
   { to: "/status", key: "nav.status", icon: Activity },
 ] as const;
 
@@ -263,6 +266,7 @@ const routes = [
   createRoute({ getParentRoute: () => rootRoute, path: "/events", component: EventsPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/log", component: LogPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/memory", component: MemoryPage }),
+  createRoute({ getParentRoute: () => rootRoute, path: "/schedules", component: SchedulesPage }),
   createRoute({ getParentRoute: () => rootRoute, path: "/status", component: StatusPage }),
 ];
 

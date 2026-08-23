@@ -13,6 +13,15 @@ import {
   parseMemories,
   readMemoryFile,
 } from "../kernel/memories.js";
+import {
+  createSchedule,
+  deleteSchedule,
+  getSchedule,
+  listSchedules,
+  updateSchedule,
+  type ScheduleInput,
+} from "../kernel/schedules.js";
+import { fireSchedule } from "../connectors/scheduler.js";
 
 /** The web channel feeds the same vision model as Feishu, so its uploads go
  *  through the same shape. Bounded here: base64 rides in the JSON body, and an
@@ -213,6 +222,50 @@ export function registerApi(app: Hono): void {
   app.delete("/api/memories/:id", async (c) => {
     const ok = await forgetMemory(globalMemoryPath(), c.req.param("id"), "connector:web");
     return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not found" }, 404);
+  });
+
+  app.get("/api/schedules", async (c) => {
+    return c.json({ schedules: await listSchedules() });
+  });
+
+  app.post("/api/schedules", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as ScheduleInput;
+    try {
+      return c.json({ ok: true, schedule: await createSchedule(body) }, 201);
+    } catch (err) {
+      // validateInput throws with a human-readable reason — surface it.
+      return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+
+  app.patch("/api/schedules/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<ScheduleInput>;
+    try {
+      return c.json({ ok: true, schedule: await updateSchedule(c.req.param("id"), body) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ ok: false, error: message }, message.startsWith("schedule not found") ? 404 : 400);
+    }
+  });
+
+  app.delete("/api/schedules/:id", async (c) => {
+    try {
+      await deleteSchedule(c.req.param("id"));
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
+  });
+
+  // Run-now: without it every definition mistake takes one full period to see.
+  app.post("/api/schedules/:id/run", async (c) => {
+    try {
+      const schedule = await getSchedule(c.req.param("id"));
+      const status = await fireSchedule(schedule);
+      return c.json({ ok: true, status, schedule: await getSchedule(schedule.id) });
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
+    }
   });
 
   app.get("/api/worklog/:day", async (c) => {

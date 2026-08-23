@@ -112,6 +112,23 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 - 只有图片、没有文字时同样接受（202），文字与图片都没有时返回 400
 - 非图片 mimeType、超过 6MB、超过 4 张的部分被丢弃而不是让整条请求失败
 
+## 场景 4H：定时连接器（调度定义与执行）
+
+daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触发。期望：
+
+- 创建一个 `intervalSec: 15`、`action: http`、指向本机 `/health` 的调度：40 秒内
+  自动 fire ≥2 次，每次落 `schedule.fired` + `connector.http`（含 status/body），
+  且 triage 决策为 `scheduled-http-record-only`（wake 未设时**不**唤醒模型）
+- 创建 `action: prompt` + `cron`（如 `0 17 * * *`，`timezone: Asia/Shanghai`）：
+  `nextRunAt` 与时区换算一致；`POST /api/schedules/:id/run` 立即触发一次真实
+  Primary 链路（`user.message` 的 source 为 `connector:schedule:<id>`），
+  之后 `nextRunAt` 仍是原 cron 的下一个时刻
+- 非法定义在创建时被 400 拒绝（如 `cron: "banana"`、`intervalSec: 1`、
+  http 动作但 url 不是 http(s)、cron 与 intervalSec 同时给或都不给）
+- PATCH `enabled: false` 后 `nextRunAt` 变 null，调度循环不再触发它
+- DELETE 落 `schedule.deleted` 事件
+- 结束后删除你创建的调度，不要留下每 15s 打点的常驻任务
+
 ## 场景 4：事件不灭与重放
 
 期望：

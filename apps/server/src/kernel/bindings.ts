@@ -69,6 +69,16 @@ export async function findByChannelRef(
   return rows.length > 0 ? toBinding(rows[0] as unknown as BindingRow) : undefined;
 }
 
+/** The channel's main-thread binding, if the user has one (e.g. Feishu p2p chat). */
+export async function findMainBinding(channel: string): Promise<ChannelBinding | undefined> {
+  const db = sql();
+  const rows = await db`
+    SELECT * FROM channel_bindings
+    WHERE channel = ${channel} AND kind = 'main'
+    ORDER BY created_at DESC LIMIT 1`;
+  return rows.length > 0 ? toBinding(rows[0] as unknown as BindingRow) : undefined;
+}
+
 /** Outbound routing: where do a work item's replies go on this channel? */
 export async function findByWorkItem(
   channel: string,

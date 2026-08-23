@@ -114,6 +114,20 @@ dev loads it from the repo root, and docker compose / Coolify substitute it into
 pair raises at startup rather than silently falling back to pi's own default.
 The effective model is printed on boot and reported by `/api/status`.
 
+## Schedules (active connectors)
+
+User-defined timers managed at `/schedules` in the web UI (or `/api/schedules`):
+
+- **http** — poll a URL on a period; the response is captured as a
+  `connector.http` event. `wake: true` on the definition asks triage to wake
+  the Primary with it; otherwise it is record-only.
+- **prompt** — hand the Primary a task on a clock (cron with timezone, or a
+  fixed interval ≥10s), exactly like a user message. The reply also goes to the
+  bound Feishu main chat when one exists — reminders actually reach you.
+
+After daemon downtime an overdue schedule fires once and re-anchors from now —
+never a catch-up storm.
+
 ## Design principles
 
 - The log records everything; not everything is delivered through a queue.

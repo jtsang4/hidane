@@ -1,7 +1,12 @@
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { Hono } from "hono";
 import { appendEvent } from "../kernel/events.js";
-import { createBinding, findByChannelRef, findByWorkItem } from "../kernel/bindings.js";
+import {
+  createBinding,
+  findByChannelRef,
+  findByWorkItem,
+  findMainBinding,
+} from "../kernel/bindings.js";
 import { getWorkItem } from "../kernel/workItems.js";
 import { config } from "../config.js";
 import { handleUserMessage } from "../agents/primary.js";
@@ -210,6 +215,19 @@ interface MessageEventData {
     root_id?: string;
     content: string;
   };
+}
+
+/**
+ * Outbound push without an inbound trigger (scheduled prompts): deliver to the
+ * main-thread binding if one exists. Quiet no-op otherwise — a schedule must
+ * work on a deployment that has no Feishu at all.
+ */
+export async function deliverToMain(text: string): Promise<boolean> {
+  if (!feishuEnabled()) return false;
+  const binding = await findMainBinding("feishu");
+  if (!binding) return false;
+  await sendText(binding.chatId, text.slice(0, 4000));
+  return true;
 }
 
 /** Post-outcome delivery: mirror runtime replies back onto the Feishu surface. */

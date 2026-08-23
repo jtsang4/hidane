@@ -23,6 +23,18 @@ export const DEFAULT_RULES: TriageRule[] = [
     match: (e) => e.kind === "connector.webhook",
     action: "wake_primary",
   },
+  {
+    // The wake decision for a scheduled poll is declared on its definition;
+    // triage just reads the declared hint. Connectors still never judge.
+    name: "scheduled-http-wake-flag",
+    match: (e) => e.kind === "connector.http" && e.payload["wake"] === true,
+    action: "wake_primary",
+  },
+  {
+    name: "scheduled-http-record-only",
+    match: (e) => e.kind === "connector.http",
+    action: "record",
+  },
 ];
 
 export function triageEvent(

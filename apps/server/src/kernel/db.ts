@@ -65,6 +65,23 @@ export async function migrate(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`;
   await db`CREATE INDEX IF NOT EXISTS bindings_ref_idx ON channel_bindings (channel, chat_id, root_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      spec JSONB NOT NULL DEFAULT '{}',
+      cron TEXT,
+      interval_sec INT,
+      timezone TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      next_run_at TIMESTAMPTZ,
+      last_run_at TIMESTAMPTZ,
+      last_status TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS schedules_due_idx ON schedules (enabled, next_run_at)`;
   await db`INSERT INTO threads (id, kind) VALUES ('main', 'main') ON CONFLICT DO NOTHING`;
 }
 

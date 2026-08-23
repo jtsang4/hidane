@@ -16,6 +16,7 @@ import {
 import { startHeartbeat } from "./connectors/timer.js";
 import { startHttp } from "./connectors/http.js";
 import { startTriageLoop } from "./connectors/triageLoop.js";
+import { startScheduler } from "./connectors/scheduler.js";
 import { renderDay, writeDay, today } from "./projections/worklog.js";
 import { archiveDay } from "./projections/archive.js";
 
@@ -163,6 +164,7 @@ program
     const server = startHttp(config.port);
     const stopHeartbeat = startHeartbeat(config.heartbeatIntervalSec);
     const stopTriage = startTriageLoop(5);
+    const stopScheduler = startScheduler(15);
     const distillTimer = setInterval(() => {
       runDistillation({ minEvents: 10 }).catch((err) =>
         console.error("distill loop error:", err),
@@ -171,11 +173,12 @@ program
     const archiveTimer = setInterval(() => {
       archiveDay(today()).catch((err) => console.error("archive loop error:", err));
     }, 3600 * 1000);
-    console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, distill ${config.distillIntervalSec}s`);
+    console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, distill ${config.distillIntervalSec}s, scheduler 15s`);
     console.log(`model: ${await describeEffectiveModel()}`);
     const shutdown = async () => {
       stopHeartbeat();
       stopTriage();
+      stopScheduler();
       clearInterval(distillTimer);
       clearInterval(archiveTimer);
       server.close();

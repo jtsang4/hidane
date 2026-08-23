@@ -35,6 +35,38 @@ export interface WorkItem {
   updatedAt: string;
 }
 
+export interface Schedule {
+  id: string;
+  name: string;
+  action: "http" | "prompt";
+  spec: {
+    url?: string;
+    method?: string;
+    body?: string;
+    wake?: boolean;
+    prompt?: string;
+  };
+  cron: string | null;
+  intervalSec: number | null;
+  timezone: string | null;
+  enabled: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduleInput {
+  name: string;
+  action: "http" | "prompt";
+  spec: Schedule["spec"];
+  cron?: string;
+  intervalSec?: number;
+  timezone?: string;
+  enabled?: boolean;
+}
+
 export interface StatusInfo {
   latestSeq: number;
   triageCursor: number;
@@ -154,6 +186,24 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }),
+  schedules: () => apiFetch<{ schedules: Schedule[] }>(`/api/schedules`),
+  createSchedule: (input: ScheduleInput) =>
+    apiFetch<{ ok: boolean; schedule: Schedule }>(`/api/schedules`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateSchedule: (id: string, patch: Partial<ScheduleInput>) =>
+    apiFetch<{ ok: boolean; schedule: Schedule }>(`/api/schedules/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteSchedule: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/schedules/${id}`, { method: "DELETE" }),
+  runSchedule: (id: string) =>
+    apiFetch<{ ok: boolean; status: string; schedule: Schedule }>(
+      `/api/schedules/${id}/run`,
+      { method: "POST" },
+    ),
   memories: () =>
     apiFetch<{ path: string; entries: MemoryEntry[]; markdown: string }>(`/api/memories`),
   forgetMemory: (id: string) =>

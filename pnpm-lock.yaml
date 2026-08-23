@@ -22,6 +22,9 @@ importers:
       commander:
         specifier: ^15.0.0
         version: 15.0.0
+      croner:
+        specifier: ^10.0.1
+        version: 10.0.1
       execa:
         specifier: ^10.0.1
         version: 10.0.1
@@ -1293,6 +1296,10 @@ packages:
 
   cookie-es@3.1.1:
     resolution: {integrity: sha512-UaXxwISYJPTr9hwQxMFYZ7kNhSXboMXP+Z3TRX6f1/NyaGPfuNUZOWP1pUEb75B2HjfklIYLVRfWiFZJyC6Npg==}
+
+  croner@10.0.1:
+    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+    engines: {node: '>=18.0'}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -3561,6 +3568,8 @@ snapshots:
   convert-source-map@2.0.0: {}
 
   cookie-es@3.1.1: {}
+
+  croner@10.0.1: {}
 
   cross-spawn@7.0.6:
     dependencies:
