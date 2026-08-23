@@ -35,10 +35,33 @@ function larkClient(): lark.Client {
   return client;
 }
 
-async function sendText(chatId: string, text: string): Promise<string> {
+/**
+ * Agent replies are markdown. Delivered as `msg_type: "text"` they arrive as a
+ * wall of `#` and `**` — readable only by mentally stripping the syntax, which
+ * is exactly what made long answers unusable. An interactive card renders it.
+ *
+ * The card is built by hand rather than through a template: it is three lines
+ * of JSON, and a template would put the layout on Feishu's side where it could
+ * not be tested here.
+ */
+function markdownCard(text: string): string {
+  return JSON.stringify({
+    config: { wide_screen_mode: true },
+    elements: [{ tag: "markdown", content: text }],
+  });
+}
+
+/**
+ * Some messages are labels, not prose (the "📋 wi_x — title" thread root).
+ * Sending those as cards would make a thread root that cannot be replied to
+ * the way a text root can, so plain text stays available.
+ */
+async function sendText(chatId: string, text: string, rich = true): Promise<string> {
   const res = await larkClient().im.message.create({
     params: { receive_id_type: "chat_id" },
-    data: { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) },
+    data: rich
+      ? { receive_id: chatId, msg_type: "interactive", content: markdownCard(text) }
+      : { receive_id: chatId, msg_type: "text", content: JSON.stringify({ text }) },
   });
   return res.data?.message_id ?? "";
 }
@@ -46,7 +69,11 @@ async function sendText(chatId: string, text: string): Promise<string> {
 async function replyInThread(rootMessageId: string, text: string): Promise<string> {
   const res = await larkClient().im.message.reply({
     path: { message_id: rootMessageId },
-    data: { msg_type: "text", content: JSON.stringify({ text }), reply_in_thread: true },
+    data: {
+      msg_type: "interactive",
+      content: markdownCard(text),
+      reply_in_thread: true,
+    },
   });
   return res.data?.message_id ?? "";
 }
@@ -299,7 +326,7 @@ async function deliverOutcome(
     let binding = await findByWorkItem("feishu", outcome.workItemId);
     if (!binding) {
       const item = await getWorkItem(outcome.workItemId);
-      const rootId = await sendText(chatId, `📋 ${item.id} — ${item.title}`);
+      const rootId = await sendText(chatId, `📋 ${item.id} — ${item.title}`, false);
       binding = await createBinding({
         channel: "feishu",
         kind: "work_item",

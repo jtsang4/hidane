@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import Markdown from "react-markdown";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api.js";
 import { shiftDay, today } from "../lib/utils.js";
 import { Button, Input } from "../components/ui/primitives.js";
+import { Rich } from "../components/Markdown.js";
 
 export function LogPage() {
   const { t } = useTranslation();
@@ -59,11 +59,9 @@ export function LogPage() {
       </div>
       {isLoading && <p className="text-sm text-muted">{t("common.loading")}</p>}
       {empty && <p className="pt-8 text-center text-sm text-muted">{t("log.empty")}</p>}
-      {/* Worklog lines carry absolute paths and shell commands; without an
-          explicit wrap they push the whole page sideways on a phone. */}
-      <article className="prose-sm max-w-none space-y-2 break-words [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mt-4 [&_h2]:text-base [&_h2]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_code]:rounded [&_code]:bg-surface-2 [&_code]:px-1 [&_code]:text-xs [&_code]:break-all [&_pre]:overflow-x-auto">
-        <Markdown>{markdown}</Markdown>
-      </article>
+      {/* Worklog lines carry absolute paths and shell commands; the shared
+          renderer wraps long code spans so they cannot widen the page. */}
+      <Rich className="text-sm [&_code]:break-all">{markdown}</Rich>
     </div>
   );
 }

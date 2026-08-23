@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, authHeaders, type ArtifactEntry } from "../lib/api.js";
 import { fmtDateTime } from "../lib/utils.js";
 import { Button, Card } from "./ui/primitives.js";
+import { Rich } from "./Markdown.js";
 
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -72,11 +73,17 @@ function ArtifactRow({ workItemId, file }: { workItemId: string; file: ArtifactE
           {data?.reason === "too-large" && (
             <p className="text-xs text-muted">{t("item.tooLarge")}</p>
           )}
-          {data?.text !== undefined && (
-            <pre className="max-h-96 overflow-auto rounded bg-background p-2 text-xs whitespace-pre-wrap">
-              {data.text}
-            </pre>
-          )}
+          {data?.text !== undefined &&
+            (file.path.endsWith(".md") ? (
+              // A produced report is meant to be read, not inspected as source.
+              <div className="max-h-96 overflow-auto rounded bg-background p-2 text-xs">
+                <Rich>{data.text}</Rich>
+              </div>
+            ) : (
+              <pre className="max-h-96 overflow-auto rounded bg-background p-2 text-xs whitespace-pre-wrap">
+                {data.text}
+              </pre>
+            ))}
         </div>
       )}
     </div>

@@ -16,6 +16,7 @@ import { cn, fmtTime, fmtDateTime } from "../lib/utils.js";
 import { Badge, Button, Card, Textarea } from "../components/ui/primitives.js";
 import { Pending } from "../components/Pending.js";
 import { Artifacts } from "../components/Artifacts.js";
+import { Rich } from "../components/Markdown.js";
 
 function Execution({ group }: { group: ExecutionGroup }) {
   const { t } = useTranslation();
@@ -65,9 +66,9 @@ function Execution({ group }: { group: ExecutionGroup }) {
             </div>
           ))}
           {group.finished && (
-            <p className="whitespace-pre-wrap pt-1">
-              {String(group.finished.payload["summary"] ?? "").slice(0, 2000)}
-            </p>
+            <div className="pt-1">
+              <Rich>{String(group.finished.payload["summary"] ?? "").slice(0, 4000)}</Rich>
+            </div>
           )}
         </div>
       )}
@@ -197,11 +198,15 @@ export function ItemDetailPage() {
             >
               <div
                 className={cn(
-                  "max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words",
+                  "max-w-[85%] rounded-lg px-3 py-2 text-sm break-words",
                   e.kind === "user.message" ? "bg-primary text-primary-foreground" : "bg-surface-2",
                 )}
               >
-                {payloadText(e)}
+                {e.kind === "user.message" ? (
+                  <span className="whitespace-pre-wrap">{payloadText(e)}</span>
+                ) : (
+                  <Rich>{payloadText(e)}</Rich>
+                )}
                 <div className="mt-1 text-[10px] opacity-60">{fmtTime(e.ts)}</div>
               </div>
             </div>

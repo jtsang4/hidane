@@ -6,14 +6,23 @@ vi.mock("../src/agents/primary.js", () => ({
 vi.mock("../src/agents/manager.js", () => ({
   handleThreadMessage: vi.fn(async () => "stub"),
 }));
+// Outbound calls are recorded here so delivery shape can be asserted.
+const sent = vi.hoisted(() => [] as { api: "create" | "reply"; data: Record<string, unknown> }[]);
+
 // The Feishu SDK client would hit the network on delivery; stub the outbound API.
 vi.mock("@larksuiteoapi/node-sdk", async (importOriginal) => {
   const actual = (await importOriginal()) as typeof import("@larksuiteoapi/node-sdk");
   class StubClient {
     im = {
       message: {
-        create: vi.fn(async () => ({ data: { message_id: "om_stub_root" } })),
-        reply: vi.fn(async () => ({ data: { message_id: "om_stub_reply" } })),
+        create: vi.fn(async (req: { data: Record<string, unknown> }) => {
+          sent.push({ api: "create", data: req.data });
+          return { data: { message_id: "om_stub_root" } };
+        }),
+        reply: vi.fn(async (req: { data: Record<string, unknown> }) => {
+          sent.push({ api: "reply", data: req.data });
+          return { data: { message_id: "om_stub_reply" } };
+        }),
       },
       messageResource: {
         // Mirrors a real SDK failure: an opaque axios message, with Feishu's
@@ -50,6 +59,7 @@ function signed(body: Record<string, unknown>): string {
 }
 
 afterEach(() => {
+  sent.length = 0;
   config.feishuAppId = undefined;
   config.feishuAppSecret = undefined;
   config.feishuVerificationToken = undefined;
@@ -408,6 +418,84 @@ describe("feishu connector (official SDK)", () => {
     expect((await findByChannelRef("feishu", "oc_9", "om_root"))?.workItemId).toBe("wi_abc");
     expect((await findByChannelRef("feishu", "oc_9", null))?.kind).toBe("main");
     expect((await findByWorkItem("feishu", "wi_abc"))?.id).toBe(wi.id);
+  });
+});
+
+describe("markdown delivery", () => {
+  it("sends replies as an interactive card so markdown renders", async () => {
+    enableFeishu();
+    const app = buildApp();
+    await app.request("/feishu/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: signed({
+        schema: "2.0",
+        header: { event_id: "evt_md_1", event_type: "im.message.receive_v1" },
+        event: {
+          sender: { sender_type: "user" },
+          message: {
+            message_id: "om_md",
+            chat_id: "oc_md",
+            chat_type: "p2p",
+            message_type: "text",
+            create_time: "0",
+            content: JSON.stringify({ text: "讲点什么" }),
+          },
+        },
+      }),
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Plain text arrives as a wall of "#" and "**"; a card renders it.
+    const card = sent.find((m) => m.data["msg_type"] === "interactive");
+    expect(card).toBeDefined();
+    const content = JSON.parse(String(card!.data["content"])) as {
+      elements: { tag: string; content: string }[];
+    };
+    expect(content.elements[0]!.tag).toBe("markdown");
+    expect(content.elements[0]!.content).toBe("stub");
+  });
+
+  it("keeps the work item thread root as plain text", async () => {
+    const { createBinding } = await import("../src/kernel/bindings.js");
+    void createBinding;
+    enableFeishu();
+    const { handleUserMessage } = await import("../src/agents/primary.js");
+    (handleUserMessage as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      action: "new_work_item",
+      reply: "# 标题\n**完成**",
+      workItemId: (await (await import("../src/kernel/workItems.js")).createWorkItem("md root")).id,
+    });
+    const app = buildApp();
+    await app.request("/feishu/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: signed({
+        schema: "2.0",
+        header: { event_id: "evt_md_2", event_type: "im.message.receive_v1" },
+        event: {
+          sender: { sender_type: "user" },
+          message: {
+            message_id: "om_md2",
+            chat_id: "oc_md2",
+            chat_type: "p2p",
+            message_type: "text",
+            create_time: "0",
+            content: JSON.stringify({ text: "做点事" }),
+          },
+        },
+      }),
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    // The root is a label the thread hangs off, not prose.
+    const root = sent.find(
+      (m) => m.api === "create" && String(m.data["content"]).includes("📋"),
+    );
+    expect(root?.data["msg_type"]).toBe("text");
+    // The actual answer still goes out as a rendered card, in the thread.
+    const reply = sent.find((m) => m.api === "reply");
+    expect(reply?.data["msg_type"]).toBe("interactive");
   });
 });
 

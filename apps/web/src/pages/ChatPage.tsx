@@ -11,6 +11,7 @@ import { pushToast } from "../lib/toast.js";
 import { cn, fmtTime } from "../lib/utils.js";
 import { Badge, Button, Textarea } from "../components/ui/primitives.js";
 import { Pending } from "../components/Pending.js";
+import { Rich } from "../components/Markdown.js";
 
 function Bubble({ event, ghost = false }: { event: HidaneEvent; ghost?: boolean }) {
   if (event.kind === "escalation") {
@@ -39,12 +40,18 @@ function Bubble({ event, ghost = false }: { event: HidaneEvent; ghost?: boolean 
     <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words",
+          "max-w-[85%] rounded-lg px-3 py-2 text-sm break-words",
           mine ? "bg-primary text-primary-foreground" : "bg-surface-2",
           ghost && "opacity-60",
         )}
       >
-        {payloadText(event)}
+        {/* Only the agent writes markdown; echoing the user's own text through
+            a renderer would silently reformat what they typed. */}
+        {mine ? (
+          <span className="whitespace-pre-wrap">{payloadText(event)}</span>
+        ) : (
+          <Rich>{payloadText(event)}</Rich>
+        )}
         <div className="mt-1 text-[10px] opacity-60">{ghost ? "…" : fmtTime(event.ts)}</div>
       </div>
     </div>
