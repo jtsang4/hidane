@@ -290,7 +290,12 @@ function RootLayout() {
           <span className="hidden sm:inline">{t("token.signOut")}</span>
         </button>
       </nav>
-      <main className="min-h-0 flex-1">
+      {/* The scroll container is here, not on the document: pages that simply
+          stack content used to overflow the body, which scrolled the whole
+          layout and carried the nav off screen. Pages that manage their own
+          height (chat, work item thread) fill this exactly and keep scrolling
+          their own message list. */}
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <Outlet />
       </main>
       <Toaster />
