@@ -178,7 +178,9 @@ export const api = {
     );
   },
   workItems: (all = false) =>
-    apiFetch<{ items: WorkItem[] }>(`/api/work-items${all ? "?all" : ""}`),
+    apiFetch<{ items: WorkItem[]; running: string[] }>(
+      `/api/work-items${all ? "?all" : ""}`,
+    ),
   workItem: (id: string) =>
     apiFetch<{ item: WorkItem; events: HidaneEvent[] }>(`/api/work-items/${id}`),
   chat: (text: string, images: OutboundImage[] = []) =>

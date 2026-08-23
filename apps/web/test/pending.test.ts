@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HidaneEvent } from "../src/lib/api.js";
-import { elapsedSeconds, pendingState, runningWorkItems } from "../src/lib/pending.js";
+import { elapsedSeconds, pendingState } from "../src/lib/pending.js";
 import {
   livenessFrom,
   shouldReconnect,
@@ -65,21 +65,6 @@ describe("pendingState", () => {
     const user = ev({ kind: "user.message" });
     const reply = ev({ kind: "agent.reply" });
     expect(pendingState([reply, user].sort((a, b) => b.seq - a.seq)).active).toBe(false);
-  });
-});
-
-describe("runningWorkItems", () => {
-  it("lists only items whose execution has not finished", () => {
-    const events = [
-      ev({ kind: "execution.started", executionId: "ex_a", workItemId: "wi_a" }),
-      ev({ kind: "execution.started", executionId: "ex_b", workItemId: "wi_b" }),
-      ev({ kind: "execution.finished", executionId: "ex_a", workItemId: "wi_a" }),
-    ];
-    expect([...runningWorkItems(events)]).toEqual(["wi_b"]);
-  });
-
-  it("is empty when nothing is running", () => {
-    expect(runningWorkItems([ev({ kind: "user.message" })]).size).toBe(0);
   });
 });
 

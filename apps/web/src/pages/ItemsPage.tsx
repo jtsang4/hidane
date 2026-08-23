@@ -5,7 +5,6 @@ import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../lib/api.js";
 import { pushToast } from "../lib/toast.js";
-import { runningWorkItems } from "../lib/pending.js";
 import { matchesItem } from "../lib/search.js";
 import { Time } from "../components/Time.js";
 import { Badge, Button, Card, Input, Textarea } from "../components/ui/primitives.js";
@@ -79,11 +78,9 @@ export function ItemsPage() {
   });
   // Which item is busy right now is the first thing you want from a list of
   // them, and the status column cannot say it: "open" covers idle and running.
-  const { data: recent } = useQuery({
-    queryKey: ["events", "executions"],
-    queryFn: () => api.events({ tail: 300 }),
-  });
-  const running = runningWorkItems(recent?.events ?? []);
+  // The server reports it directly — inferring it from a window of recent
+  // events broke as soon as a busy run outgrew the window.
+  const running = new Set(data?.running ?? []);
   const items = data?.items ?? [];
   const shown = query.trim() ? items.filter((i) => matchesItem(i, query)) : items;
 

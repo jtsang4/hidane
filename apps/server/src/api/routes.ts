@@ -158,7 +158,11 @@ export function registerApi(app: Hono): void {
   app.get("/api/work-items", async (c) => {
     const all = c.req.query("all") !== undefined;
     const items = await listWorkItems(all ? undefined : "open");
-    return c.json({ items });
+    // Which items are busy is process-level truth here. Clients used to infer
+    // it from a window of recent events, which quietly went wrong once a busy
+    // run pushed its own execution.started out of that window.
+    const running = items.filter((i) => hasActiveWorker(i.id)).map((i) => i.id);
+    return c.json({ items, running });
   });
 
   app.get("/api/work-items/:id", async (c) => {
@@ -419,13 +423,15 @@ export function registerApi(app: Hono): void {
       return c.json({ ok: false, error: "not found" }, 404);
     }
     const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-    // Firings and their captured results both carry the schedule id.
-    const events = await listEvents({ tail: 500 });
-    const runs = events
-      .filter((e) => e.payload["scheduleId"] === id)
-      .slice(-limit * 3)
-      .reverse();
-    return c.json({ runs });
+    // Query by the id inside the payload rather than scanning a tail window:
+    // a daily schedule's previous run is thousands of heartbeats back, so a
+    // window scan would report "no runs yet" for anything but the newest.
+    // Each firing writes two events (intent, then outcome).
+    const runs = await listEvents({
+      payloadEquals: { key: "scheduleId", value: id },
+      tail: limit * 2,
+    });
+    return c.json({ runs: runs.reverse() });
   });
 
   // Run-now: without it every definition mistake takes one full period to see.

@@ -157,6 +157,20 @@ describe("api", () => {
     expect(busy.eventCount).toBeGreaterThan(0);
   });
 
+  it("reports which work items have a live worker, from the process table", async () => {
+    await createWorkItem("idle one", "test");
+    const app = buildApp();
+    const listed = (await (await app.request("/api/work-items")).json()) as {
+      items: { id: string }[];
+      running: string[];
+    };
+    expect(listed.items.length).toBeGreaterThan(0);
+    // Nothing is executing in a unit test, so the set is empty rather than
+    // absent — clients branch on membership, not on the field existing.
+    expect(Array.isArray(listed.running)).toBe(true);
+    expect(listed.running).toHaveLength(0);
+  });
+
   it("creates a work item directly, optionally dispatching a first brief", async () => {
     const app = buildApp();
     const plain = await app.request("/api/work-items", {

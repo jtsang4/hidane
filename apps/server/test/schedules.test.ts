@@ -10,7 +10,7 @@ vi.mock("../src/agents/manager.js", () => ({
 import { buildApp } from "../src/connectors/http.js";
 import { fireSchedule } from "../src/connectors/scheduler.js";
 import { handleUserMessage } from "../src/agents/primary.js";
-import { listEvents } from "../src/kernel/events.js";
+import { appendEvent, listEvents } from "../src/kernel/events.js";
 import { triageEvent } from "../src/kernel/triage.js";
 import {
   computeNextRun,
@@ -177,6 +177,31 @@ describe("schedule run history", () => {
     expect(runs[0]!.seq).toBeGreaterThan(runs[runs.length - 1]!.seq);
 
     expect((await app.request("/api/schedules/sc_nope/runs")).status).toBe(404);
+  });
+
+  it("finds runs buried under a flood of unrelated events", async () => {
+    const schedule = await createSchedule({
+      name: "daily",
+      action: "prompt",
+      spec: { prompt: "x" },
+      cron: "0 17 * * *",
+    });
+    await fireSchedule(schedule);
+    // A daily schedule's previous run sits behind a day of heartbeats. A tail
+    // window scan reported "no runs yet" for exactly this shape.
+    for (let i = 0; i < 600; i++) {
+      await appendEvent({
+        source: "connector:timer",
+        kind: "connector.heartbeat",
+        payload: { at: String(i) },
+      });
+    }
+    const app = buildApp();
+    const { runs } = (await (
+      await app.request(`/api/schedules/${schedule.id}/runs`)
+    ).json()) as { runs: { kind: string }[] };
+    expect(runs.length).toBeGreaterThan(0);
+    expect(runs.some((r) => r.kind === "schedule.fired")).toBe(true);
   });
 });
 

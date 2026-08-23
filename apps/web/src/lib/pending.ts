@@ -47,21 +47,6 @@ export function pendingState(events: HidaneEvent[]): PendingState {
     : { active: false, since: null, phase: null };
 }
 
-/** Work item ids with an execution started but not finished. */
-export function runningWorkItems(events: HidaneEvent[]): Set<string> {
-  const ordered = [...events].sort((a, b) => a.seq - b.seq);
-  const byExecution = new Map<string, string>();
-  for (const e of ordered) {
-    if (!e.executionId) continue;
-    if (e.kind === "execution.started" && e.workItemId) {
-      byExecution.set(e.executionId, e.workItemId);
-    } else if (e.kind === "execution.finished") {
-      byExecution.delete(e.executionId);
-    }
-  }
-  return new Set(byExecution.values());
-}
-
 /** Whole seconds since `iso`, floored at 0. */
 export function elapsedSeconds(iso: string, now = Date.now()): number {
   return Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));

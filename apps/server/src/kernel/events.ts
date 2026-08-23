@@ -75,6 +75,14 @@ export interface ListFilter {
   beforeSeq?: number | undefined;
   /** ISO date `YYYY-MM-DD` interpreted in the local timezone. */
   day?: string | undefined;
+  /**
+   * Match a top-level payload key, e.g. `{ scheduleId: "sc_x" }`.
+   *
+   * Needed because some things are identified only inside the payload — a
+   * schedule's firings, say. Filtering those by scanning a tail window silently
+   * loses history the moment the window is shorter than the gap between runs.
+   */
+  payloadEquals?: { key: string; value: string } | undefined;
   tail?: number | undefined;
   limit?: number | undefined;
 }
@@ -93,6 +101,12 @@ export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]
   if (filter.kind) add("kind = ?", filter.kind);
   if (filter.afterSeq !== undefined) add("seq > ?", filter.afterSeq);
   if (filter.beforeSeq !== undefined) add("seq < ?", filter.beforeSeq);
+  if (filter.payloadEquals) {
+    params.push(filter.payloadEquals.key);
+    const keyParam = `$${params.length}`;
+    params.push(filter.payloadEquals.value);
+    where.push(`payload->>${keyParam} = $${params.length}`);
+  }
   if (filter.day) {
     const start = new Date(`${filter.day}T00:00:00`);
     const end = new Date(start.getTime() + 24 * 3600 * 1000);
