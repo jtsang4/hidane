@@ -58,7 +58,8 @@ Rules for AI coding agents working in this repository. Project introduction live
 
 ## Security
 
-- `/health` is the only open endpoint. `/api/*` requires `HIDANE_API_TOKEN` (Bearer); `/webhook/:name` requires an `x-hidane-signature` HMAC-SHA256 when `HIDANE_WEBHOOK_SECRET` is set. Production sets both — never remove these gates or add unauthenticated write endpoints.
+- `/health` is the only open endpoint. `/api/*` requires `HIDANE_API_TOKEN` (Bearer); `/webhook/:name` requires an `x-hidane-signature` HMAC-SHA256 when `HIDANE_WEBHOOK_SECRET` is set; `/feishu/events` requires a matching `FEISHU_VERIFICATION_TOKEN` or an encrypted envelope. Production sets all of them — never remove these gates or add unauthenticated write endpoints. Any endpoint that can start an execution is spending money and granting code execution.
+- **Never treat a library option name as a guarantee on a security boundary.** `new EventDispatcher({ verificationToken })` reads like validation, but the SDK's `checkIsEventValidated` returns `true` outright when no encrypt key is set — `/feishu/events` was open in production as a result. Read the source, or re-check the invariant yourself at the boundary. Preferring official SDKs (above) applies to protocol mechanics, not to trust decisions.
 
 ## Configuration & deployment
 
