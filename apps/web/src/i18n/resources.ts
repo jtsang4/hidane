@@ -56,6 +56,9 @@ export const zh = {
       empty: "还没有工作项。",
       updatedAt: "更新于 {{time}}",
       working: "进行中",
+      search: "按标题或 id 搜索…",
+      matched: "{{n}} / {{total}}",
+      noMatch: "没有匹配的工作项。",
     },
     item: {
       timeline: "执行时间线",
@@ -150,6 +153,16 @@ export const zh = {
         create: "创建",
       },
     },
+    notify: {
+      done: "任务完成",
+      failed: "任务失败",
+      title: "完成提醒",
+      hint: "执行常常要几分钟。开启后，切走时任务结束会用系统通知提醒你；标签页标题始终会显示未读数。",
+      enable: "开启通知",
+      granted: "已开启",
+      denied: "已被浏览器拒绝，请在站点设置中恢复",
+      unsupported: "当前浏览器不支持",
+    },
     notFound: { title: "页面不存在", back: "回到会话" },
     status: {
       title: "运行状态",
@@ -224,6 +237,9 @@ export const en = {
       empty: "No work items yet.",
       updatedAt: "updated {{time}}",
       working: "working",
+      search: "Search by title or id…",
+      matched: "{{n}} / {{total}}",
+      noMatch: "No matching work items.",
     },
     item: {
       timeline: "Execution timeline",
@@ -317,6 +333,16 @@ export const en = {
         wake: "Wake the Primary with the captured response (record-only otherwise)",
         create: "Create",
       },
+    },
+    notify: {
+      done: "Task finished",
+      failed: "Task failed",
+      title: "Completion alerts",
+      hint: "Runs often take minutes. When enabled, a finished run notifies you while you are away; the tab title always carries the unread count.",
+      enable: "Enable notifications",
+      granted: "Enabled",
+      denied: "Blocked by the browser — re-allow it in site settings",
+      unsupported: "Not supported in this browser",
     },
     notFound: { title: "Page not found", back: "Back to chat" },
     status: {

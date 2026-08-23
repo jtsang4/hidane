@@ -4,12 +4,15 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../lib/api.js";
 import { runningWorkItems } from "../lib/pending.js";
+import { matchesItem } from "../lib/search.js";
 import { fmtDateTime } from "../lib/utils.js";
-import { Badge, Button, Card } from "../components/ui/primitives.js";
+import { Badge, Button, Card, Input } from "../components/ui/primitives.js";
 
 export function ItemsPage() {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
+  // Items accumulate; scanning a list by eye stops working after a handful.
+  const [query, setQuery] = useState("");
   const { data } = useQuery({
     queryKey: ["items", all],
     queryFn: () => api.workItems(all),
@@ -21,16 +24,30 @@ export function ItemsPage() {
     queryFn: () => api.events({ tail: 300 }),
   });
   const running = runningWorkItems(recent?.events ?? []);
+  const items = data?.items ?? [];
+  const shown = query.trim() ? items.filter((i) => matchesItem(i, query)) : items;
 
   return (
     <div className="space-y-3 p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold">{t("items.title")}</h1>
-        <Button variant="outline" size="sm" onClick={() => setAll((v) => !v)}>
-          {all ? t("items.onlyOpen") : t("items.includeAll")}
-        </Button>
+        <div className="flex items-center gap-2">
+          {query.trim() && (
+            <span className="text-xs text-muted">
+              {t("items.matched", { n: shown.length, total: items.length })}
+            </span>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setAll((v) => !v)}>
+            {all ? t("items.onlyOpen") : t("items.includeAll")}
+          </Button>
+        </div>
       </div>
-      {(data?.items ?? []).map((item) => (
+      <Input
+        placeholder={t("items.search")}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {shown.map((item) => (
         <Link key={item.id} to="/items/$id" params={{ id: item.id }} className="block">
           <Card className="transition-colors hover:bg-surface-2">
             <div className="flex items-center justify-between gap-2">
@@ -53,8 +70,11 @@ export function ItemsPage() {
           </Card>
         </Link>
       ))}
-      {data?.items.length === 0 && (
+      {items.length === 0 && (
         <p className="pt-8 text-center text-sm text-muted">{t("items.empty")}</p>
+      )}
+      {items.length > 0 && shown.length === 0 && (
+        <p className="pt-8 text-center text-sm text-muted">{t("items.noMatch")}</p>
       )}
     </div>
   );

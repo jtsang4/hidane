@@ -38,6 +38,7 @@ import {
   setToken,
 } from "./lib/api.js";
 import { livenessFrom, shouldReconnect, type LiveState } from "./lib/live.js";
+import { badgeTitle, completionFrom, notifyPermission } from "./lib/notify.js";
 import { clearToasts, pushToast } from "./lib/toast.js";
 import { cn } from "./lib/utils.js";
 import { Button, Card, Input } from "./components/ui/primitives.js";
@@ -58,6 +59,50 @@ import { StatusPage } from "./pages/StatusPage.js";
  * silent: a killed server leaves EventSource at readyState OPEN with no error,
  * so liveness is decided by the absence of the server's keep-alive ping.
  */
+const BASE_TITLE = "hidane \u706b\u7a2e";
+
+/**
+ * Announce finished work. A run takes minutes, so the moment it ends is
+ * usually the moment nobody is looking: the tab title carries an unread count,
+ * and (once allowed) a desktop notification names what finished.
+ */
+function useCompletionAlerts(): void {
+  const [unseen, setUnseen] = useState(0);
+
+  useEffect(() => {
+    document.title = badgeTitle(BASE_TITLE, unseen);
+  }, [unseen]);
+
+  useEffect(() => {
+    const clear = () => {
+      if (document.visibilityState === "visible") setUnseen(0);
+    };
+    document.addEventListener("visibilitychange", clear);
+    window.addEventListener("focus", clear);
+    return () => {
+      document.removeEventListener("visibilitychange", clear);
+      window.removeEventListener("focus", clear);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onCompletion = (e: Event) => {
+      const done = completionFrom((e as MessageEvent<string>).data);
+      // Only while away: interrupting someone who is already watching is noise.
+      if (!done || document.visibilityState === "visible") return;
+      setUnseen((n) => n + 1);
+      if (notifyPermission() === "granted") {
+        new Notification(done.ok ? i18n.t("notify.done") : i18n.t("notify.failed"), {
+          body: done.summary || done.workItemId || "",
+          tag: done.workItemId ?? "hidane",
+        });
+      }
+    };
+    window.addEventListener("hidane:event", onCompletion);
+    return () => window.removeEventListener("hidane:event", onCompletion);
+  }, []);
+}
+
 function useEventStream(enabled: boolean): LiveState {
   const queryClient = useQueryClient();
   const [state, setState] = useState<LiveState>("connecting");
@@ -77,8 +122,12 @@ function useEventStream(enabled: boolean): LiveState {
     };
     source.addEventListener("hello", heard);
     source.addEventListener("ping", heard);
-    source.addEventListener("hidane", () => {
+    source.addEventListener("hidane", (e) => {
       heard();
+      // Re-broadcast so alerting stays independent of the transport.
+      window.dispatchEvent(
+        new MessageEvent("hidane:event", { data: (e as MessageEvent<string>).data }),
+      );
       void queryClient.invalidateQueries();
     });
     const timer = setInterval(() => {
@@ -181,6 +230,7 @@ function RootLayout() {
   const { t } = useTranslation();
   const [authed, setAuthed] = useState(() => getToken().length > 0);
   const live = useEventStream(authed);
+  useCompletionAlerts();
 
   // A rejected token drops the app back to the prompt instead of stranding it.
   useEffect(

@@ -26,3 +26,14 @@ export function matchesQuery(event: HidaneEvent, query: string): boolean {
     .toLowerCase();
   return terms.every((term) => haystack.includes(term));
 }
+
+/** Same AND-of-terms rule, over a work item's title and id. */
+export function matchesItem(
+  item: { id: string; title: string; status: string },
+  query: string,
+): boolean {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+  const haystack = `${item.id} ${item.title} ${item.status}`.toLowerCase();
+  return terms.every((term) => haystack.includes(term));
+}
