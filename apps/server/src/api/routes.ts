@@ -72,10 +72,16 @@ const SSE_PING_MS = 15_000;
 export function registerApi(app: Hono): void {
   app.get("/api/events", async (c) => {
     const q = c.req.query();
+    // `kind` accepts a comma-separated list. A single kind keeps the old
+    // meaning, so existing callers and bookmarked filters are unaffected.
+    const rawKind = q["kind"];
+    const kinds = rawKind?.includes(",")
+      ? rawKind.split(",").map((k) => k.trim()).filter(Boolean)
+      : undefined;
     const filters = {
       threadId: q["thread"],
       workItemId: q["item"],
-      kind: q["kind"],
+      ...(kinds ? { kinds } : { kind: rawKind }),
       day: q["day"],
     };
     // Cursor pagination walks backwards through the log: `before` is exclusive,
@@ -168,8 +174,18 @@ export function registerApi(app: Hono): void {
   app.get("/api/work-items/:id", async (c) => {
     try {
       const item = await getWorkItem(c.req.param("id"));
-      const events = await listEvents({ threadId: item.threadId });
-      return c.json({ item, events });
+      // Bounded tail, not the whole thread: a long-running item accumulates
+      // thousands of execution and side-effect rows, and rendering all of them
+      // was the page's slowest path. Older events page in through /api/events.
+      const limit = Math.min(Number(c.req.query("limit") ?? 200), 500);
+      const page = await listEvents({ threadId: item.threadId, tail: limit + 1 });
+      const hasMore = page.length > limit;
+      const events = hasMore ? page.slice(page.length - limit) : page;
+      // Whether a worker is busy is process-level truth, for the same reason
+      // /api/work-items reports it: a long run pushes its own execution.started
+      // out of any bounded window, and inferring "busy" from that window then
+      // quietly goes wrong. Bounding the events above is exactly that window.
+      return c.json({ item, events, hasMore, running: hasActiveWorker(item.id) });
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }

@@ -70,6 +70,13 @@ export interface ListFilter {
   threadId?: string | undefined;
   workItemId?: string | undefined;
   kind?: string | undefined;
+  /**
+   * Several kinds, OR'd. Paging a chat needs this: with the kind test applied
+   * after the fetch, a page of N rows yields an unpredictable number of
+   * bubbles, and a page that happens to hold only unrendered kinds adds
+   * nothing at all — which reads as "load older is broken".
+   */
+  kinds?: readonly string[] | undefined;
   afterSeq?: number | undefined;
   /** Exclusive upper bound — used with `tail` to page backwards. */
   beforeSeq?: number | undefined;
@@ -99,6 +106,16 @@ export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]
   if (filter.threadId) add("thread_id = ?", filter.threadId);
   if (filter.workItemId) add("work_item_id = ?", filter.workItemId);
   if (filter.kind) add("kind = ?", filter.kind);
+  if (filter.kinds && filter.kinds.length > 0) {
+    // One placeholder per kind rather than `= ANY($n)`: this query runs through
+    // `db.unsafe`, where postgres.js infers parameter types from the JS value,
+    // and array serialisation is not worth betting a query shape on.
+    const holes = filter.kinds.map((kind) => {
+      params.push(kind);
+      return `$${params.length}`;
+    });
+    where.push(`kind IN (${holes.join(", ")})`);
+  }
   if (filter.afterSeq !== undefined) add("seq > ?", filter.afterSeq);
   if (filter.beforeSeq !== undefined) add("seq < ?", filter.beforeSeq);
   if (filter.payloadEquals) {

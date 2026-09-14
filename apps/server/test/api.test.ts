@@ -299,9 +299,64 @@ describe("api", () => {
       await app.request(
         `/api/events?page=1&kind=page.test&limit=5&before=${older.events[0]!.seq}`,
       )
-    ).json()) as { events: unknown[]; hasMore: boolean };
+    ).json()) as { events: { kind: string }[]; hasMore: boolean };
     expect(last.events).toHaveLength(2);
     expect(last.hasMore).toBe(false);
+  });
+
+  it("filters by a comma-separated kind list while paging", async () => {
+    // Paging a chat needs this: applying the kind test after the fetch makes a
+    // page of N rows yield an unpredictable number of bubbles.
+    await appendEvent({ source: "s", kind: "multi.a", threadId: "multi", payload: {} });
+    await appendEvent({ source: "s", kind: "multi.skip", threadId: "multi", payload: {} });
+    await appendEvent({ source: "s", kind: "multi.b", threadId: "multi", payload: {} });
+    const app = buildApp();
+
+    const page = (await (
+      await app.request("/api/events?page=1&thread=multi&kind=multi.a,multi.b&limit=10")
+    ).json()) as { events: { kind: string }[]; hasMore: boolean };
+    expect(page.events.map((e) => e.kind)).toEqual(["multi.a", "multi.b"]);
+    expect(page.hasMore).toBe(false);
+
+    // A single kind keeps its old exact-match meaning.
+    const single = (await (
+      await app.request("/api/events?page=1&thread=multi&kind=multi.a&limit=10")
+    ).json()) as { events: { kind: string }[] };
+    expect(single.events.map((e) => e.kind)).toEqual(["multi.a"]);
+  });
+
+  it("bounds the work item thread and reports whether a worker is running", async () => {
+    const item = await createWorkItem("bounded", "test");
+    for (let i = 0; i < 6; i++) {
+      await appendEvent({
+        source: "s",
+        kind: "execution.note",
+        threadId: item.threadId,
+        workItemId: item.id,
+        payload: { i },
+      });
+    }
+    const app = buildApp();
+
+    const capped = (await (
+      await app.request(`/api/work-items/${item.id}?limit=4`)
+    ).json()) as { events: { payload: { i: number } }[]; hasMore: boolean; running: boolean };
+    // The newest events, not the oldest: the tail is what the page renders first.
+    expect(capped.events.map((e) => e.payload.i)).toEqual([2, 3, 4, 5]);
+    expect(capped.hasMore).toBe(true);
+    // No worker was started, so this must not be inferred from the event window.
+    expect(capped.running).toBe(false);
+
+    const whole = (await (
+      await app.request(`/api/work-items/${item.id}?limit=50`)
+    ).json()) as { events: unknown[]; hasMore: boolean };
+    // createWorkItem opens the thread with work_item.created, so the full
+    // thread is that plus the six appended above.
+    expect(whole.events.map((e) => e.kind)).toEqual([
+      "work_item.created",
+      ...Array(6).fill("execution.note"),
+    ]);
+    expect(whole.hasMore).toBe(false);
   });
 
   it("reports status with triage lag, model and worklog renders", async () => {
