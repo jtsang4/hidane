@@ -15,8 +15,52 @@ type ModelOpt = CreateAgentSessionOptions["model"];
 
 let runtimePromise: Promise<ModelRuntime> | undefined;
 function modelRuntime(): Promise<ModelRuntime> {
-  runtimePromise ??= ModelRuntime.create();
+  runtimePromise ??= createModelRuntime();
   return runtimePromise;
+}
+
+/**
+ * Keep the baked-in project catalog and pi's remote catalog in sync. This is
+ * the SDK equivalent of `pi update --models`: restore the local cache first,
+ * then force a bounded network refresh so configured aliases remain usable on
+ * a fresh deployment as well as after a provider adds a model.
+ */
+async function createModelRuntime(): Promise<ModelRuntime> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const runtime = await ModelRuntime.create({
+      allowModelNetwork: false,
+      signal: controller.signal,
+    });
+
+    if (process.env.PI_OFFLINE === undefined) {
+      try {
+        const result = await runtime.refresh({
+          allowNetwork: true,
+          force: true,
+          signal: controller.signal,
+        });
+        if (result.aborted) {
+          console.warn("pi model catalog refresh timed out; using the local catalog");
+        } else if (result.errors.size > 0) {
+          const details = [...result.errors]
+            .map(([provider, error]) => `${provider}: ${error.message}`)
+            .join("; ");
+          console.warn(`pi model catalog refresh failed; using the local catalog (${details})`);
+        } else {
+          console.log("pi model catalog refreshed");
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`pi model catalog refresh failed; using the local catalog (${message})`);
+      }
+    }
+
+    return runtime;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**
@@ -26,7 +70,10 @@ function modelRuntime(): Promise<ModelRuntime> {
  */
 async function resolveModel(): Promise<ModelOpt> {
   const { piProvider, piModel } = config;
-  if (!piProvider && !piModel) return undefined;
+  if (!piProvider && !piModel) {
+    await modelRuntime();
+    return undefined;
+  }
   if (!piProvider || !piModel) {
     throw new Error(
       `HIDANE_PI_PROVIDER and HIDANE_PI_MODEL must be set together (got provider=${piProvider ?? "unset"}, model=${piModel ?? "unset"})`,

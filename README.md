@@ -112,7 +112,11 @@ dev loads it from the repo root, and docker compose / Coolify substitute it into
 
 `HIDANE_PI_PROVIDER`/`HIDANE_PI_MODEL` must be set together: a half-configured
 pair raises at startup rather than silently falling back to pi's own default.
-The effective model is printed on boot and reported by `/api/status`.
+At startup hidane performs the same forced model-catalog refresh as the `pi update --models`
+command (bounded to 15 seconds), then merges the result with the project
+catalog baked in at `deploy/pi-models.json`. The effective model is printed on
+boot and reported by `/api/status`.
+For a manual local refresh, run `pnpm -C apps/server exec pi update --models`.
 
 ## Schedules (active connectors)
 

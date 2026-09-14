@@ -160,6 +160,7 @@ program
   .command("daemon")
   .description("run the resident runtime: http connector, heartbeat, triage loop")
   .action(async () => {
+    const effectiveModel = await describeEffectiveModel();
     await migrate();
     const server = startHttp(config.port);
     const stopHeartbeat = startHeartbeat(config.heartbeatIntervalSec);
@@ -174,7 +175,7 @@ program
       archiveDay(today()).catch((err) => console.error("archive loop error:", err));
     }, 3600 * 1000);
     console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, distill ${config.distillIntervalSec}s, scheduler 5s`);
-    console.log(`model: ${await describeEffectiveModel()}`);
+    console.log(`model: ${effectiveModel}`);
     const shutdown = async () => {
       stopHeartbeat();
       stopTriage();
