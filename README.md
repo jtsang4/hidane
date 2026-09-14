@@ -84,7 +84,16 @@ Deploy this repo as a **Docker Compose** resource in Coolify using
 `docker-compose.yml`. Set in Coolify:
 
 - `POSTGRES_PASSWORD` — database password
+- `DATABASE_URL` — optional explicit connection URL; set this with a percent-encoded
+  password when `POSTGRES_PASSWORD` contains URL-reserved characters such as `#`
+  or `@` (host `db`, port `5432`, user and database `hidane`)
 - provider API key(s) for pi, e.g. `DEEPSEEK_API_KEY`
+
+For an initialized database, changing `POSTGRES_PASSWORD` does not change the
+database role's password. Back up the database, change the `hidane` role's password
+with `psql` (`\password hidane`), update both Coolify variables, and redeploy while
+preserving the existing volumes. Coordinate the change because new connections
+using the previous password fail as soon as the role's password changes.
 
 The app listens on `2718` (`/health` for probes). Workspaces, worklogs and agent
 session traces live in the `/data` volume.
