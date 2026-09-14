@@ -2,7 +2,15 @@
 .DS_Store
 .acceptance-report.json
 .acceptance-sessions/
+# Environment files (keep the checked-in template visible)
 .env
+.env.*
+!.env.example
 .test-home/
 dist/
 node_modules/
+
+# Tool and test output
+.vite/
+coverage/
+*.tsbuildinfo

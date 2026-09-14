@@ -71,4 +71,18 @@ Rules for AI coding agents working in this repository. Project introduction live
 
 - Code identifiers, comments, and README are English. Acceptance scenarios and other operator-facing docs may be Chinese.
 - Comments state constraints the code cannot express; no narrating what the next line does.
-- **UI strings go through react-i18next** (`apps/web/src/i18n/resources.ts`): never hardcode user-visible literals in components. Supported locales are `zh` (default) and `en` — every new key must be added to BOTH, and keys are typo-checked at compile time via the typed resources declaration.
+- **UI strings go through the web i18n layer** (`apps/web/src/i18n/resources.ts` plus its framework adapter): never hardcode user-visible literals in components. Supported locales are `zh` (default) and `en` — every new key must be added to BOTH, and keys are typo-checked at compile time via the typed resources declaration.
+
+## Agent tooling
+
+- This repository's project-local Codex configuration lives in `.codex/config.toml`; do not modify `~/.codex/config.toml` for repository-specific behavior.
+- The runtime's agent-role skills remain the shared pi pool described above; that is separate from coding-agent guidance. Shared repository coding-agent skills live in `.agents/skills/` and must remain agent-neutral. Claude Code's `.claude/skills` is only an adapter symlink to that directory.
+- The Svelte MCP server is declared in both `.codex/config.toml` and `.mcp.json` so Codex and Claude Code can use the same project-local documentation and autofixer workflow.
+
+## Web frontend
+
+- `apps/web` is a Svelte 5 + Vite SPA. Do not introduce React, JSX, SvelteKit, or a router migration without explicit authorization.
+- When changing `apps/web`, also read `apps/web/AGENTS.md`; it is the more specific rule layer when an agent starts in that directory.
+- Before editing Svelte files, use the project-local Svelte MCP/documentation workflow; after editing, run `pnpm -C apps/web check`.
+- Preserve the existing API, bearer-token, SSE, pending-state, pagination, notification, dark-theme, responsive-navigation, accessibility, and sanitized-Markdown contracts.
+- Before handoff, run `pnpm -C apps/web check`, `pnpm -C apps/web test`, and `pnpm -C apps/web build` in addition to the root checks.

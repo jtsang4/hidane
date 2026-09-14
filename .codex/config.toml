@@ -1,0 +1,7 @@
+# Repository-local Codex configuration. Keep user defaults in ~/.codex/config.toml.
+
+[mcp_servers.svelte]
+command = "pnpm"
+args = ["dlx", "@sveltejs/mcp"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60

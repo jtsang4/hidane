@@ -8,6 +8,9 @@ export const zh = {
       memory: "记忆",
       schedules: "定时",
       status: "状态",
+      language: "切换语言",
+      english: "English",
+      chinese: "中文",
     },
     common: {
       send: "发送",
@@ -34,6 +37,7 @@ export const zh = {
     error: {
       title: "请求失败",
       offline: "无法连接到服务端。",
+      request: "请求失败：{{message}}",
     },
     pending: {
       routing: "Primary 正在处理…",
@@ -94,6 +98,8 @@ export const zh = {
       binaryFile: "二进制文件，请下载查看。",
       tooLarge: "文件较大，请下载查看。",
       collapse: "收起",
+      sideEffectError: "错误",
+      sideEffectOk: "正常",
     },
     events: {
       title: "事件日志",
@@ -152,6 +158,8 @@ export const zh = {
       history: "运行历史",
       historyEmpty: "还没有运行记录。",
       fired: "触发",
+      cron: "cron",
+      httpStatus: "HTTP {{status}}",
       action: { prompt: "Agent 任务", http: "HTTP 轮询" },
       form: {
         name: "名称，如：每日下午提醒",
@@ -210,6 +218,9 @@ export const en = {
       memory: "Memory",
       schedules: "Schedules",
       status: "Status",
+      language: "Switch language",
+      english: "English",
+      chinese: "中文",
     },
     common: {
       send: "Send",
@@ -236,6 +247,7 @@ export const en = {
     error: {
       title: "Request failed",
       offline: "Cannot reach the server.",
+      request: "Request failed: {{message}}",
     },
     pending: {
       routing: "Primary is thinking…",
@@ -296,6 +308,8 @@ export const en = {
       binaryFile: "Binary file — download to view.",
       tooLarge: "Large file — download to view.",
       collapse: "Collapse",
+      sideEffectError: "error",
+      sideEffectOk: "ok",
     },
     events: {
       title: "Event Log",
@@ -354,6 +368,8 @@ export const en = {
       history: "Run history",
       historyEmpty: "No runs yet.",
       fired: "fired",
+      cron: "cron",
+      httpStatus: "HTTP {{status}}",
       action: { prompt: "Agent task", http: "HTTP poll" },
       form: {
         name: "Name, e.g. daily afternoon reminder",

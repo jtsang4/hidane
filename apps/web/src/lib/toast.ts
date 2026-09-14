@@ -1,3 +1,5 @@
+import { writable } from "svelte/store";
+
 export interface Toast {
   id: number;
   message: string;
@@ -14,8 +16,10 @@ export interface Toast {
 let toasts: Toast[] = [];
 let nextId = 1;
 const listeners = new Set<() => void>();
+export const toastStore = writable<Toast[]>([]);
 
 function emit(): void {
+  toastStore.set(toasts);
   for (const fn of listeners) fn();
 }
 
