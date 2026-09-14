@@ -7,6 +7,8 @@ import {
 } from "../kernel/workItems.js";
 import { config } from "../config.js";
 import { extractJson } from "./pi.js";
+import { beginLiveText } from "./liveText.js";
+import { createReplyExtractor } from "./replyStream.js";
 import { PRIMARY_CHARTER } from "./charters.js";
 import { getPrimarySession, promptRole } from "./sdk.js";
 import { handleThreadMessage } from "./manager.js";
@@ -129,6 +131,17 @@ export async function handleUserMessage(
 
   const memories = await recallForPrimary();
   const session = await getPrimarySession(PRIMARY_CHARTER);
+  /**
+   * Show the answer as it is written instead of after it is finished.
+   *
+   * Closed the moment the model stops, not when the reply is appended: the two
+   * are a database round-trip and one poll cycle apart, and holding the
+   * provisional bubble "live" across that gap would leave a typing cursor
+   * blinking under text that is already complete. The client keeps rendering
+   * the finished text until the durable event arrives and takes over.
+   */
+  const live = beginLiveText("main");
+  const extract = createReplyExtractor();
   const routing = await promptRole(
     session,
     [
@@ -142,7 +155,8 @@ export async function handleUserMessage(
       .join("\n\n"),
     config.routeTimeoutSec,
     images,
-  );
+    (delta) => live.push(extract(delta)),
+  ).finally(() => live.end());
 
   const decision = routing.ok ? extractJson<RouteDecision>(routing.text) : null;
 

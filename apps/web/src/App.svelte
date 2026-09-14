@@ -21,6 +21,7 @@
     onUnauthorized,
     setToken,
   } from "./lib/api.js";
+  import { resetLiveText } from "./lib/liveText.js";
   import { badgeTitle, completionFrom, notifyPermission } from "./lib/notify.js";
   import { clearToasts, pushToast } from "./lib/toast.js";
   import { navigate, initRouter, routeFor, routerState } from "./lib/router.svelte.js";
@@ -77,6 +78,7 @@
     const stopRouter = initRouter();
     const stopUnauthorized = onUnauthorized(() => {
       authed = false;
+      resetLiveText();
       pushToast(i18n.t("token.invalid"));
     });
     const clear = () => {
@@ -121,6 +123,9 @@
   function signOut(): void {
     clearToken();
     clearToasts();
+    // Signing out does not reload, so an in-flight reply would otherwise still
+    // be held in memory and shown to whoever signs in next on this tab.
+    resetLiveText();
     authed = false;
   }
 

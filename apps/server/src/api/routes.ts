@@ -10,6 +10,7 @@ import {
 import { renderDay, today } from "../projections/worklog.js";
 import { handleUserMessage } from "../agents/primary.js";
 import { handleThreadMessage } from "../agents/manager.js";
+import { liveTextSnapshot, subscribeLiveText, type LiveTextFrame } from "../agents/liveText.js";
 import { describeEffectiveModel } from "../agents/sdk.js";
 import { IMAGE_ONLY_TEXT } from "../connectors/feishu.js";
 import {
@@ -63,6 +64,8 @@ function parseInboundImages(
 /** Interval between SSE keep-alives; clients treat prolonged silence as a
  *  dropped stream, so this bounds how long a stale view can look current. */
 const SSE_PING_MS = 15_000;
+/** Poll cadence for the durable log. Live reply text does not wait for it. */
+const SSE_POLL_MS = 1500;
 
 /**
  * Read API = queries over the event log and its state tables.
@@ -116,47 +119,91 @@ export function registerApi(app: Hono): void {
     const after = Number(c.req.query("after") ?? Number.MAX_SAFE_INTEGER);
     return streamSSE(c, async (stream) => {
       let open = true;
+      /**
+       * In-flight reply text, pushed rather than polled.
+       *
+       * The loop below is a database poller, which is the right shape for the
+       * durable log but far too slow for a reply being typed out: a token would
+       * wait up to a full poll cycle. These frames arrive on an in-process bus
+       * and interrupt the wait, so they reach the reader as they are produced.
+       *
+       * Snapshot before subscribing, with no await between the two statements,
+       * so a frame emitted in between can be neither lost nor counted twice.
+       */
+      const pendingFrames: LiveTextFrame[] = liveTextSnapshot();
+      let wake: (() => void) | undefined;
+      const unsubscribe = subscribeLiveText((frame) => {
+        pendingFrames.push(frame);
+        wake?.();
+      });
       stream.onAbort(() => {
         open = false;
+        wake?.();
       });
-      // Greet before touching the database. The tail lookup used to run first,
-      // and when it failed under connection pressure the response was already
-      // committed with 200 headers and no body at all — one connection in eight
-      // under concurrent load. A client cannot distinguish that from a hang.
-      await stream.writeSSE({ event: "hello", data: JSON.stringify({ after }) });
-      let lastWrite = Date.now();
-      let cursor = after;
-      while (open) {
-        try {
-          if (!Number.isFinite(cursor) || cursor === Number.MAX_SAFE_INTEGER) {
-            const last = await listEvents({ tail: 1 });
-            cursor = last[0]?.seq ?? 0;
-          }
-          const fresh = await listEvents({ afterSeq: cursor, limit: 100 });
-          for (const event of fresh) {
-            cursor = event.seq;
-            await stream.writeSSE({
-              event: "hidane",
-              id: String(event.seq),
-              data: JSON.stringify(event),
-            });
+      try {
+        // Greet before touching the database. The tail lookup used to run first,
+        // and when it failed under connection pressure the response was already
+        // committed with 200 headers and no body at all — one connection in eight
+        // under concurrent load. A client cannot distinguish that from a hang.
+        await stream.writeSSE({ event: "hello", data: JSON.stringify({ after }) });
+        let lastWrite = Date.now();
+        let cursor = after;
+        while (open) {
+          // Drained first: a delta is worth less the later it lands, and the
+          // database round-trip below is not free.
+          while (pendingFrames.length > 0) {
+            const frame = pendingFrames.shift();
+            if (!frame) break;
+            await stream.writeSSE({ event: "stream", data: JSON.stringify(frame) });
             lastWrite = Date.now();
           }
-        } catch (err) {
-          // A transient query failure must not silently end the stream: keep
-          // the connection and let the next tick retry. The client's own
-          // staleness check still catches a genuinely dead server.
-          console.error("sse poll failed:", err);
+          try {
+            if (!Number.isFinite(cursor) || cursor === Number.MAX_SAFE_INTEGER) {
+              const last = await listEvents({ tail: 1 });
+              cursor = last[0]?.seq ?? 0;
+            }
+            const fresh = await listEvents({ afterSeq: cursor, limit: 100 });
+            for (const event of fresh) {
+              cursor = event.seq;
+              await stream.writeSSE({
+                event: "hidane",
+                id: String(event.seq),
+                data: JSON.stringify(event),
+              });
+              lastWrite = Date.now();
+            }
+          } catch (err) {
+            // A transient query failure must not silently end the stream: keep
+            // the connection and let the next tick retry. The client's own
+            // staleness check still catches a genuinely dead server.
+            console.error("sse poll failed:", err);
+          }
+          // Keep-alive. A dead server does not close the socket in a way the
+          // browser reports: an open EventSource stays readyState OPEN forever
+          // and fires no error, so clients can only detect the loss by silence.
+          // This also stops idle proxies from dropping a quiet stream.
+          if (Date.now() - lastWrite >= SSE_PING_MS) {
+            await stream.writeSSE({ event: "ping", data: String(Date.now()) });
+            lastWrite = Date.now();
+          }
+          // Frames that arrived while the query was in flight woke nobody —
+          // `wake` is only armed during the sleep. Skipping it keeps them from
+          // waiting out a full cycle they were meant to interrupt.
+          if (!open || pendingFrames.length > 0) continue;
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+              wake = undefined;
+              resolve();
+            }, SSE_POLL_MS);
+            wake = () => {
+              clearTimeout(timer);
+              wake = undefined;
+              resolve();
+            };
+          });
         }
-        // Keep-alive. A dead server does not close the socket in a way the
-        // browser reports: an open EventSource stays readyState OPEN forever
-        // and fires no error, so clients can only detect the loss by silence.
-        // This also stops idle proxies from dropping a quiet stream.
-        if (Date.now() - lastWrite >= SSE_PING_MS) {
-          await stream.writeSSE({ event: "ping", data: String(Date.now()) });
-          lastWrite = Date.now();
-        }
-        await stream.sleep(1500);
+      } finally {
+        unsubscribe();
       }
     });
   });

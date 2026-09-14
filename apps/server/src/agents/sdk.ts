@@ -215,6 +215,12 @@ export async function promptRole(
   timeoutSec: number,
   /** Inbound images (e.g. from Feishu) forwarded to the vision model. */
   images: { data: string; mimeType: string }[] = [],
+  /**
+   * Raw assistant text as it is produced. Charters make that text JSON, so a
+   * caller wanting to show it to a human must extract the human-facing field
+   * first — see `createReplyExtractor`.
+   */
+  onDelta?: (delta: string) => void,
 ): Promise<{ ok: boolean; text: string; error?: string; durationMs: number }> {
   const prev = promptQueues.get(session) ?? Promise.resolve();
   const run = prev
@@ -222,7 +228,19 @@ export async function promptRole(
     .then(async () => {
       const started = Date.now();
       let timer: NodeJS.Timeout | undefined;
+      // Safe despite the shared session: prompts on it are serialized by this
+      // very queue, so the subscription can only observe our own turn.
+      let unsubscribe: (() => void) | undefined;
       try {
+        if (onDelta) {
+          unsubscribe = session.subscribe((event) => {
+            if (event.type !== "message_update") return;
+            const update = event.assistantMessageEvent;
+            // Thinking deltas are reasoning, not an answer; they never surface.
+            if (update.type !== "text_delta") return;
+            onDelta(update.delta);
+          });
+        }
         const promptOptions =
           images.length > 0
             ? {
@@ -253,6 +271,7 @@ export async function promptRole(
         };
       } finally {
         clearTimeout(timer);
+        unsubscribe?.();
       }
     });
   promptQueues.set(session, run);

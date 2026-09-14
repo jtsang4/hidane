@@ -6,6 +6,7 @@
   import { api, ApiError, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
   import { conversationEvents, executionGroups, payloadText } from "../lib/grouping.js";
   import { pendingState, withActiveWorker } from "../lib/pending.js";
+  import { liveRepliesFor } from "../lib/liveText.js";
   import { nextCursor } from "../lib/pagination.js";
   import { pushToast } from "../lib/toast.js";
   import { cn, fmtDateTime } from "../lib/utils.js";
@@ -52,6 +53,8 @@
   let executions = $derived(executionGroups(events));
   let hasOlder = $derived((data?.hasMore ?? false) && !exhausted);
   let pending = $derived(withActiveWorker(pendingState(events), data?.running ?? false));
+  /** Manager replies still being written in this item's thread. */
+  let live = $derived(liveRepliesFor(data?.item.threadId ?? ""));
   let waiting = $derived(
     pending.active
       ? pending
@@ -155,7 +158,13 @@
         {#if optimistic}
           <div class="flex justify-end"><div class="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground opacity-60">{optimistic}<div class="mt-1 text-[10px] opacity-60">{$t("pending.sending")}</div></div></div>
         {/if}
-        <Pending state={waiting} />
+        {#each live as reply (reply.id)}
+          {@const liveEvent = { seq: 0, id: reply.id, ts: reply.ts, source: "agent:manager", kind: "agent.reply", threadId: reply.threadId, workItemId: id, executionId: null, payload: { text: reply.text } } satisfies HidaneEvent}
+          <ChatBubble event={liveEvent} streaming={!reply.done} />
+        {/each}
+        <!-- The spinner and the reply are the same wait; showing both reads as
+             two things happening at once. -->
+        {#if live.length === 0}<Pending state={waiting} />{/if}
       </section>
       <Artifacts workItemId={id} />
       {#if executions.length > 0}

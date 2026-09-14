@@ -44,6 +44,7 @@ export const zh = {
       executing: "Worker 正在执行…",
       elapsed: "已用 {{s}}s",
       sending: "发送中…",
+      writing: "正在输入…",
     },
     chat: {
       empty: "对 Primary 说点什么——它会回复、建工作项或路由到已有工作项。",
@@ -260,6 +261,7 @@ export const en = {
       executing: "Worker is running…",
       elapsed: "{{s}}s elapsed",
       sending: "Sending…",
+      writing: "Writing…",
     },
     chat: {
       empty: "Say something to the Primary — it replies, opens a work item, or routes to an existing one.",

@@ -8,7 +8,11 @@
   import Badge from "./ui/Badge.svelte";
   import Markdown from "./Markdown.svelte";
 
-  let { event, ghost = false }: { event: HidaneEvent; ghost?: boolean } = $props();
+  let {
+    event,
+    ghost = false,
+    streaming = false,
+  }: { event: HidaneEvent; ghost?: boolean; streaming?: boolean } = $props();
 </script>
 
 {#if event.kind === "escalation"}
@@ -31,7 +35,7 @@
         <Markdown content={payloadText(event)} />
       {/if}
       <div class="mt-1 text-[10px] opacity-60">
-        {#if ghost}{$t("pending.sending")}{:else}<Time iso={event.ts} />{/if}
+        {#if ghost}{$t("pending.sending")}{:else if streaming}{$t("pending.writing")}{:else}<Time iso={event.ts} />{/if}
       </div>
     </div>
   </div>

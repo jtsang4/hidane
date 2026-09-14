@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useQueryClient } from "@tanstack/svelte-query";
   import { eventStreamUrl } from "../lib/api.js";
+  import { applyLiveFrame, noteLiveEvent } from "../lib/liveText.js";
   import { livenessFrom, shouldReconnect, type LiveState } from "../lib/live.js";
 
   let {
@@ -33,8 +34,22 @@
     source.addEventListener("ping", heard);
     source.addEventListener("hidane", (event) => {
       heard();
-      window.dispatchEvent(new MessageEvent("hidane:event", { data: (event as MessageEvent<string>).data }));
+      const data = (event as MessageEvent<string>).data;
+      window.dispatchEvent(new MessageEvent("hidane:event", { data }));
+      try {
+        noteLiveEvent(JSON.parse(data) as { seq: number; kind: string; threadId: string | null });
+      } catch {
+        // A frame we cannot parse still proves the stream is alive; the query
+        // invalidation below refetches the authoritative copy regardless.
+      }
       void queryClient.invalidateQueries();
+    });
+    // Text of a reply still being written. Deliberately no invalidation: these
+    // arrive per token, and refetching a page of history for each one would be
+    // pathological. They are ephemeral and never enter the event log.
+    source.addEventListener("stream", (event) => {
+      heard();
+      applyLiveFrame((event as MessageEvent<string>).data);
     });
 
     const timer = window.setInterval(() => {

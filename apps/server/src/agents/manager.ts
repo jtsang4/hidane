@@ -4,6 +4,8 @@ import { getWorkItem } from "../kernel/workItems.js";
 import { genId } from "../kernel/ids.js";
 import { config } from "../config.js";
 import { extractJson } from "./pi.js";
+import { beginLiveText } from "./liveText.js";
+import { createReplyExtractor } from "./replyStream.js";
 import { MANAGER_CHARTER, WORKER_CHARTER } from "./charters.js";
 import { getManagerSession, promptRole } from "./sdk.js";
 import { hasActiveWorker, runWorkerExecution, steerActiveWorker } from "./rpcWorker.js";
@@ -71,6 +73,12 @@ async function managerCycle(workItemId: string, message: string): Promise<string
     MANAGER_CHARTER,
   );
   const memories = await recallForManager(workItemId);
+  // Only the Manager's in-thread answer streams. When it decides to dispatch
+  // instead, the JSON carries `instructions`, not `reply`, so the extractor
+  // finds nothing and nothing is shown — which is right: the worker's progress
+  // is the timeline's job, not a chat bubble's.
+  const live = beginLiveText(item.threadId);
+  const extract = createReplyExtractor();
   const planning = await promptRole(
     session,
     [
@@ -83,7 +91,9 @@ async function managerCycle(workItemId: string, message: string): Promise<string
       .filter(Boolean)
       .join("\n\n"),
     config.routeTimeoutSec,
-  );
+    [],
+    (delta) => live.push(extract(delta)),
+  ).finally(() => live.end());
 
   await appendEvent({
     source: "agent:manager",

@@ -8,6 +8,7 @@
   import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
   import { conversationEvents, CONVERSATION_KINDS, payloadText } from "../lib/grouping.js";
   import { pendingState } from "../lib/pending.js";
+  import { liveRepliesFor } from "../lib/liveText.js";
   import { pushToast } from "../lib/toast.js";
   import { isPinnedToBottom } from "../lib/scroll.js";
   import { nextCursor } from "../lib/pagination.js";
@@ -81,6 +82,8 @@
   let events = $derived(conversationEvents(all));
   let pending = $derived(pendingState(all));
   let searching = $derived(query.trim().length > 0);
+  /** Replies still being written. Cleared by the durable event that records them. */
+  let live = $derived(liveRepliesFor("main"));
   let visible = $derived(searching ? events.filter((event) => matchesQuery(event, query)) : events);
   let hasOlder = $derived((eventsQuery.data?.hasMore ?? false) && !exhausted);
   let waiting = $derived(
@@ -266,7 +269,13 @@
           {@const optimisticEvent = { id: "optimistic", kind: "user.message", ts: new Date().toISOString(), payload: { text: optimistic } } as unknown as HidaneEvent}
           <ChatBubble event={optimisticEvent} ghost />
         {/if}
-        <Pending state={waiting} />
+        {#each live as reply (reply.id)}
+          {@const liveEvent = { seq: 0, id: reply.id, ts: reply.ts, source: "agent:primary", kind: "agent.reply", threadId: reply.threadId, workItemId: null, executionId: null, payload: { text: reply.text } } satisfies HidaneEvent}
+          <ChatBubble event={liveEvent} streaming={!reply.done} />
+        {/each}
+        <!-- The spinner and the reply are the same wait; showing both reads as
+             two things happening at once. -->
+        {#if live.length === 0}<Pending state={waiting} />{/if}
       {/if}
     </div>
   </div>
