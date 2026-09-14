@@ -8,7 +8,7 @@
   import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
   import { conversationEvents, CONVERSATION_KINDS, payloadText } from "../lib/grouping.js";
   import { pendingState } from "../lib/pending.js";
-  import { liveRepliesFor } from "../lib/liveText.js";
+  import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
   import { pushToast } from "../lib/toast.js";
   import { isPinnedToBottom } from "../lib/scroll.js";
   import { nextCursor } from "../lib/pagination.js";
@@ -82,8 +82,8 @@
   let events = $derived(conversationEvents(all));
   let pending = $derived(pendingState(all));
   let searching = $derived(query.trim().length > 0);
-  /** Replies still being written. Cleared by the durable event that records them. */
-  let live = $derived(liveRepliesFor("main"));
+  /** Replies still being written. Retired by the durable bubble rendering below them. */
+  let live = $derived(liveRepliesFor("main", maxSeq(events)));
   let visible = $derived(searching ? events.filter((event) => matchesQuery(event, query)) : events);
   let hasOlder = $derived((eventsQuery.data?.hasMore ?? false) && !exhausted);
   let waiting = $derived(

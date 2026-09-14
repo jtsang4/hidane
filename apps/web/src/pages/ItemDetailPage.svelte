@@ -6,7 +6,7 @@
   import { api, ApiError, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
   import { conversationEvents, executionGroups, payloadText } from "../lib/grouping.js";
   import { pendingState, withActiveWorker } from "../lib/pending.js";
-  import { liveRepliesFor } from "../lib/liveText.js";
+  import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
   import { nextCursor } from "../lib/pagination.js";
   import { pushToast } from "../lib/toast.js";
   import { cn, fmtDateTime } from "../lib/utils.js";
@@ -54,7 +54,7 @@
   let hasOlder = $derived((data?.hasMore ?? false) && !exhausted);
   let pending = $derived(withActiveWorker(pendingState(events), data?.running ?? false));
   /** Manager replies still being written in this item's thread. */
-  let live = $derived(liveRepliesFor(data?.item.threadId ?? ""));
+  let live = $derived(liveRepliesFor(data?.item.threadId ?? "", maxSeq(conversation)));
   let waiting = $derived(
     pending.active
       ? pending

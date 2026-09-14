@@ -35,10 +35,40 @@ const ANSWER_KINDS = new Set<string>(
 );
 
 const replies = new SvelteMap<string, LiveReply>();
+/**
+ * Bubble id -> seq of the durable event that replaces it, once announced.
+ *
+ * Retiring on the announcement alone left a hole: the SSE frame arrives a full
+ * round trip before the refetch it triggers, so the finished reply vanished and
+ * the pending spinner came back for the length of that trip (25ms on loopback,
+ * 438ms measured at 200ms RTT) before the durable bubble appeared in its place.
+ * The list shrank and regrew, and the live-edge pin scrolled it twice. Holding
+ * the bubble here until the replacement is actually rendered closes the hole by
+ * construction, at any latency, and if the refetch fails it simply stays up.
+ */
+const retiring = new SvelteMap<string, number>();
 let lastSeq = 0;
 
-export function liveRepliesFor(threadId: string): LiveReply[] {
-  return [...replies.values()].filter((reply) => reply.threadId === threadId);
+/** Highest seq among events the caller has rendered. The retirement gate. */
+export function maxSeq(events: readonly { seq: number }[]): number {
+  let highest = 0;
+  for (const event of events) if (event.seq > highest) highest = event.seq;
+  return highest;
+}
+
+/**
+ * Replies for `threadId` that still have to stand in for themselves.
+ *
+ * `renderedSeq` is what the caller has on screen — pass `maxSeq` of the list the
+ * bubbles are rendered alongside, so a reply steps aside in the same pass that
+ * shows its durable form rather than some frames before it.
+ */
+export function liveRepliesFor(threadId: string, renderedSeq: number): LiveReply[] {
+  return [...replies.values()].filter((reply) => {
+    if (reply.threadId !== threadId) return false;
+    const replacement = retiring.get(reply.id);
+    return replacement === undefined || replacement > renderedSeq;
+  });
 }
 
 interface Frame {
@@ -65,6 +95,17 @@ export function applyLiveFrame(raw: string): void {
   if (frame.done === true) {
     if (existing) replies.set(id, { ...existing, done: true });
     return;
+  }
+  // A new bubble on this thread is proof the previous one's durable event was
+  // announced, so its held copy can go. Without this the map would keep every
+  // finished reply, text and all, for the life of the page.
+  if (!existing) {
+    for (const [old, reply] of replies) {
+      if (reply.threadId === threadId && retiring.has(old)) {
+        replies.delete(old);
+        retiring.delete(old);
+      }
+    }
   }
   // An absolute `text` is the replay a client gets when it connects mid-reply;
   // it replaces rather than appends, or the overlap would be duplicated.
@@ -96,10 +137,11 @@ export function applyLiveFrame(raw: string): void {
 }
 
 /**
- * Advance the watermark and retire whatever this event supersedes.
+ * Advance the watermark and mark whatever this event replaces.
  *
  * Called for every event arriving live, so the watermark reflects what the
- * client has actually seen rather than what it happens to have fetched.
+ * client has actually seen rather than what it happens to have fetched. The
+ * mark is not a removal: see `retiring`.
  */
 export function noteLiveEvent(event: {
   seq: number;
@@ -109,12 +151,15 @@ export function noteLiveEvent(event: {
   if (Number.isFinite(event.seq) && event.seq > lastSeq) lastSeq = event.seq;
   if (!ANSWER_KINDS.has(event.kind) || event.threadId === null) return;
   for (const [id, reply] of replies) {
-    if (reply.threadId === event.threadId && event.seq > reply.sinceSeq) replies.delete(id);
+    if (reply.threadId === event.threadId && event.seq > reply.sinceSeq) {
+      retiring.set(id, event.seq);
+    }
   }
 }
 
 /** Drop everything — sign-out, and a clean slate between tests. */
 export function resetLiveText(): void {
   replies.clear();
+  retiring.clear();
   lastSeq = 0;
 }
