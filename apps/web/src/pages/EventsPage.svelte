@@ -3,6 +3,7 @@
   import { t } from "../i18n/index.js";
   import { api, type HidaneEvent } from "../lib/api.js";
   import { matchesQuery } from "../lib/search.js";
+  import { nextCursor } from "../lib/pagination.js";
   import EventRow from "../components/EventRow.svelte";
   import Button from "../components/ui/Button.svelte";
   import Input from "../components/ui/Input.svelte";
@@ -46,8 +47,7 @@
   });
 
   async function loadMore(): Promise<void> {
-    const oldestLoaded =
-      olderPages.at(-1)?.[0]?.seq ?? pageQuery.data?.events[0]?.seq ?? pageQuery.data?.oldestSeq ?? undefined;
+    const oldestLoaded = nextCursor(pageQuery.data?.events ?? [], olderPages);
     if (oldestLoaded === undefined || loadingMore) return;
     loadingMore = true;
     try {

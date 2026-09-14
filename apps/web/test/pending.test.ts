@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HidaneEvent } from "../src/lib/api.js";
-import { elapsedSeconds, pendingState } from "../src/lib/pending.js";
+import { elapsedSeconds, pendingState, withActiveWorker } from "../src/lib/pending.js";
 import {
   livenessFrom,
   shouldReconnect,
@@ -121,5 +121,40 @@ describe("shouldReconnect", () => {
 
   it("re-dials before the stream is declared dead, so recovery is quick", () => {
     expect(RECONNECT_AFTER_MS).toBeLessThan(STALE_AFTER_MS);
+  });
+});
+
+/**
+ * Guards the regression /api/work-items already learned once: a busy run emits
+ * enough side effects to push its own execution.started out of a bounded page,
+ * and the detail page hides its stop button on exactly that signal.
+ */
+describe("withActiveWorker", () => {
+  const idle = { active: false, since: null, phase: null } as const;
+
+  it("reports executing when the started event fell off the page", () => {
+    expect(withActiveWorker(idle, true)).toEqual({
+      active: true,
+      since: null,
+      phase: "executing",
+    });
+  });
+
+  it("keeps the logged start time when it promotes routing", () => {
+    const routing = { active: true, since: "2026-08-23T00:00:01.000Z", phase: "routing" } as const;
+    expect(withActiveWorker(routing, true)).toEqual({
+      active: true,
+      since: "2026-08-23T00:00:01.000Z",
+      phase: "executing",
+    });
+  });
+
+  it("leaves state untouched when no worker is running", () => {
+    expect(withActiveWorker(idle, false)).toBe(idle);
+  });
+
+  it("does not disturb an already-executing state", () => {
+    const executing = { active: true, since: "2026-08-23T00:00:01.000Z", phase: "executing" } as const;
+    expect(withActiveWorker(executing, true)).toBe(executing);
   });
 });

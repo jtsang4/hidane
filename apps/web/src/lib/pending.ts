@@ -50,6 +50,21 @@ export function pendingState(events: HidaneEvent[]): PendingState {
     : { active: false, since: null, phase: null };
 }
 
+/**
+ * Let process-level truth override what a bounded window of events implies.
+ *
+ * A work item's events are now paged, and a busy run emits enough side effects
+ * to push its own `execution.started` off the first page. `pendingState` would
+ * then report `routing`, or nothing at all, while a worker is demonstrably
+ * running — and the detail page hides its stop button on exactly that signal.
+ * The server reports `running` from the worker registry, which no window can
+ * truncate.
+ */
+export function withActiveWorker(state: PendingState, running: boolean): PendingState {
+  if (!running || state.phase === "executing") return state;
+  return { active: true, since: state.since, phase: "executing" };
+}
+
 /** Whole seconds since `iso`, floored at 0. */
 export function elapsedSeconds(iso: string, now = Date.now()): number {
   return Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));

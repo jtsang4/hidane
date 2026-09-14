@@ -161,16 +161,19 @@ export const api = {
     }
     return apiFetch<{ events: HidaneEvent[] }>(`/api/events?${q}`);
   },
-  /** Cursor page walking backwards; omit `before` for the newest page. */
+  /** Cursor page walking backwards; omit `before` for the newest page.
+   *  `kind` accepts a comma-separated list to fetch several kinds at once. */
   eventsPage: (params: {
     kind?: string;
     item?: string;
+    thread?: string;
     before?: number;
     limit?: number;
   }) => {
     const q = new URLSearchParams({ page: "1" });
     if (params.kind) q.set("kind", params.kind);
     if (params.item) q.set("item", params.item);
+    if (params.thread) q.set("thread", params.thread);
     if (params.before !== undefined) q.set("before", String(params.before));
     q.set("limit", String(params.limit ?? 50));
     return apiFetch<{ events: HidaneEvent[]; hasMore: boolean; oldestSeq: number | null }>(
@@ -181,8 +184,13 @@ export const api = {
     apiFetch<{ items: WorkItem[]; running: string[] }>(
       `/api/work-items${all ? "?all" : ""}`,
     ),
-  workItem: (id: string) =>
-    apiFetch<{ item: WorkItem; events: HidaneEvent[] }>(`/api/work-items/${id}`),
+  workItem: (id: string, limit?: number) =>
+    apiFetch<{
+      item: WorkItem;
+      events: HidaneEvent[];
+      hasMore: boolean;
+      running: boolean;
+    }>(`/api/work-items/${id}${limit !== undefined ? `?limit=${limit}` : ""}`),
   chat: (text: string, images: OutboundImage[] = []) =>
     apiFetch<{ ok: boolean }>(`/api/chat`, {
       method: "POST",

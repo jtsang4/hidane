@@ -8,11 +8,18 @@ export interface ExecutionGroup {
   ok: boolean | null;
 }
 
+/** The kinds rendered as chat bubbles. Shared so the server-side `kind` filter
+ *  and the client-side filter below cannot drift apart. */
+export const CONVERSATION_KINDS = [
+  "user.message",
+  "agent.reply",
+  "escalation",
+  "agent.error",
+] as const;
+
 /** Conversation events shown as chat bubbles. */
 export function conversationEvents(events: HidaneEvent[]): HidaneEvent[] {
-  return events.filter((e) =>
-    ["user.message", "agent.reply", "escalation", "agent.error"].includes(e.kind),
-  );
+  return events.filter((e) => (CONVERSATION_KINDS as readonly string[]).includes(e.kind));
 }
 
 /** Group execution lifecycle events into per-execution timelines. */

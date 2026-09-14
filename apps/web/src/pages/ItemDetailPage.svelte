@@ -1,10 +1,12 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { Archive, SendHorizontal, Square } from "@lucide/svelte";
+  import { SvelteMap } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
   import { api, ApiError, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
   import { conversationEvents, executionGroups, payloadText } from "../lib/grouping.js";
-  import { pendingState } from "../lib/pending.js";
+  import { pendingState, withActiveWorker } from "../lib/pending.js";
+  import { nextCursor } from "../lib/pagination.js";
   import { pushToast } from "../lib/toast.js";
   import { cn, fmtDateTime } from "../lib/utils.js";
   import Artifacts from "../components/Artifacts.svelte";
@@ -16,19 +18,40 @@
   import Textarea from "../components/ui/Textarea.svelte";
 
   let { id }: { id: string } = $props();
+
+  /** A busy item emits executions and side effects far faster than messages,
+   *  so the thread is paged like the chat rather than fetched whole. */
+  const PAGE_SIZE = 100;
+
   const queryClient = useQueryClient();
   let text = $state("");
   let optimistic = $state<string | null>(null);
+  let olderPages = $state<HidaneEvent[][]>([]);
+  let loadingOlder = $state(false);
+  let exhausted = $state(false);
+  const seen = new SvelteMap<string, HidaneEvent>();
+
   const itemQuery = createQuery(() => ({
     queryKey: ["item", id],
-    queryFn: () => api.workItem(id),
+    queryFn: () => api.workItem(id, PAGE_SIZE),
     retry: false,
   }));
   let data = $derived(itemQuery.data);
-  let events = $derived(data?.events ?? []);
+
+  $effect(() => {
+    const page = itemQuery.data?.events;
+    if (!page) return;
+    for (const event of page) seen.set(event.id, event);
+  });
+
+  // Same append-only union the chat uses: the newest page slides forward on
+  // every live event, so concatenating it onto frozen older pages loses
+  // whatever landed in between.
+  let events = $derived([...seen.values()].sort((a, b) => a.seq - b.seq));
   let conversation = $derived(conversationEvents(events));
-  let pending = $derived(pendingState(events));
   let executions = $derived(executionGroups(events));
+  let hasOlder = $derived((data?.hasMore ?? false) && !exhausted);
+  let pending = $derived(withActiveWorker(pendingState(events), data?.running ?? false));
   let waiting = $derived(
     pending.active
       ? pending
@@ -36,6 +59,26 @@
         ? { active: true, since: new Date().toISOString(), phase: "routing" as const }
         : pending,
   );
+
+  async function loadOlder(): Promise<void> {
+    const thread = data?.item.threadId;
+    if (!thread || loadingOlder || exhausted) return;
+    const cursor = nextCursor(itemQuery.data?.events ?? [], olderPages);
+    if (cursor === undefined) return;
+    loadingOlder = true;
+    try {
+      const page = await api.eventsPage({ thread, before: cursor, limit: PAGE_SIZE });
+      if (page.events.length > 0) {
+        olderPages = [...olderPages, page.events];
+        for (const event of page.events) seen.set(event.id, event);
+      }
+      if (!page.hasMore || page.events.length === 0) exhausted = true;
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      loadingOlder = false;
+    }
+  }
 
   $effect(() => {
     if (optimistic && conversation.some((event) => event.kind === "user.message" && payloadText(event) === optimistic)) optimistic = null;
@@ -101,6 +144,13 @@
     </div>
     <div class="flex-1 space-y-4 overflow-y-auto p-4">
       <section class="space-y-2">
+        {#if hasOlder}
+          <div class="text-center">
+            <Button variant="outline" size="sm" onclick={() => void loadOlder()} disabled={loadingOlder}>
+              {loadingOlder ? $t("common.loading") : $t("chat.loadEarlier")}
+            </Button>
+          </div>
+        {/if}
         {#each conversation as event (event.id)}<ChatBubble {event} />{/each}
         {#if optimistic}
           <div class="flex justify-end"><div class="max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground opacity-60">{optimistic}<div class="mt-1 text-[10px] opacity-60">{$t("pending.sending")}</div></div></div>
