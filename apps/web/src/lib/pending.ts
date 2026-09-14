@@ -19,7 +19,10 @@ export interface PendingState {
   phase: "routing" | "executing" | null;
 }
 
-const ANSWERS = new Set(["agent.reply", "agent.error"]);
+// A delegated main-thread request also ends with an escalation marker. Keep
+// this terminal for older events that were written before the Manager reply
+// was mirrored back onto the main thread.
+const ANSWERS = new Set(["agent.reply", "agent.error", "escalation"]);
 
 export function pendingState(events: HidaneEvent[]): PendingState {
   const ordered = [...events].sort((a, b) => a.seq - b.seq);

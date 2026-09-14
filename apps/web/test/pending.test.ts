@@ -45,6 +45,11 @@ describe("pendingState", () => {
     expect(pendingState(events).active).toBe(false);
   });
 
+  it("a delegated escalation counts as a terminal answer", () => {
+    const events = [ev({ kind: "user.message" }), ev({ kind: "escalation" })];
+    expect(pendingState(events).active).toBe(false);
+  });
+
   it("reports executing while a worker runs, which is the longer wait", () => {
     const started = ev({ kind: "execution.started", executionId: "ex_1" });
     const state = pendingState([ev({ kind: "user.message" }), started]);

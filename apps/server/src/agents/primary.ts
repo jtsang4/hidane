@@ -24,6 +24,22 @@ export interface PrimaryOutcome {
 }
 
 /**
+ * A routed message is answered in the work-item thread by the Manager, but
+ * the user sent it from the main thread. Mirror the completed answer back to
+ * that thread so clients waiting on the main conversation can observe the
+ * terminal reply instead of waiting forever for an answer on another thread.
+ */
+async function appendMainThreadReply(workItemId: string, text: string): Promise<void> {
+  await appendEvent({
+    source: "agent:manager",
+    kind: "agent.reply",
+    threadId: "main",
+    workItemId,
+    payload: { text },
+  });
+}
+
+/**
  * Fast lane: a user message reaches the Primary directly (no triage queue),
  * is recorded to the log, routed, and answered synchronously.
  * The Primary is a persistent SDK session — one identity across turns.
@@ -111,6 +127,7 @@ export async function handleUserMessage(
       payload: { text: brief, forwardedFrom: "main" },
     });
     const reply = await handleThreadMessage(item.id, brief);
+    await appendMainThreadReply(item.id, reply);
     await appendEvent({
       source: "agent:manager",
       kind: "escalation",
@@ -143,5 +160,6 @@ export async function handleUserMessage(
     payload: { text: forwarded, forwardedFrom: "main" },
   });
   const reply = await handleThreadMessage(known.id, forwarded);
+  await appendMainThreadReply(known.id, reply);
   return { action: "route_to_work_item", reply, workItemId: known.id };
 }
