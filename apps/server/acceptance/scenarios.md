@@ -100,6 +100,12 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 - 传回 `{"status":"open"}` 可重新打开
 - 传非法状态（如 `banana`）返回 400 且**不**落事件
 - 未知 id 返回 404
+- 通过主会话 `chat` 请求“把当前所有打开的工作项关停/关闭”时，Primary 应直接执行
+  批量状态变更，不再回复“没有相应能力”；当时所有 open 工作项均变为 closed，
+  每个变更都有 `work_item.status_changed`（source 为 `agent:primary`），主线程收到
+  一条包含变更数量的确认回复。该操作不是删除，也不应启动 Manager/Worker。
+- 通过主会话请求将一个已完成或已归档的工作项重新打开时，Primary 应使用其真实 ID
+  将状态改回 open；请求“所有已有工作项”时可用批量状态操作，不能凭空编造 ID。
 
 ## 场景 4G：Web 通道也能发图给多模态模型
 
@@ -139,6 +145,8 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
   执行**数秒内**结束并落 `execution.finished`，且 `cancelled: true` / `ok: false`
   ——注意 `abort()` 会让 agent 自然 idle，若按「谁先完成」判定会把被中止的执行
   错记为成功，结果标签必须跟随用户意图。没有执行在跑时 cancel 返回 409 且不落事件。
+- 也应能在主会话中说“停止这个正在运行的工作项”；Primary 直接发出同样的取消意图，
+  不应把停止请求转成新的 Manager/Worker 执行。
 - **手写记忆**：`POST /api/memories` 写入一条，出现在 `/api/memories` 列表中，
   并落 `memory.promoted` 且带 `manual: true`（与蒸馏产出可区分）；空内容返回 400。
 
@@ -166,6 +174,8 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - 只给 `title` → 201，工作项 status 为 `open`，**不**触发 Manager（没有 brief 就没有派活）
 - 给 `title` + `brief` → 201，brief 先落 `user.message` 事件**再**派发（崩在中间也留证据），
   且 Manager 真被调起（可观察到 `manager.decision` 或后续执行事件）
+- 通过主会话说“先记录这个工作项，暂时不要开始”时，Primary 应创建 open 工作项并记录
+  deferred 消息，但不启动 Manager/Worker；后续明确要求开始时仍可正常路由。
 - `title` 为空或纯空白 → 400
 - `PATCH {status:"closed"}` 归档后：`GET /api/work-items` 默认列表**不含**它，
   `GET /api/work-items?all` **含**它，且事件与工作区产物均保留（归档不是删除）

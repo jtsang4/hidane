@@ -65,9 +65,9 @@ export function activeExecutionId(workItemId: string): string | undefined {
  */
 export async function cancelActiveWorker(workItemId: string): Promise<boolean> {
   const entry = activeWorkers.get(workItemId);
-  if (!entry?.client) return false;
+  if (!entry) return false;
   entry.cancelled = true;
-  await entry.client.abort().catch(() => {});
+  await entry.client?.abort().catch(() => {});
   entry.onCancel?.();
   return true;
 }
@@ -190,6 +190,13 @@ export async function runWorkerExecution(
   try {
     await client.start();
     entry.client = client;
+    // Cancellation can arrive while the subprocess is still starting. Marking
+    // the entry first makes that request observable and lets the run terminate
+    // as soon as the client becomes available.
+    if (entry.cancelled) {
+      await client.abort().catch(() => {});
+      throw new Error("cancelled");
+    }
     const unsubscribe = client.onEvent(offEvent);
     await client.prompt(opts.instructions);
     for (const buffered of entry.buffer.splice(0)) {
@@ -199,6 +206,7 @@ export async function runWorkerExecution(
     const cancelSignal = new Promise<never>((_, reject) => {
       entry.onCancel = () => reject(new Error("cancelled"));
     });
+    if (entry.cancelled) entry.onCancel?.();
     try {
       await Promise.race([client.waitForIdle(timeoutSec * 1000), cancelSignal]);
     } catch (err) {

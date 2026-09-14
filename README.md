@@ -29,7 +29,7 @@ Three agent roles, one loop — the same pi agent instantiated at three scopes:
 
 | Role | Lifetime | Persists |
 |---|---|---|
-| **Primary** | permanent | identity, routing policy |
+| **Primary** | permanent | identity, routing policy, work-item lifecycle actions |
 | **Manager** | per work item | work item state, thread |
 | **Worker** | per execution | nothing — trace goes to the log |
 
