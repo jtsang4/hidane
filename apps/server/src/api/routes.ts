@@ -68,6 +68,36 @@ const SSE_PING_MS = 15_000;
 const SSE_POLL_MS = 1500;
 
 /**
+ * Where a stream should resume from, as an exclusive seq.
+ *
+ * Every `hidane` frame is written with `id: seq`, so a browser reconnecting an
+ * `EventSource` hands that seq back in `Last-Event-ID` without being asked.
+ * Ignoring it made a reconnect start at the tail, dropping whatever was
+ * appended while the connection was down: the client only recovered when some
+ * *later* event happened to trigger a refetch, and if none came the view stayed
+ * stale with no sign of it. An explicit `after` still wins — that is the caller
+ * saying where to start, rather than the browser saying where it left off.
+ *
+ * A value that is not a whole, non-negative number is treated as absent rather
+ * than coerced: `Number("")` is 0, which would replay the entire log.
+ */
+export function resumeCursor(
+  after: string | undefined,
+  lastEventId: string | undefined,
+): number {
+  for (const candidate of [after, lastEventId]) {
+    if (candidate === undefined || candidate.trim() === "") continue;
+    const seq = Number(candidate);
+    if (Number.isInteger(seq) && seq >= 0) return seq;
+    // A malformed `after` is the caller's error and must not silently fall
+    // through to the browser's resume point, which would answer a different
+    // question than the one asked.
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
  * Read API = queries over the event log and its state tables.
  * Write API = two async entrances (main chat, thread message): they return
  * immediately after recording intent; replies arrive as events over SSE.
@@ -116,7 +146,7 @@ export function registerApi(app: Hono): void {
   });
 
   app.get("/api/events/stream", (c) => {
-    const after = Number(c.req.query("after") ?? Number.MAX_SAFE_INTEGER);
+    const after = resumeCursor(c.req.query("after"), c.req.header("last-event-id"));
     return streamSSE(c, async (stream) => {
       let open = true;
       /**
