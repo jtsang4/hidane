@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/agents/primary.js", () => ({
-  handleUserMessage: vi.fn(async () => ({ action: "reply", reply: "stub" })),
-}));
-vi.mock("../src/agents/manager.js", () => ({
-  handleThreadMessage: vi.fn(async () => "stub"),
-}));
 // Outbound calls are recorded here so delivery shape can be asserted.
 const sent = vi.hoisted(() => [] as { api: "create" | "reply"; data: Record<string, unknown> }[]);
 
@@ -41,10 +35,11 @@ vi.mock("@larksuiteoapi/node-sdk", async (importOriginal) => {
 });
 
 import { buildApp } from "../src/connectors/http.js";
-import { extractText, feishuEnabled } from "../src/connectors/feishu.js";
+import { extractText, feishuEnabled, feishuOutboxOnce } from "../src/connectors/feishu.js";
 import { config } from "../src/config.js";
 import { createBinding, findByChannelRef, findByWorkItem } from "../src/kernel/bindings.js";
-import { listEvents } from "../src/kernel/events.js";
+import { appendEvent, listEvents } from "../src/kernel/events.js";
+import { pendingMessages } from "../src/kernel/mailbox.js";
 
 function enableFeishu() {
   config.feishuAppId = "cli_test";
@@ -126,9 +121,11 @@ describe("feishu connector (official SDK)", () => {
     expect(captured[0]!.payload["chatId"]).toBe("oc_1");
     expect(captured[0]!.payload["text"]).toBe("你好 hidane");
 
-    const { handleUserMessage } = await import("../src/agents/primary.js");
-    // third arg: inbound images (empty for a plain text message)
-    expect(handleUserMessage).toHaveBeenCalledWith("你好 hidane", "connector:feishu", []);
+    // Delivered to the Primary's mailbox, remembering where to answer.
+    const inbox = await pendingMessages("primary");
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]!.payload["text"]).toBe("你好 hidane");
+    expect(inbox[0]!.payload["channel"]).toMatchObject({ feishu: { chatId: "oc_1" } });
   });
 
   it("deduplicates retried events by event_id (Feishu retries until 200)", async () => {
@@ -159,10 +156,9 @@ describe("feishu connector (official SDK)", () => {
     expect((await send()).status).toBe(200);
     expect((await send()).status).toBe(200);
     await new Promise((r) => setTimeout(r, 100));
-    // Exactly one capture and one LLM chain despite three deliveries.
+    // Exactly one capture and one delivery despite three deliveries.
     expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(1);
-    const { handleUserMessage } = await import("../src/agents/primary.js");
-    expect(handleUserMessage).toHaveBeenCalledTimes(1);
+    expect(await pendingMessages("primary")).toHaveLength(1);
   });
 
   it("ignores bot echoes (sender_type != user)", async () => {
@@ -218,8 +214,7 @@ describe("feishu connector (official SDK)", () => {
     // Nothing captured, and above all no model call: this endpoint runs
     // worker executions, so an open door costs money and grants execution.
     expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(0);
-    const { handleUserMessage } = await import("../src/agents/primary.js");
-    expect(handleUserMessage).not.toHaveBeenCalled();
+    expect(await pendingMessages("primary")).toHaveLength(0);
     // The rejection is recorded rather than silent.
     expect(await listEvents({ kind: "agent.error" })).toHaveLength(1);
   });
@@ -322,11 +317,9 @@ describe("feishu connector (official SDK)", () => {
     const errors = await listEvents({ kind: "agent.error" });
     expect(String(errors[0]!.payload["error"])).toContain("failed to download 1 image");
     // The agent is still woken, with text that admits the image is unreadable.
-    const { handleUserMessage } = await import("../src/agents/primary.js");
-    expect(handleUserMessage).toHaveBeenCalledTimes(1);
-    expect(String((handleUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0])).toContain(
-      "下载失败",
-    );
+    const inbox = await pendingMessages("primary");
+    expect(inbox).toHaveLength(1);
+    expect(String(inbox[0]!.payload["text"])).toContain("下载失败");
   });
 
   it("records unsupported message types without waking the model", async () => {
@@ -353,8 +346,7 @@ describe("feishu connector (official SDK)", () => {
     });
     await new Promise((r) => setTimeout(r, 80));
     expect(await listEvents({ kind: "connector.feishu" })).toHaveLength(1);
-    const { handleUserMessage } = await import("../src/agents/primary.js");
-    expect(handleUserMessage).not.toHaveBeenCalled();
+    expect(await pendingMessages("primary")).toHaveLength(0);
   });
 
   it("sniffs image content type from magic bytes, not the response header", async () => {
@@ -425,6 +417,7 @@ describe("markdown delivery", () => {
   it("sends replies as an interactive card so markdown renders", async () => {
     enableFeishu();
     const app = buildApp();
+    await feishuOutboxOnce(); // a fresh outbox starts at the tail, never replaying history
     await app.request("/feishu/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -445,10 +438,19 @@ describe("markdown delivery", () => {
       }),
     });
     await new Promise((r) => setTimeout(r, 150));
+    const [message] = await pendingMessages("primary");
+    await appendEvent({
+      source: "agent:primary",
+      kind: "agent.reply",
+      threadId: "main",
+      payload: { text: "stub", of: message!.id, root: message!.id },
+    });
+    await feishuOutboxOnce();
 
     // Plain text arrives as a wall of "#" and "**"; a card renders it.
     const card = sent.find((m) => m.data["msg_type"] === "interactive");
     expect(card).toBeDefined();
+    expect(card!.data["receive_id"]).toBe("oc_md");
     // Card 2.0 specifically: 1.0 only renders a subset and leaves lists and
     // tables as literal text, which is the problem being fixed.
     const card2 = JSON.parse(String(card!.data["content"])) as {
@@ -458,6 +460,25 @@ describe("markdown delivery", () => {
     expect(card2.schema).toBe("2.0");
     expect(card2.body.elements[0]!.tag).toBe("markdown");
     expect(card2.body.elements[0]!.content).toBe("stub");
+  });
+
+  it("does not send answers to conversations that began elsewhere", async () => {
+    enableFeishu();
+    await feishuOutboxOnce();
+    const said = await appendEvent({
+      source: "connector:web",
+      kind: "user.message",
+      threadId: "main",
+      payload: { text: "from the web" },
+    });
+    await appendEvent({
+      source: "agent:primary",
+      kind: "agent.reply",
+      threadId: "main",
+      payload: { text: "web answer", of: said.id, root: said.id },
+    });
+    await feishuOutboxOnce();
+    expect(sent).toHaveLength(0);
   });
 
   it("flattens fenced code, the one thing Feishu renders in no card version", async () => {
@@ -473,16 +494,11 @@ describe("markdown delivery", () => {
   });
 
   it("keeps the work item thread root as plain text", async () => {
-    const { createBinding } = await import("../src/kernel/bindings.js");
-    void createBinding;
     enableFeishu();
-    const { handleUserMessage } = await import("../src/agents/primary.js");
-    (handleUserMessage as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      action: "new_work_item",
-      reply: "# 标题\n**完成**",
-      workItemId: (await (await import("../src/kernel/workItems.js")).createWorkItem("md root")).id,
-    });
+    const { createWorkItem } = await import("../src/kernel/workItems.js");
+    const item = await createWorkItem("md root");
     const app = buildApp();
+    await feishuOutboxOnce();
     await app.request("/feishu/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -503,6 +519,16 @@ describe("markdown delivery", () => {
       }),
     });
     await new Promise((r) => setTimeout(r, 200));
+    const [message] = await pendingMessages("primary");
+    // The Manager's answer: about a work item, rooted in the Feishu message.
+    await appendEvent({
+      source: "agent:manager",
+      kind: "agent.reply",
+      threadId: item.threadId,
+      workItemId: item.id,
+      payload: { text: "# 标题\n**完成**", of: message!.id, root: message!.id },
+    });
+    await feishuOutboxOnce();
 
     // The root is a label the thread hangs off, not prose.
     const root = sent.find(
@@ -512,6 +538,45 @@ describe("markdown delivery", () => {
     // The actual answer still goes out as a rendered card, in the thread.
     const reply = sent.find((m) => m.api === "reply");
     expect(reply?.data["msg_type"]).toBe("interactive");
+    expect((await findByWorkItem("feishu", item.id))?.rootId).toBe("om_stub_root");
+  });
+
+  it("routes a reply in a work item's Feishu thread straight to that item", async () => {
+    enableFeishu();
+    const { createWorkItem } = await import("../src/kernel/workItems.js");
+    const item = await createWorkItem("threaded");
+    await createBinding({
+      channel: "feishu",
+      kind: "work_item",
+      workItemId: item.id,
+      chatId: "oc_t",
+      rootId: "om_root_t",
+    });
+    const app = buildApp();
+    await app.request("/feishu/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: signed({
+        schema: "2.0",
+        header: { event_id: "evt_thread", event_type: "im.message.receive_v1" },
+        event: {
+          sender: { sender_type: "user" },
+          message: {
+            message_id: "om_in_thread",
+            root_id: "om_root_t",
+            chat_id: "oc_t",
+            chat_type: "p2p",
+            message_type: "text",
+            create_time: "0",
+            content: JSON.stringify({ text: "继续" }),
+          },
+        },
+      }),
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(await pendingMessages("primary")).toHaveLength(0);
+    const inbox = await pendingMessages(`manager:${item.id}`);
+    expect(inbox.map((e) => e.payload["text"])).toEqual(["继续"]);
   });
 });
 

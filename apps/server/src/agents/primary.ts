@@ -1,84 +1,36 @@
-import { appendEvent } from "../kernel/events.js";
+import { appendEvent, getEvent, listEvents, type HidaneEvent } from "../kernel/events.js";
+import { rootOf } from "../kernel/mailbox.js";
+import { busyWorkItemIds } from "../kernel/executions.js";
 import {
   createWorkItem,
   getWorkItem,
   listWorkItems,
-  setWorkItemStatus,
+  type WorkItem,
 } from "../kernel/workItems.js";
 import { config } from "../config.js";
-import { extractJson } from "./pi.js";
-import { beginLiveText } from "./liveText.js";
-import { createReplyExtractor } from "./replyStream.js";
 import { PRIMARY_CHARTER } from "./charters.js";
-import { getPrimarySession, promptRole } from "./sdk.js";
-import { handleThreadMessage } from "./manager.js";
+import { getPrimarySession } from "./sdk.js";
 import { recallForPrimary } from "./distiller.js";
-import { activeExecutionId, cancelActiveWorker, hasActiveWorker } from "./rpcWorker.js";
+import { loadImages, storedImagesOf } from "./inbox.js";
+import { nowLine, str, think, type Effect } from "./think.js";
+import { changeStatus, deliverToWorkItem } from "./ingress.js";
+import { cancelTree } from "./workerPool.js";
 
-type WorkItemStatus = "open" | "done" | "closed";
+type WorkItemStatus = WorkItem["status"];
 
-interface RouteDecision {
-  action:
-    | "reply"
-    | "new_work_item"
-    | "route_to_work_item"
-    | "set_work_item_status"
-    | "cancel_work_item_execution";
-  reply?: string;
-  title?: string;
-  brief?: string;
-  repo?: string | null;
-  work_item_id?: string;
-  work_item_ids?: unknown;
-  message?: string;
-  dispatch?: unknown;
-  all_open?: unknown;
-  all_items?: unknown;
-  all_running?: unknown;
-  status?: unknown;
-}
-
-export interface PrimaryOutcome {
-  action: RouteDecision["action"] | "fallback_reply";
-  reply: string;
-  workItemId?: string | undefined;
-  workItemIds?: string[] | undefined;
-}
-
-/**
- * A routed message is answered in the work-item thread by the Manager, but
- * the user sent it from the main thread. Mirror the completed answer back to
- * that thread so clients waiting on the main conversation can observe the
- * terminal reply instead of waiting forever for an answer on another thread.
- */
-async function appendMainThreadReply(workItemId: string, text: string): Promise<void> {
-  await appendEvent({
-    source: "agent:manager",
-    kind: "agent.reply",
-    threadId: "main",
-    workItemId,
-    payload: { text },
-  });
-}
-
-async function appendPrimaryReply(text: string): Promise<void> {
-  await appendEvent({
-    source: "agent:primary",
-    kind: "agent.reply",
-    threadId: "main",
-    payload: { text },
-  });
-}
+/** Message kinds the Primary's model reads; everything else is handled by rule. */
+const ROUTABLE = new Set([
+  "user.message",
+  "triage.decision",
+  "schedule.prompt",
+  "message.reroute_requested",
+]);
 
 function isWorkItemStatus(value: unknown): value is WorkItemStatus {
   return value === "open" || value === "done" || value === "closed";
 }
 
-function parseWorkItemIds(raw: unknown): {
-  present: boolean;
-  ids: string[];
-  malformed: boolean;
-} {
+function parseIds(raw: unknown): { present: boolean; ids: string[]; malformed: boolean } {
   if (raw === undefined) return { present: false, ids: [], malformed: false };
   if (!Array.isArray(raw)) return { present: true, ids: [], malformed: true };
   const malformed = raw.some((id) => typeof id !== "string" || !id.trim());
@@ -93,267 +45,370 @@ function parseWorkItemIds(raw: unknown): {
   return { present: true, ids, malformed };
 }
 
+/** One line per message, tagged with its id so effects can say what they answer. */
+function describe(m: HidaneEvent): string {
+  const text = String(m.payload["text"] ?? "");
+  switch (m.kind) {
+    case "triage.decision":
+      return `[${m.id}] (external: ${String(m.payload["ofKind"] ?? "event")}) ${String(m.payload["summary"] ?? "")}`;
+    case "schedule.prompt":
+      return `[${m.id}] (scheduled "${String(m.payload["name"] ?? "")}") ${String(m.payload["prompt"] ?? "")}`;
+    case "message.reroute_requested":
+      return `[${m.id}] (reroute: work item ${String((m.payload["exclude"] as string[] | undefined)?.join(", ") ?? "")} says this is not theirs — do not route it back there) ${text}`;
+    default:
+      return `[${m.id}] (user${m.payload["imageCount"] ? `, ${String(m.payload["imageCount"])} image(s) attached` : ""}) ${text}`;
+  }
+}
+
+/** Where an answer to this message belongs in the conversation, and how to title it. */
+function rootMeta(m: HidaneEvent): Record<string, unknown> {
+  const meta: Record<string, unknown> = { of: m.id, root: rootOf(m) };
+  if (m.kind === "triage.decision") {
+    meta["rootKind"] = "external";
+    meta["rootText"] = String(m.payload["summary"] ?? "").slice(0, 200);
+  } else if (m.kind === "schedule.prompt") {
+    meta["rootKind"] = "scheduled";
+    meta["rootText"] = String(m.payload["name"] ?? "");
+  }
+  return meta;
+}
+
 /**
- * Fast lane: a user message reaches the Primary directly (no triage queue),
- * is recorded to the log, routed, and answered synchronously.
- * The Primary is a persistent SDK session — one identity across turns.
+ * A bubbled question that reached the top: the Primary has no tools and no
+ * better knowledge than the Manager that asked, so it is handed to the person
+ * as-is, with the path it took to get here.
  */
-export async function handleUserMessage(
-  text: string,
-  source = "connector:cli",
-  images: { data: string; mimeType: string }[] = [],
-): Promise<PrimaryOutcome> {
+async function surfaceEscalation(m: HidaneEvent): Promise<void> {
   await appendEvent({
-    source,
-    kind: "user.message",
+    source: "agent:primary",
+    kind: "escalation",
     threadId: "main",
-    payload: { text, ...(images.length > 0 ? { imageCount: images.length } : {}) },
+    workItemId: m.workItemId ?? undefined,
+    causedBy: m.id,
+    hop: m.hop + 1,
+    payload: {
+      question: m.payload["question"],
+      path: m.payload["path"] ?? [],
+      of: m.id,
+      root: rootOf(m),
+      reason: "question",
+    },
   });
+}
 
-  const all = await listWorkItems();
-  const open = all.filter((item) => item.status === "open");
-  const running = all.filter((item) => hasActiveWorker(item.id));
-  const itemsList =
-    all.length > 0
-      ? all
-          .map(
-            (item) =>
-              `- ${item.id} [${item.status}]${running.some((run) => run.id === item.id) ? " [running]" : ""}: ${item.title}`,
-          )
-          .join("\n")
-      : "(none)";
-  const openItemsList =
-    open.length > 0 ? open.map((item) => `- ${item.id}: ${item.title}`).join("\n") : "(none)";
-  const runningItemsList =
-    running.length > 0
-      ? running.map((item) => `- ${item.id}: ${item.title}`).join("\n")
+class TurnContext {
+  readonly covered = new Set<string>();
+  constructor(
+    readonly batch: HidaneEvent[],
+    readonly all: WorkItem[],
+    readonly busy: string[],
+  ) {}
+
+  message(of: unknown): HidaneEvent | undefined {
+    return typeof of === "string" ? this.batch.find((m) => m.id === of) : undefined;
+  }
+
+  cover(m: HidaneEvent, also?: unknown): void {
+    this.covered.add(m.id);
+    if (Array.isArray(also)) {
+      for (const id of also) if (typeof id === "string") this.covered.add(id);
+    }
+  }
+
+  get open(): WorkItem[] {
+    return this.all.filter((i) => i.status === "open");
+  }
+
+  async reply(m: HidaneEvent, text: string): Promise<void> {
+    await appendEvent({
+      source: "agent:primary",
+      kind: "agent.reply",
+      threadId: "main",
+      causedBy: m.id,
+      hop: m.hop + 1,
+      payload: { text, ...rootMeta(m) },
+    });
+  }
+}
+
+/** The message whose attribution an effect decides — a reroute decides for the original. */
+async function attributionSubject(m: HidaneEvent): Promise<HidaneEvent> {
+  if (m.kind !== "message.reroute_requested") return m;
+  const original = await getEvent(String(m.payload["of"] ?? ""));
+  return original ?? m;
+}
+
+async function applyEffect(ctx: TurnContext, e: Effect): Promise<void> {
+  const m = ctx.message(e["of"]);
+  if (!m) return;
+
+  if (e.type === "reply") {
+    ctx.cover(m, e["also_of"]);
+    await ctx.reply(m, str(e["reply"]) ?? "");
+    return;
+  }
+
+  if (e.type === "ambiguous" || e.type === "route") {
+    const excluded = (m.payload["exclude"] as string[] | undefined) ?? [];
+    const target = str(e["work_item_id"]);
+    const confidence = typeof e["confidence"] === "number" ? e["confidence"] : undefined;
+    // Never back to the Manager that refused it.
+    if (e.type === "route" && target && excluded.includes(target)) return;
+    const item = ctx.open.find((i) => i.id === target);
+    if (e.type === "route" && item && (confidence ?? 1) >= config.attributionThreshold) {
+      ctx.cover(m, e["also_of"]);
+      await deliverToWorkItem(await attributionSubject(m), item, "model", {
+        text: str(e["message"]),
+        ...(confidence !== undefined ? { confidence } : {}),
+        source: "agent:primary",
+      });
+      return;
+    }
+    // Asked, or not sure enough: put the choice in front of the person rather
+    // than guessing — a wrong guess sends work into the wrong workspace.
+    const raw = e.type === "route" ? [target, "new"] : (e["candidates"] as unknown[] | undefined) ?? [];
+    const candidates = raw
+      .map((c) => (c === "new" ? { workItemId: "new", title: "" } : ctx.open.find((i) => i.id === c)))
+      .filter((c): c is { workItemId: string; title: string } | WorkItem => c !== undefined)
+      .filter((c) => !("id" in c) || !excluded.includes(c.id))
+      .map((c) => ("id" in c ? { workItemId: c.id, title: c.title } : c));
+    if (candidates.length === 0) return;
+    ctx.cover(m, e["also_of"]);
+    const subject = await attributionSubject(m);
+    await appendEvent({
+      source: "agent:primary",
+      kind: "attribution.ambiguous",
+      threadId: "main",
+      causedBy: m.id,
+      hop: m.hop + 1,
+      payload: {
+        of: subject.id,
+        root: rootOf(subject),
+        question:
+          str(e["reply"]) ??
+          (item ? `这条消息是关于「${item.title}」的吗？` : "这条消息属于哪个任务？"),
+        candidates,
+      },
+    });
+    return;
+  }
+
+  if (e.type === "create_work_item") {
+    if (e["dispatch"] !== undefined && typeof e["dispatch"] !== "boolean") {
+      ctx.cover(m, e["also_of"]);
+      await ctx.reply(m, "无法创建工作项：dispatch 必须是布尔值。");
+      return;
+    }
+    ctx.cover(m, e["also_of"]);
+    const subject = await attributionSubject(m);
+    const title = str(e["title"]) ?? String(subject.payload["text"] ?? "").slice(0, 60);
+    const item = await createWorkItem(title, "agent:primary", {
+      repo: str(e["repo"]),
+      of: subject.id,
+    });
+    const brief = str(e["brief"]) ?? String(subject.payload["text"] ?? "");
+    if (e["dispatch"] === false) {
+      await appendEvent({
+        source: "agent:primary",
+        kind: "message.attributed",
+        threadId: "main",
+        workItemId: item.id,
+        causedBy: m.id,
+        payload: { of: subject.id, workItemId: item.id, title: item.title, by: "model", created: true },
+      });
+      await appendEvent({
+        source: "agent:primary",
+        kind: "user.message",
+        threadId: item.threadId,
+        workItemId: item.id,
+        payload: { text: brief, of: subject.id, root: rootOf(subject), forwardedFrom: "main", deferred: true },
+      });
+      await ctx.reply(m, `已创建工作项 ${item.id}，状态为 open，暂未启动 Manager/Worker。`);
+      return;
+    }
+    await deliverToWorkItem(subject, item, "model", {
+      text: brief,
+      created: true,
+      source: "agent:primary",
+    });
+    // Later messages of the same batch folded into this one reach the Manager
+    // too, so none of the person's refinements is dropped.
+    for (const id of Array.isArray(e["also_of"]) ? e["also_of"] : []) {
+      const extra = ctx.message(id);
+      if (!extra || extra.id === m.id) continue;
+      await deliverToWorkItem(extra, item, "model", { source: "agent:primary" });
+    }
+    return;
+  }
+
+  if (e.type === "set_status") {
+    ctx.cover(m);
+    const parsed = parseIds(e["work_item_ids"]);
+    const allOpen = e["all_open"] === true;
+    const allItems = e["all_items"] === true;
+    const status = e["status"];
+    const selectors = Number(parsed.present) + Number(allOpen) + Number(allItems);
+    if (
+      !isWorkItemStatus(status) ||
+      parsed.malformed ||
+      (e["all_open"] !== undefined && typeof e["all_open"] !== "boolean") ||
+      (e["all_items"] !== undefined && typeof e["all_items"] !== "boolean") ||
+      selectors !== 1
+    ) {
+      await ctx.reply(
+        m,
+        "无法执行工作项状态变更：需要从工作项清单中选择 ID，或使用 all_open/all_items，并指定 open、done 或 closed。",
+      );
+      return;
+    }
+    const targetIds = allOpen
+      ? ctx.open.map((i) => i.id)
+      : allItems
+        ? ctx.all.map((i) => i.id)
+        : parsed.ids;
+    const unknown = targetIds.filter((id) => !ctx.all.some((i) => i.id === id));
+    if (unknown.length > 0) {
+      await ctx.reply(m, `无法变更这些工作项：${unknown.join("、")}。只能操作当前工作项清单中的 ID。`);
+      return;
+    }
+    // Re-read before changing: another channel may have changed an item while
+    // the model was thinking, and a bulk result must not misreport it.
+    const current = await Promise.all(targetIds.map((id) => getWorkItem(id)));
+    const noLongerOpen = allOpen ? current.filter((i) => i.status !== "open").map((i) => i.id) : [];
+    if (noLongerOpen.length > 0) {
+      await ctx.reply(m, `无法变更这些工作项：${noLongerOpen.join("、")} 已不再是开放状态。`);
+      return;
+    }
+    const changed: string[] = [];
+    for (const item of current) {
+      if (item.status === status) continue;
+      await changeStatus(item.id, status, "agent:primary", m);
+      changed.push(item.id);
+    }
+    await ctx.reply(
+      m,
+      changed.length > 0
+        ? `已将 ${changed.length} 个工作项的状态设为 ${status}：${changed.join("、")}`
+        : `没有工作项需要变更（目标状态：${status}）。`,
+    );
+    return;
+  }
+
+  if (e.type === "cancel") {
+    ctx.cover(m);
+    const parsed = parseIds(e["work_item_ids"]);
+    const allRunning = e["all_running"] === true;
+    if (
+      parsed.malformed ||
+      (e["all_running"] !== undefined && typeof e["all_running"] !== "boolean") ||
+      Number(parsed.present) + Number(allRunning) !== 1
+    ) {
+      await ctx.reply(m, "无法中止执行：需要从正在运行的执行清单中选择 ID，或使用 all_running:true。");
+      return;
+    }
+    const targetIds = allRunning ? ctx.busy : parsed.ids;
+    const unknown = targetIds.filter((id) => !ctx.all.some((i) => i.id === id));
+    if (unknown.length > 0) {
+      await ctx.reply(m, `无法中止这些工作项：${unknown.join("、")} 不在工作项清单中。`);
+      return;
+    }
+    const cancelled: string[] = [];
+    for (const id of targetIds) {
+      cancelled.push(...(await cancelTree(id, "cancelled from the primary agent", "agent:primary")));
+    }
+    await ctx.reply(
+      m,
+      cancelled.length > 0
+        ? `已请求中止 ${cancelled.length} 个正在运行的执行：${cancelled.join("、")}`
+        : "没有可中止的正在运行的执行。",
+    );
+  }
+}
+
+/**
+ * The Primary's turn: every message that reached it since its last turn,
+ * decided together. Rules first — a bubbled question goes straight to the
+ * person — and only what needs judgment reaches the model.
+ */
+export async function primaryTurn(_address: string, messages: HidaneEvent[]): Promise<void> {
+  const batch: HidaneEvent[] = [];
+  for (const m of messages) {
+    if (m.kind === "escalation.raised") await surfaceEscalation(m);
+    else if (ROUTABLE.has(m.kind)) batch.push(m);
+  }
+  if (batch.length === 0) return;
+
+  const [all, busy, memories] = await Promise.all([
+    listWorkItems(),
+    busyWorkItemIds(),
+    recallForPrimary(),
+  ]);
+  const ctx = new TurnContext(batch, all, busy);
+  const understanding = await latestUnderstanding(ctx.open.map((i) => i.id));
+  const line = (i: WorkItem) =>
+    `- ${i.id} [${i.status}]${busy.includes(i.id) ? " [running]" : ""}${i.parentId ? ` (child of ${i.parentId})` : ""}: ${i.title}${understanding.get(i.id) ? ` — ${understanding.get(i.id)}` : ""}`;
+  const openList = ctx.open.length > 0 ? ctx.open.map(line).join("\n") : "(none)";
+  const allList = all.length > 0 ? all.map(line).join("\n") : "(none)";
+  const runningList =
+    busy.length > 0
+      ? all.filter((i) => busy.includes(i.id)).map((i) => `- ${i.id}: ${i.title}`).join("\n")
       : "(none)";
 
-  const memories = await recallForPrimary();
+  const images = await loadImages(batch.flatMap((m) => storedImagesOf(m.payload)));
   const session = await getPrimarySession(PRIMARY_CHARTER);
-  /**
-   * Show the answer as it is written instead of after it is finished.
-   *
-   * Closed the moment the model stops, not when the reply is appended: the two
-   * are a database round-trip and one poll cycle apart, and holding the
-   * provisional bubble "live" across that gap would leave a typing cursor
-   * blinking under text that is already complete. The client keeps rendering
-   * the finished text until the durable event arrives and takes over.
-   */
-  const live = beginLiveText("main");
-  const extract = createReplyExtractor();
-  const routing = await promptRole(
+  const thought = await think(
     session,
     [
+      nowLine(),
       memories,
-      `Open work items (routing targets):\n${openItemsList}`,
-      `All work items (status management):\n${itemsList}`,
-      `Running executions (cancellation targets):\n${runningItemsList}`,
-      `Incoming message:\n${text}`,
+      `Open work items (routing targets):\n${openList}`,
+      `All work items (status management):\n${allList}`,
+      `Running executions (cancellation targets):\n${runningList}`,
+      `Messages this turn:\n${batch.map(describe).join("\n")}`,
     ]
       .filter(Boolean)
       .join("\n\n"),
-    config.routeTimeoutSec,
-    images,
-    (delta) => live.push(extract(delta)),
-  ).finally(() => live.end());
-
-  const decision = routing.ok ? extractJson<RouteDecision>(routing.text) : null;
+    { images, liveThreadId: "main" },
+  );
 
   await appendEvent({
     source: "agent:primary",
     kind: "route.decision",
     threadId: "main",
     payload: {
-      ok: routing.ok,
-      durationMs: routing.durationMs,
-      decision: (decision ?? {
-        action: "reply",
-        raw: routing.text.slice(0, 500),
-      }) as Record<string, unknown>,
-    } as Record<string, unknown>,
+      ok: thought.ok,
+      durationMs: thought.durationMs,
+      of: batch.map((m) => m.id),
+      effects: (thought.effects ?? [{ type: "reply", raw: thought.raw.slice(0, 500) }]) as unknown[],
+    },
   });
 
-  if (!decision) {
-    const reply = routing.ok
-      ? routing.text
-      : `primary routing failed: ${routing.error ?? "unknown"}`;
-    await appendPrimaryReply(reply);
-    return { action: "fallback_reply", reply };
+  if (!thought.effects) {
+    const text = thought.ok
+      ? thought.raw
+      : `primary routing failed: ${thought.error ?? "unknown"}`;
+    for (const m of batch) await ctx.reply(m, text);
+    return;
   }
-
-  if (decision.action === "reply") {
-    const reply = decision.reply ?? "";
-    await appendPrimaryReply(reply);
-    return { action: "reply", reply };
+  for (const effect of thought.effects) {
+    await applyEffect(ctx, effect);
   }
-
-  if (decision.action === "new_work_item") {
-    if (decision.dispatch !== undefined && typeof decision.dispatch !== "boolean") {
-      const reply = "无法创建工作项：dispatch 必须是布尔值。";
-      await appendPrimaryReply(reply);
-      return { action: "fallback_reply", reply };
-    }
-    const dispatch = decision.dispatch !== false;
-    const title = decision.title ?? text.slice(0, 60);
-    const item = await createWorkItem(title, "agent:primary", {
-      repo: decision.repo ?? undefined,
-    });
-    const brief = typeof decision.brief === "string" && decision.brief.trim() ? decision.brief : text;
-    await appendEvent({
-      source: "agent:primary",
-      kind: "user.message",
-      threadId: item.threadId,
-      workItemId: item.id,
-      payload: { text: brief, forwardedFrom: "main", ...(dispatch ? {} : { deferred: true }) },
-    });
-    if (!dispatch) {
-      const reply = `已创建工作项 ${item.id}，状态为 open，暂未启动 Manager/Worker。`;
-      await appendPrimaryReply(reply);
-      return { action: "new_work_item", reply, workItemId: item.id };
-    }
-    const reply = await handleThreadMessage(item.id, brief);
-    await appendMainThreadReply(item.id, reply);
-    await appendEvent({
-      source: "agent:manager",
-      kind: "escalation",
-      threadId: "main",
-      workItemId: item.id,
-      payload: { note: `work item ${item.id} (${title}) finished a run` },
-    });
-    return { action: "new_work_item", reply, workItemId: item.id };
+  // A message the model skipped would otherwise sit "routing…" forever.
+  for (const m of batch) {
+    if (ctx.covered.has(m.id)) continue;
+    if (m.kind === "triage.decision") continue;
+    await ctx.reply(m, "这条消息没有被处理，请换个说法再试一次。");
   }
+}
 
-  if (decision.action === "set_work_item_status") {
-    const parsedIds = parseWorkItemIds(decision.work_item_ids);
-    const allOpen = decision.all_open === true;
-    const allItems = decision.all_items === true;
-    const status = decision.status;
-    const selectorCount =
-      Number(parsedIds.present) + Number(allOpen) + Number(allItems);
-    const invalidSelection =
-      parsedIds.malformed ||
-      (decision.all_open !== undefined && typeof decision.all_open !== "boolean") ||
-      (decision.all_items !== undefined && typeof decision.all_items !== "boolean") ||
-      selectorCount !== 1;
-
-    if (!isWorkItemStatus(status) || invalidSelection) {
-      const reply =
-        "无法执行工作项状态变更：需要从工作项清单中选择 ID，或使用 all_open/all_items，并指定 open、done 或 closed。";
-      await appendPrimaryReply(reply);
-      return { action: "fallback_reply", reply };
+async function latestUnderstanding(ids: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+  const events = await listEvents({ kind: "work_item.understanding", tail: 200 });
+  for (const e of events) {
+    if (e.workItemId && ids.includes(e.workItemId)) {
+      map.set(e.workItemId, String(e.payload["text"] ?? "").slice(0, 200));
     }
-
-    const targetIds = allOpen
-      ? open.map((item) => item.id)
-      : allItems
-        ? all.map((item) => item.id)
-        : parsedIds.ids;
-    const unknownIds = targetIds.filter((id) => !all.some((item) => item.id === id));
-    if (unknownIds.length > 0) {
-      const reply = `无法变更这些工作项：${unknownIds.join("、")}。只能操作当前工作项清单中的 ID。`;
-      await appendPrimaryReply(reply);
-      return { action: "fallback_reply", reply };
-    }
-
-    // Re-read the targets before changing anything. The inventory snapshot can
-    // be stale if another channel changed an item while the Primary was
-    // thinking; an all-open request is rejected rather than silently acting on
-    // a non-open item or reporting a misleading bulk result.
-    const current = await Promise.all(targetIds.map((id) => getWorkItem(id)));
-    const noLongerOpen = allOpen
-      ? current.filter((item) => item.status !== "open").map((item) => item.id)
-      : [];
-    if (noLongerOpen.length > 0) {
-      const reply = `无法变更这些工作项：${noLongerOpen.join("、")} 已不再是开放状态。`;
-      await appendPrimaryReply(reply);
-      return { action: "fallback_reply", reply };
-    }
-
-    const changed: string[] = [];
-    for (const item of current) {
-      if (item.status === status) continue;
-      await setWorkItemStatus(item.id, status, "agent:primary");
-      changed.push(item.id);
-    }
-    const reply =
-      changed.length > 0
-        ? `已将 ${changed.length} 个工作项的状态设为 ${status}：${changed.join("、")}`
-        : `没有工作项需要变更（目标状态：${status}）。`;
-    await appendPrimaryReply(reply);
-    return { action: "set_work_item_status", reply, workItemIds: changed };
   }
-
-  if (decision.action === "cancel_work_item_execution") {
-    const parsedIds = parseWorkItemIds(decision.work_item_ids);
-    const allRunning = decision.all_running === true;
-    const selectorCount = Number(parsedIds.present) + Number(allRunning);
-    const invalidSelection =
-      parsedIds.malformed ||
-      (decision.all_running !== undefined && typeof decision.all_running !== "boolean") ||
-      selectorCount !== 1;
-
-    if (invalidSelection) {
-      const reply =
-        "无法中止执行：需要从正在运行的执行清单中选择 ID，或使用 all_running:true。";
-      await appendPrimaryReply(reply);
-      return { action: "fallback_reply", reply };
-    }
-
-    const targetIds = allRunning ? running.map((item) => item.id) : parsedIds.ids;
-    const unknownIds = targetIds.filter((id) => !running.some((item) => item.id === id));
-    if (unknownIds.length > 0) {
-      const reply = `无法中止这些工作项：${unknownIds.join("、")} 当前没有正在运行的执行。`;
-      await appendPrimaryReply(reply);
-      return { action: "fallback_reply", reply };
-    }
-
-    const cancelled: string[] = [];
-    for (const id of targetIds) {
-      const item = all.find((candidate) => candidate.id === id);
-      if (!item || !hasActiveWorker(id)) continue;
-      const executionId = activeExecutionId(id);
-      await appendEvent({
-        source: "agent:primary",
-        kind: "execution.cancelled",
-        threadId: item.threadId,
-        workItemId: id,
-        ...(executionId ? { executionId } : {}),
-        payload: { reason: "cancelled from the primary agent" },
-      });
-      if (await cancelActiveWorker(id)) cancelled.push(id);
-    }
-
-    const reply =
-      cancelled.length > 0
-        ? `已请求中止 ${cancelled.length} 个正在运行的执行：${cancelled.join("、")}`
-        : "没有可中止的正在运行的执行。";
-    await appendPrimaryReply(reply);
-    return { action: "cancel_work_item_execution", reply, workItemIds: cancelled };
-  }
-
-  // route_to_work_item
-  const targetId = decision.work_item_id ?? "";
-  const forwarded = decision.message ?? text;
-  const known = open.find((i) => i.id === targetId);
-  if (!known) {
-    const reply = `routing pointed at unknown work item ${targetId}`;
-    await appendEvent({
-      source: "agent:primary",
-      kind: "agent.reply",
-      threadId: "main",
-      payload: { text: reply },
-    });
-    return { action: "fallback_reply", reply };
-  }
-  await appendEvent({
-    source: "agent:primary",
-    kind: "user.message",
-    threadId: known.threadId,
-    workItemId: known.id,
-    payload: { text: forwarded, forwardedFrom: "main" },
-  });
-  const reply = await handleThreadMessage(known.id, forwarded);
-  await appendMainThreadReply(known.id, reply);
-  return { action: "route_to_work_item", reply, workItemId: known.id };
+  return map;
 }

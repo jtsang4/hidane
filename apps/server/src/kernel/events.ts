@@ -8,7 +8,20 @@ export interface EventInput {
   workItemId?: string | undefined;
   executionId?: string | undefined;
   payload?: Record<string, unknown> | undefined;
+  /** Address of the agent loop this event is also a message to. */
+  mailbox?: string | undefined;
+  lane?: Lane | undefined;
+  /** The event this one was caused by; drives the causal hop budget. */
+  causedBy?: string | undefined;
+  hop?: number | undefined;
 }
+
+/**
+ * Delivery priority for mailbox messages. `interrupt` (a person talking) is
+ * taken before `normal` (continuations, connector wakes); `idle` work only runs
+ * when no mailbox has anything pending.
+ */
+export type Lane = "interrupt" | "normal" | "idle";
 
 export interface HidaneEvent {
   seq: number;
@@ -20,6 +33,10 @@ export interface HidaneEvent {
   workItemId: string | null;
   executionId: string | null;
   payload: Record<string, unknown>;
+  mailbox: string | null;
+  lane: Lane | null;
+  causedBy: string | null;
+  hop: number;
 }
 
 interface EventRow {
@@ -32,6 +49,10 @@ interface EventRow {
   work_item_id: string | null;
   execution_id: string | null;
   payload: Record<string, unknown>;
+  mailbox: string | null;
+  lane: string | null;
+  caused_by: string | null;
+  hop: number;
 }
 
 function toEvent(row: EventRow): HidaneEvent {
@@ -45,12 +66,16 @@ function toEvent(row: EventRow): HidaneEvent {
     workItemId: row.work_item_id,
     executionId: row.execution_id,
     payload: row.payload ?? {},
+    mailbox: row.mailbox,
+    lane: row.lane as Lane | null,
+    causedBy: row.caused_by,
+    hop: Number(row.hop ?? 0),
   };
 }
 
 const SELECT_COLS = sqlFragment();
 function sqlFragment() {
-  return `seq::int AS seq, id, ts, source, kind, thread_id, work_item_id, execution_id, payload`;
+  return `seq::int AS seq, id, ts, source, kind, thread_id, work_item_id, execution_id, payload, mailbox, lane, caused_by, hop`;
 }
 
 /** Append one event to the log (write-through; facts only). */
@@ -58,17 +83,30 @@ export async function appendEvent(input: EventInput): Promise<HidaneEvent> {
   const db = sql();
   const id = genId("ev", 10);
   const rows = await db`
-    INSERT INTO events (id, source, kind, thread_id, work_item_id, execution_id, payload)
+    INSERT INTO events (id, source, kind, thread_id, work_item_id, execution_id, payload,
+                        mailbox, lane, caused_by, hop)
     VALUES (${id}, ${input.source}, ${input.kind}, ${input.threadId ?? null},
             ${input.workItemId ?? null}, ${input.executionId ?? null},
-            ${db.json(JSON.parse(JSON.stringify(input.payload ?? {})) as never)})
-    RETURNING seq::int AS seq, id, ts, source, kind, thread_id, work_item_id, execution_id, payload`;
+            ${db.json(JSON.parse(JSON.stringify(input.payload ?? {})) as never)},
+            ${input.mailbox ?? null}, ${input.mailbox ? (input.lane ?? "normal") : null},
+            ${input.causedBy ?? null}, ${input.hop ?? 0})
+    RETURNING seq::int AS seq, id, ts, source, kind, thread_id, work_item_id, execution_id,
+              payload, mailbox, lane, caused_by, hop`;
   return toEvent(rows[0] as unknown as EventRow);
+}
+
+/** One event by id, or undefined. */
+export async function getEvent(id: string): Promise<HidaneEvent | undefined> {
+  const db = sql();
+  const rows = await db.unsafe(`SELECT ${SELECT_COLS} FROM events WHERE id = $1`, [id]);
+  const row = (rows as unknown as EventRow[])[0];
+  return row ? toEvent(row) : undefined;
 }
 
 export interface ListFilter {
   threadId?: string | undefined;
   workItemId?: string | undefined;
+  mailbox?: string | undefined;
   kind?: string | undefined;
   /**
    * Several kinds, OR'd. Paging a chat needs this: with the kind test applied
@@ -90,9 +128,25 @@ export interface ListFilter {
    * loses history the moment the window is shorter than the gap between runs.
    */
   payloadEquals?: { key: string; value: string } | undefined;
+  /**
+   * The conversation view: everything said on the main thread plus every
+   * answer, whichever thread it was written on. Answers are grouped under the
+   * message they answer (payload.root) by the reader, not by position.
+   */
+  conversation?: boolean | undefined;
   tail?: number | undefined;
   limit?: number | undefined;
 }
+
+export const CONVERSATION_MAIN_KINDS = [
+  "user.message",
+  "agent.reply",
+  "agent.error",
+  "escalation",
+  "message.attributed",
+  "attribution.ambiguous",
+] as const;
+export const CONVERSATION_ANY_KINDS = ["agent.reply", "execution.steered"] as const;
 
 /** Read events in seq order with optional filters. */
 export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]> {
@@ -105,6 +159,7 @@ export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]
   };
   if (filter.threadId) add("thread_id = ?", filter.threadId);
   if (filter.workItemId) add("work_item_id = ?", filter.workItemId);
+  if (filter.mailbox) add("mailbox = ?", filter.mailbox);
   if (filter.kind) add("kind = ?", filter.kind);
   if (filter.kinds && filter.kinds.length > 0) {
     // One placeholder per kind rather than `= ANY($n)`: this query runs through
@@ -115,6 +170,11 @@ export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]
       return `$${params.length}`;
     });
     where.push(`kind IN (${holes.join(", ")})`);
+  }
+  if (filter.conversation) {
+    const main = CONVERSATION_MAIN_KINDS.map((k) => `'${k}'`).join(", ");
+    const any = CONVERSATION_ANY_KINDS.map((k) => `'${k}'`).join(", ");
+    where.push(`((thread_id = 'main' AND kind IN (${main})) OR kind IN (${any}))`);
   }
   if (filter.afterSeq !== undefined) add("seq > ?", filter.afterSeq);
   if (filter.beforeSeq !== undefined) add("seq < ?", filter.beforeSeq);

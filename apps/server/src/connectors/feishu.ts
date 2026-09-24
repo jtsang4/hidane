@@ -1,6 +1,15 @@
 import * as lark from "@larksuiteoapi/node-sdk";
 import type { Hono } from "hono";
-import { appendEvent } from "../kernel/events.js";
+import {
+  appendEvent,
+  commitCursor,
+  getCursor,
+  getEvent,
+  listEvents,
+  type HidaneEvent,
+} from "../kernel/events.js";
+import { sql } from "../kernel/db.js";
+import { onEventAppended } from "../kernel/notify.js";
 import {
   createBinding,
   findByChannelRef,
@@ -9,8 +18,7 @@ import {
 } from "../kernel/bindings.js";
 import { getWorkItem } from "../kernel/workItems.js";
 import { config } from "../config.js";
-import { handleUserMessage } from "../agents/primary.js";
-import { handleThreadMessage } from "../agents/manager.js";
+import { submitMessage } from "../agents/ingress.js";
 
 /**
  * Feishu channel binding, on the official SDK.
@@ -336,43 +344,148 @@ export async function deliverToMain(text: string): Promise<boolean> {
   return true;
 }
 
-/** Post-outcome delivery: mirror runtime replies back onto the Feishu surface. */
-async function deliverOutcome(
-  chatId: string,
-  outcome: { reply: string; workItemId?: string | undefined },
-): Promise<void> {
-  if (outcome.workItemId) {
-    let binding = await findByWorkItem("feishu", outcome.workItemId);
-    if (!binding) {
-      const item = await getWorkItem(outcome.workItemId);
-      const rootId = await sendText(chatId, `📋 ${item.id} — ${item.title}`, false);
-      binding = await createBinding({
-        channel: "feishu",
-        kind: "work_item",
-        workItemId: item.id,
-        chatId,
-        rootId,
-      });
-      await appendEvent({
-        source: "connector:feishu",
-        kind: "binding.created",
-        threadId: item.threadId,
-        workItemId: item.id,
-        payload: { chatId, rootId },
-      });
+/** The work item's Feishu thread root, created on first use. */
+async function workItemRoot(workItemId: string, chatId: string): Promise<string | null> {
+  const existing = await findByWorkItem("feishu", workItemId);
+  if (existing) return existing.rootId;
+  const item = await getWorkItem(workItemId);
+  const rootId = await sendText(chatId, `📋 ${item.id} — ${item.title}`, false);
+  await createBinding({ channel: "feishu", kind: "work_item", workItemId: item.id, chatId, rootId });
+  await appendEvent({
+    source: "connector:feishu",
+    kind: "binding.created",
+    threadId: item.threadId,
+    workItemId: item.id,
+    payload: { chatId, rootId },
+  });
+  return rootId;
+}
+
+function outboundText(event: HidaneEvent): string | null {
+  const p = event.payload;
+  switch (event.kind) {
+    case "agent.reply":
+      return typeof p["text"] === "string" && p["text"] ? p["text"] : null;
+    case "escalation": {
+      const path = Array.isArray(p["path"]) ? (p["path"] as { title?: string; tried?: string }[]) : [];
+      const trail = path
+        .filter((s) => s.tried)
+        .map((s) => `- ${s.title ?? ""}：${s.tried ?? ""}`)
+        .join("\n");
+      return `❓ ${String(p["question"] ?? "")}${trail ? `\n\n已经尝试过：\n${trail}` : ""}`;
     }
-    if (binding.rootId) {
-      await replyChunked(binding.rootId, outcome.reply);
+    case "attribution.ambiguous": {
+      const candidates = (p["candidates"] as { workItemId: string; title: string }[] | undefined) ?? [];
+      return `${String(p["question"] ?? "")}\n${candidates
+        .map((c) => (c.workItemId === "new" ? "- 新任务" : `- ${c.title}（${c.workItemId}）`))
+        .join("\n")}`;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Deliver one runtime answer to Feishu when the conversation it answers began
+ * there (or is a scheduled prompt, which has no inbound chat). Answers about a
+ * work item go into that item's Feishu thread; the rest go to the chat.
+ */
+async function deliverOutbound(event: HidaneEvent): Promise<void> {
+  const text = outboundText(event);
+  if (!text) return;
+  const rootId = typeof event.payload["root"] === "string" ? event.payload["root"] : undefined;
+  const root = rootId ? await getEvent(rootId) : undefined;
+  if (!root) return;
+  if (root.kind === "schedule.prompt") {
+    await deliverToMain(`⏰ ${String(root.payload["name"] ?? "")}\n${text}`);
+    return;
+  }
+  const origin = (root.payload["channel"] as { feishu?: { chatId?: string } } | undefined)?.feishu;
+  if (!origin?.chatId) return;
+  if (event.workItemId) {
+    const threadRoot = await workItemRoot(event.workItemId, origin.chatId);
+    if (threadRoot) {
+      await replyChunked(threadRoot, text);
       return;
     }
   }
-  await sendChunked(chatId, outcome.reply);
+  await sendChunked(origin.chatId, text);
+}
+
+const OUTBOX = "feishu-outbox";
+const OUTBOUND_KINDS = ["agent.reply", "escalation", "attribution.ambiguous"];
+
+/** One pass of the outbox consumer. Delivery failures are logged and skipped. */
+export async function feishuOutboxOnce(): Promise<number> {
+  // A fresh deployment starts at the tail: history must never be re-sent.
+  const known = await sql()`SELECT 1 FROM cursors WHERE consumer = ${OUTBOX}`;
+  if (known.length === 0) {
+    const last = await listEvents({ tail: 1 });
+    await commitCursor(OUTBOX, last[0]?.seq ?? 0);
+    return 0;
+  }
+  const after = await getCursor(OUTBOX);
+  const batch = await listEvents({ afterSeq: after, kinds: OUTBOUND_KINDS, limit: 50 });
+  for (const event of batch) {
+    try {
+      await deliverOutbound(event);
+    } catch (err) {
+      await appendEvent({
+        source: "connector:feishu",
+        kind: "agent.error",
+        payload: { error: `feishu delivery failed: ${String(err)}`, of: event.id },
+      }).catch(() => {});
+    }
+    await commitCursor(OUTBOX, event.seq);
+  }
+  return batch.length;
+}
+
+/** The outbox is a log consumer, so a reply is sent whichever process wrote it. */
+export function startFeishuOutbox(): () => void {
+  if (!feishuEnabled()) return () => {};
+  let running = false;
+  let again = false;
+  const tick = async (): Promise<void> => {
+    if (running) {
+      again = true;
+      return;
+    }
+    running = true;
+    try {
+      do {
+        again = false;
+        if ((await feishuOutboxOnce()) === 50) again = true;
+      } while (again);
+    } catch (err) {
+      console.error("feishu outbox error:", err);
+    } finally {
+      running = false;
+    }
+  };
+  const handle = setInterval(() => void tick(), 5000);
+  const unlisten = onEventAppended(() => void tick());
+  void tick();
+  return () => {
+    clearInterval(handle);
+    unlisten();
+  };
 }
 
 async function handleMessageEvent(data: MessageEventData): Promise<void> {
   if (data.sender?.sender_type !== "user") return; // bot echoes never re-enter
   const chatId = data.message?.chat_id;
   if (!chatId) return;
+  // Durable half of the retry guard: the in-memory set does not survive a
+  // restart, and a retry landing after one would run the whole chain again.
+  const messageId = data.message?.message_id;
+  if (
+    messageId &&
+    (await listEvents({ kind: "connector.feishu", payloadEquals: { key: "messageId", value: messageId }, tail: 1 }))
+      .length > 0
+  ) {
+    return;
+  }
   const messageType = data.message?.message_type ?? "";
   const rawContent = data.message?.content ?? "";
   const keys = imageKeys(messageType, rawContent);
@@ -426,22 +539,14 @@ async function handleMessageEvent(data: MessageEventData): Promise<void> {
   const rootId = data.message.root_id ?? null;
   const binding = rootId ? await findByChannelRef("feishu", chatId, rootId) : undefined;
 
-  if (binding?.kind === "work_item" && binding.workItemId) {
-    const item = await getWorkItem(binding.workItemId);
-    await appendEvent({
-      source: "connector:feishu",
-      kind: "user.message",
-      threadId: item.threadId,
-      workItemId: item.id,
-      payload: { text },
-    });
-    const reply = await handleThreadMessage(item.id, text);
-    if (binding.rootId) await replyChunked(binding.rootId, reply);
-    return;
-  }
-
-  const outcome = await handleUserMessage(text, "connector:feishu", images);
-  await deliverOutcome(chatId, outcome);
+  const channel = { feishu: { chatId, rootId, messageId: data.message.message_id ?? null } };
+  await submitMessage({
+    text,
+    images,
+    source: "connector:feishu",
+    channel,
+    ...(binding?.kind === "work_item" && binding.workItemId ? { target: binding.workItemId } : {}),
+  });
 }
 
 /**

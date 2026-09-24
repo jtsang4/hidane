@@ -1,7 +1,7 @@
-import { appendEvent } from "../kernel/events.js";
+import { appendEvent, type HidaneEvent } from "../kernel/events.js";
 import { dueSchedules, markRun, type Schedule } from "../kernel/schedules.js";
-import { handleUserMessage } from "../agents/primary.js";
-import { deliverToMain } from "./feishu.js";
+import { post } from "../kernel/mailbox.js";
+import { PRIMARY } from "../agents/addresses.js";
 
 /**
  * Executor for user-defined schedules: the active counterpart of the passive
@@ -64,29 +64,38 @@ async function fireHttp(schedule: Schedule): Promise<string> {
   }
 }
 
-async function firePrompt(schedule: Schedule): Promise<string> {
-  const outcome = await handleUserMessage(
-    schedule.spec.prompt ?? "",
-    `connector:schedule:${schedule.id}`,
-  );
-  // A scheduled reminder that only lands in the log reminds nobody: mirror the
-  // reply onto the bound Feishu main chat when one exists (best-effort).
-  if (outcome.reply) {
-    await deliverToMain(`⏰ ${schedule.name}\n${outcome.reply}`).catch(() => {});
-  }
-  return `${outcome.action}${outcome.workItemId ? ` → ${outcome.workItemId}` : ""}`;
+/**
+ * A prompt schedule speaks to the Primary on the person's behalf. Posting is
+ * the whole firing: the answer arrives later and the outbox delivers it, so a
+ * long chain never holds up the next due schedule.
+ */
+async function firePrompt(schedule: Schedule, fired: HidaneEvent): Promise<string> {
+  const message = await post({
+    source: `connector:schedule:${schedule.id}`,
+    kind: "schedule.prompt",
+    mailbox: PRIMARY,
+    lane: "normal",
+    causedBy: fired,
+    payload: {
+      scheduleId: schedule.id,
+      name: schedule.name,
+      prompt: schedule.spec.prompt ?? "",
+    },
+  });
+  return message ? `posted ${message.id}` : "budget exceeded";
 }
 
 /** Fire one schedule now (loop tick or the API's run-now), with bookkeeping. */
 export async function fireSchedule(schedule: Schedule): Promise<string> {
-  await appendEvent({
+  const fired = await appendEvent({
     source: "connector:schedule",
     kind: "schedule.fired",
     payload: { scheduleId: schedule.id, name: schedule.name, action: schedule.action },
   });
   let status: string;
   try {
-    status = schedule.action === "http" ? await fireHttp(schedule) : await firePrompt(schedule);
+    status =
+      schedule.action === "http" ? await fireHttp(schedule) : await firePrompt(schedule, fired);
   } catch (err) {
     status = `error: ${err instanceof Error ? err.message : String(err)}`;
     await appendEvent({
@@ -99,10 +108,7 @@ export async function fireSchedule(schedule: Schedule): Promise<string> {
   return status;
 }
 
-/**
- * Due-schedule loop. Sequential on purpose: schedules are rare and a prompt
- * firing runs an LLM chain — parallel firings would race the Primary session.
- */
+/** Due-schedule loop. Firing only records and posts, so sequential is cheap. */
 export function startScheduler(tickSec = 15): () => void {
   let running = false;
   const tick = async () => {

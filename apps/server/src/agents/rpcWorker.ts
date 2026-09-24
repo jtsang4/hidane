@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import {
   RpcClient,
   type JsonAgentSessionEvent,
@@ -37,6 +37,8 @@ interface ActiveEntry {
   /** Resolved on cancel; the run races it so a stop always terminates. */
   onCancel?: (() => void) | undefined;
   executionId?: string | undefined;
+  /** Exists while a steer is queued but unread; the guard pauses writes on it. */
+  pendingInputFile?: string | undefined;
 }
 
 /** Running executions by work item — the "唯一在跑的 Execution" routing target. */
@@ -79,6 +81,10 @@ export async function steerActiveWorker(
 ): Promise<boolean> {
   const entry = activeWorkers.get(workItemId);
   if (!entry) return false;
+  // Raise the flag before queueing, so no write can slip between the two.
+  if (entry.pendingInputFile) {
+    await writeFile(entry.pendingInputFile, text.slice(0, 2000)).catch(() => {});
+  }
   if (!entry.client) {
     entry.buffer.push(text);
     return true;
@@ -108,6 +114,8 @@ export interface WorkerRunOptions {
   /** Reported back so the UI can name what it is offering to cancel. */
   executionId?: string | undefined;
   timeoutSec?: number | undefined;
+  /** Policy files, outermost first, evaluated by the guard on every tool call. */
+  policyFiles?: string[] | undefined;
   /** Called on tool execution boundaries — the two-phase side-effect hook. */
   onToolEvent?: ((e: WorkerToolEvent) => void | Promise<void>) | undefined;
 }
@@ -116,6 +124,8 @@ export interface WorkerRunResult {
   ok: boolean;
   text: string;
   error?: string | undefined;
+  /** Tool calls the capture phase refused, with the reason given. */
+  policyBlocks?: { tool: string; reason: string }[] | undefined;
   /** Distinguishes a deliberate stop from a failure, for the log and the UI. */
   cancelled?: boolean | undefined;
   durationMs: number;
@@ -143,10 +153,18 @@ export async function runWorkerExecution(
     "--append-system-prompt",
     opts.charter,
   ];
+  const pendingInputFile = join(opts.cwd, ".hidane", "pending-input");
+  await mkdir(dirname(pendingInputFile), { recursive: true });
+  await rm(pendingInputFile, { force: true });
   const client = new RpcClient({
     cliPath: cliPath(),
     cwd: opts.cwd,
-    env: { ...(process.env as Record<string, string>), PI_OFFLINE: "1" },
+    env: {
+      ...(process.env as Record<string, string>),
+      PI_OFFLINE: "1",
+      HIDANE_PENDING_INPUT_FILE: pendingInputFile,
+      HIDANE_POLICY_FILES: (opts.policyFiles ?? []).join("\n"),
+    },
     ...(config.piProvider ? { provider: config.piProvider } : {}),
     ...(config.piModel ? { model: config.piModel } : {}),
     args,
@@ -155,6 +173,7 @@ export async function runWorkerExecution(
   const started = Date.now();
   let toolCalls = 0;
   const finalMessages: unknown[] = [];
+  const policyBlocks: { tool: string; reason: string }[] = [];
 
   const offEvent = (event: JsonAgentSessionEvent): void => {
     const e = event as Record<string, unknown>;
@@ -169,11 +188,24 @@ export async function runWorkerExecution(
         break;
       }
       case "tool_execution_end": {
+        if (e["isError"]) {
+          const reason = resultText(e["result"]);
+          if (reason.startsWith("blocked by hidane policy")) {
+            policyBlocks.push({ tool: String(e["toolName"] ?? "unknown"), reason });
+          }
+        }
         void opts.onToolEvent?.({
           phase: "end",
           toolName: String(e["toolName"] ?? "unknown"),
           isError: Boolean(e["isError"]),
         });
+        break;
+      }
+      case "queue_update": {
+        const steering = e["steering"];
+        if (Array.isArray(steering) && steering.length === 0) {
+          void rm(pendingInputFile, { force: true });
+        }
         break;
       }
       case "message_end": {
@@ -185,7 +217,7 @@ export async function runWorkerExecution(
     }
   };
 
-  const entry: ActiveEntry = { buffer: [], executionId: opts.executionId };
+  const entry: ActiveEntry = { buffer: [], executionId: opts.executionId, pendingInputFile };
   if (opts.workItemId) activeWorkers.set(opts.workItemId, entry);
   try {
     await client.start();
@@ -225,9 +257,10 @@ export async function runWorkerExecution(
         cancelled: true,
         durationMs: Date.now() - started,
         toolCalls,
+        policyBlocks,
       };
     }
-    return { ok: true, text, durationMs: Date.now() - started, toolCalls };
+    return { ok: true, text, durationMs: Date.now() - started, toolCalls, policyBlocks };
   } catch (err) {
     if (entry.cancelled) {
       return {
@@ -237,6 +270,7 @@ export async function runWorkerExecution(
         cancelled: true,
         durationMs: Date.now() - started,
         toolCalls,
+        policyBlocks,
       };
     }
     const stderr = client.getStderr().slice(0, 1000);
@@ -246,9 +280,26 @@ export async function runWorkerExecution(
       error: `${String(err instanceof Error ? err.message : err)}${stderr ? `\nstderr: ${stderr}` : ""}`,
       durationMs: Date.now() - started,
       toolCalls,
+      policyBlocks,
     };
   } finally {
     if (opts.workItemId) activeWorkers.delete(opts.workItemId);
     await client.stop().catch(() => {});
+    await rm(pendingInputFile, { force: true }).catch(() => {});
   }
+}
+
+function resultText(result: unknown): string {
+  const content = (result as { content?: unknown } | undefined)?.content;
+  if (!Array.isArray(content)) return typeof result === "string" ? result : "";
+  return content
+    .map((part) => (part as { text?: unknown }).text)
+    .filter((t): t is string => typeof t === "string")
+    .join("");
+}
+
+/** A worker that cannot proceed ends its summary with `BLOCKED: <question>`. */
+export function blockedQuestion(text: string): string | null {
+  const match = /^\s*BLOCKED:\s*(.+)$/m.exec(text);
+  return match?.[1]?.trim() || null;
 }

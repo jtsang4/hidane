@@ -1,18 +1,25 @@
 /**
- * Live end-to-end verification. Requires: postgres up, pi installed & authed.
- * Run with: pnpm e2e
+ * Scripted live smoke of the happy path. Requires: postgres up, pi installed &
+ * authed, and no daemon running against the same database (this process runs
+ * the agent loop itself). Run with: pnpm smoke — never the source of truth;
+ * `pnpm e2e` is.
  *
  * Exercises the full loop with a REAL LLM:
- *   chat → primary routes → work item + workspace → manager plans →
- *   worker executes with tools in the workspace → events → worklog projection
- * plus the background lane: webhook → triage → primary wake.
+ *   message → primary routes → work item + workspace → manager plans →
+ *   worker executes in the workspace → result delivered back → manager answers
+ * plus the background lane: webhook → triage → posted to the primary.
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { migrate, closeDb } from "../src/kernel/db.js";
 import { listEvents } from "../src/kernel/events.js";
 import { listWorkItems } from "../src/kernel/workItems.js";
-import { handleUserMessage } from "../src/agents/primary.js";
+import { activeExecutions } from "../src/kernel/executions.js";
+import { mailboxesWithPending, pendingMessages } from "../src/kernel/mailbox.js";
+import { acquireRuntimeLock } from "../src/kernel/runtime.js";
+import { submitMessage } from "../src/agents/ingress.js";
+import { createAgentRuntime } from "../src/agents/runtime.js";
+import { disposeAgents } from "../src/agents/sdk.js";
 import { buildApp } from "../src/connectors/http.js";
 import { triageOnce } from "../src/connectors/triageLoop.js";
 import { renderDay, writeDay, today } from "../src/projections/worklog.js";
@@ -28,15 +35,34 @@ async function main(): Promise<void> {
   await migrate();
   console.log("== hidane live e2e ==\n");
 
-  // --- 1. fast lane: chat that should create a work item and run a worker ---
+  // --- 1. a message that should create a work item and run a worker ---
+  const release = await acquireRuntimeLock();
+  if (!release) throw new Error("a daemon is running against this database; stop it first");
+  const runtime = createAgentRuntime();
+  runtime.start();
   const msg =
     "在工作区里创建一个 python 脚本 hello.py，内容是打印 'hello hidane'，然后运行它并确认输出正确";
-  console.log(`chat> ${msg}\n(waiting for primary → manager → worker ...)\n`);
-  const outcome = await handleUserMessage(msg);
-  console.log(`action: ${outcome.action}, work item: ${outcome.workItemId ?? "-"}`);
-  console.log(`reply (first 300 chars): ${outcome.reply.slice(0, 300)}\n`);
+  console.log(`chat> ${msg}\n(waiting for primary → manager → worker → manager ...)\n`);
+  const message = await submitMessage({ text: msg, source: "connector:cli" });
+  const deadline = Date.now() + 15 * 60_000;
+  for (;;) {
+    const replies = (await listEvents({ kind: "agent.reply" })).filter((e) => e.payload["root"] === message.id);
+    const busy = (await activeExecutions()).length > 0 || (await mailboxesWithPending()).length > 0;
+    if (replies.length > 0 && !busy) break;
+    if (Date.now() > deadline) break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  await runtime.stop();
+  const [attribution] = (await listEvents({ kind: "message.attributed" })).filter(
+    (e) => e.payload["of"] === message.id,
+  );
+  const answer = (await listEvents({ kind: "agent.reply" })).filter((e) => e.payload["root"] === message.id).at(-1);
+  console.log(`work item: ${attribution?.workItemId ?? "-"}`);
+  console.log(`answer (first 300 chars): ${String(answer?.payload["text"] ?? "").slice(0, 300)}\n`);
+  const outcome = { workItemId: attribution?.workItemId ?? undefined };
 
-  check("primary routed to a new work item", outcome.action === "new_work_item");
+  check("primary routed to a new work item", attribution?.payload["created"] === true);
+  check("answer delivered with the message as its root", answer !== undefined);
   const items = await listWorkItems();
   check("work item persisted", items.length >= 1);
 
@@ -78,6 +104,10 @@ async function main(): Promise<void> {
   check("webhook accepted", res.status === 200);
   const triage = await triageOnce();
   check("triage woke primary for webhook", triage.woke === 1);
+  check(
+    "wake posted to the primary's mailbox",
+    (await pendingMessages("primary")).some((e) => e.kind === "triage.decision"),
+  );
   const triageDecisions = await listEvents({ kind: "triage.decision" });
   check(
     "triage decision recorded",
@@ -99,6 +129,8 @@ async function main(): Promise<void> {
   check("worklog file written", path.endsWith(".md"), path);
 
   console.log(`\n== ${failures === 0 ? "ALL PASS" : `${failures} FAILURES`} ==`);
+  await release();
+  await disposeAgents();
   await closeDb();
   process.exit(failures === 0 ? 0 : 1);
 }

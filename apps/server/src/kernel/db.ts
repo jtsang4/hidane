@@ -86,6 +86,41 @@ export async function migrate(): Promise<void> {
     )`;
   await db`CREATE INDEX IF NOT EXISTS schedules_due_idx ON schedules (enabled, next_run_at)`;
   await db`INSERT INTO threads (id, kind) VALUES ('main', 'main') ON CONFLICT DO NOTHING`;
+
+  // Mailbox addressing: an event with a mailbox is also a message to that
+  // agent loop. Old rows keep NULLs; nothing is back-filled.
+  await db`ALTER TABLE events ADD COLUMN IF NOT EXISTS mailbox TEXT`;
+  await db`ALTER TABLE events ADD COLUMN IF NOT EXISTS lane TEXT`;
+  await db`ALTER TABLE events ADD COLUMN IF NOT EXISTS caused_by TEXT`;
+  await db`ALTER TABLE events ADD COLUMN IF NOT EXISTS hop INT NOT NULL DEFAULT 0`;
+  await db`CREATE INDEX IF NOT EXISTS events_mailbox_idx ON events (mailbox, seq) WHERE mailbox IS NOT NULL`;
+  // Every append wakes listeners in any process (daemon runtime, SSE streams),
+  // including appends made by a one-shot CLI process.
+  await db.unsafe(`
+    CREATE OR REPLACE FUNCTION hidane_notify_event() RETURNS trigger AS $$
+    BEGIN
+      PERFORM pg_notify('hidane_events', NEW.seq::text);
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql`);
+  await db.unsafe(`
+    CREATE OR REPLACE TRIGGER events_notify AFTER INSERT ON events
+    FOR EACH ROW EXECUTE FUNCTION hidane_notify_event()`);
+
+  await db`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS parent_id TEXT`;
+  await db`ALTER TABLE work_items ADD COLUMN IF NOT EXISTS deadline_at TIMESTAMPTZ`;
+  await db`CREATE INDEX IF NOT EXISTS work_items_parent_idx ON work_items (parent_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS executions (
+      id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    )`;
+  await db`CREATE INDEX IF NOT EXISTS executions_status_idx ON executions (status, created_at)`;
+  await db`CREATE INDEX IF NOT EXISTS executions_item_idx ON executions (work_item_id, created_at)`;
 }
 
 export async function closeDb(): Promise<void> {

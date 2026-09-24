@@ -2,9 +2,15 @@
 import { Command } from "commander";
 import { config } from "./config.js";
 import { migrate, closeDb } from "./kernel/db.js";
-import { listEvents } from "./kernel/events.js";
+import { listEvents, type HidaneEvent } from "./kernel/events.js";
 import { listWorkItems } from "./kernel/workItems.js";
-import { handleUserMessage } from "./agents/primary.js";
+import { activeExecutions } from "./kernel/executions.js";
+import { mailboxesWithPending } from "./kernel/mailbox.js";
+import { onEventAppended } from "./kernel/notify.js";
+import { acquireRuntimeLock } from "./kernel/runtime.js";
+import { submitMessage } from "./agents/ingress.js";
+import { createAgentRuntime, setCurrentRuntime } from "./agents/runtime.js";
+import { recoverExecutions } from "./agents/workerPool.js";
 import { disposeAgents, describeEffectiveModel } from "./agents/sdk.js";
 import { runDistillation } from "./agents/distiller.js";
 import {
@@ -17,6 +23,7 @@ import { startHeartbeat } from "./connectors/timer.js";
 import { startHttp } from "./connectors/http.js";
 import { startTriageLoop } from "./connectors/triageLoop.js";
 import { startScheduler } from "./connectors/scheduler.js";
+import { startFeishuOutbox } from "./connectors/feishu.js";
 import { renderDay, writeDay, today } from "./projections/worklog.js";
 import { archiveDay } from "./projections/archive.js";
 
@@ -35,15 +42,70 @@ program
     await closeDb();
   });
 
+/** Print answers to one message until its chain has gone quiet. */
+async function followAnswers(messageId: string, timeoutMs: number): Promise<void> {
+  const seen = new Set<string>();
+  const started = Date.now();
+  let lastActivity = Date.now();
+  let wake: (() => void) | undefined;
+  const unlisten = onEventAppended(() => wake?.());
+  try {
+    while (Date.now() - started < timeoutMs) {
+      const events = await listEvents({ conversation: true, tail: 200 });
+      const mine = events.filter(
+        (e: HidaneEvent) => e.payload["root"] === messageId || e.payload["of"] === messageId,
+      );
+      for (const e of mine) {
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        lastActivity = Date.now();
+        const text = e.payload["text"] ?? e.payload["question"] ?? e.payload["error"];
+        const label = e.kind === "message.attributed" ? `→ ${String(e.payload["workItemId"])}` : e.kind;
+        console.log(`\n[${label}${e.workItemId && e.kind !== "message.attributed" ? ` ${e.workItemId}` : ""}]`);
+        if (typeof text === "string") console.log(text);
+      }
+      const answered = mine.some((e) => ["agent.reply", "escalation", "attribution.ambiguous", "agent.error"].includes(e.kind));
+      const busy = (await activeExecutions()).length > 0 || (await mailboxesWithPending()).length > 0;
+      if (answered && !busy && Date.now() - lastActivity > 1500) return;
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, 2000);
+        wake = () => {
+          clearTimeout(t);
+          resolve();
+        };
+      });
+    }
+    console.log("\n(still working — follow it in the web UI or with `hidane events`)");
+  } finally {
+    unlisten();
+  }
+}
+
 program
   .command("chat")
-  .description("send a message to the Primary agent (fast lane)")
+  .description("send a message to the Primary agent and follow the answers")
   .argument("<message...>", "message text")
-  .action(async (parts: string[]) => {
+  .option("--item <id>", "address the message to a work item directly")
+  .option("--timeout <sec>", "stop following after this many seconds", "900")
+  .action(async (parts: string[], opts: { item?: string; timeout: string }) => {
     await migrate();
-    const outcome = await handleUserMessage(parts.join(" "));
-    console.log(`\n[${outcome.action}${outcome.workItemId ? ` → ${outcome.workItemId}` : ""}]`);
-    console.log(outcome.reply);
+    // Without a daemon, this process runs the loop itself for as long as the
+    // conversation is active; with one, it only posts and follows.
+    const release = await acquireRuntimeLock();
+    const runtime = release ? createAgentRuntime() : undefined;
+    if (runtime) {
+      await recoverExecutions();
+      setCurrentRuntime(runtime);
+      runtime.start();
+    }
+    const message = await submitMessage({
+      text: parts.join(" "),
+      source: "connector:cli",
+      ...(opts.item ? { target: opts.item } : {}),
+    });
+    await followAnswers(message.id, Number(opts.timeout) * 1000);
+    await runtime?.stop();
+    await release?.();
     await disposeAgents();
     await closeDb();
     process.exit(0);
@@ -158,31 +220,37 @@ program
 
 program
   .command("daemon")
-  .description("run the resident runtime: http connector, heartbeat, triage loop")
+  .description("run the resident runtime: agent event loop, http, connectors")
   .action(async () => {
     const effectiveModel = await describeEffectiveModel();
     await migrate();
+    const release = await acquireRuntimeLock();
+    if (!release) {
+      console.error("another hidane runtime holds the lock on this database; refusing to start a second one");
+      await closeDb();
+      process.exit(1);
+    }
+    const lost = await recoverExecutions();
+    const runtime = createAgentRuntime();
+    setCurrentRuntime(runtime);
+    runtime.start();
     const server = startHttp(config.port);
     const stopHeartbeat = startHeartbeat(config.heartbeatIntervalSec);
     const stopTriage = startTriageLoop(5);
     const stopScheduler = startScheduler(5);
-    const distillTimer = setInterval(() => {
-      runDistillation({ minEvents: 10 }).catch((err) =>
-        console.error("distill loop error:", err),
-      );
-    }, config.distillIntervalSec * 1000);
-    const archiveTimer = setInterval(() => {
-      archiveDay(today()).catch((err) => console.error("archive loop error:", err));
-    }, 3600 * 1000);
-    console.log(`hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, distill ${config.distillIntervalSec}s, scheduler 5s`);
+    const stopOutbox = startFeishuOutbox();
+    console.log(
+      `hidane daemon up: http :${config.port}, heartbeat ${config.heartbeatIntervalSec}s, workers ${config.maxWorkers}, turns ${config.maxConcurrentTurns}${lost > 0 ? `, ${lost} execution(s) lost to the last restart` : ""}`,
+    );
     console.log(`model: ${effectiveModel}`);
     const shutdown = async () => {
       stopHeartbeat();
       stopTriage();
       stopScheduler();
-      clearInterval(distillTimer);
-      clearInterval(archiveTimer);
+      stopOutbox();
       server.close();
+      await runtime.stop();
+      await release();
       await disposeAgents();
       await closeDb();
       process.exit(0);

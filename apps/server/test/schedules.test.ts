@@ -1,15 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/agents/primary.js", () => ({
-  handleUserMessage: vi.fn(async () => ({ action: "reply", reply: "scheduled reply" })),
-}));
-vi.mock("../src/agents/manager.js", () => ({
-  handleThreadMessage: vi.fn(async () => "stub"),
-}));
-
 import { buildApp } from "../src/connectors/http.js";
 import { fireSchedule } from "../src/connectors/scheduler.js";
-import { handleUserMessage } from "../src/agents/primary.js";
+import { pendingMessages } from "../src/kernel/mailbox.js";
 import { appendEvent, listEvents } from "../src/kernel/events.js";
 import { triageEvent } from "../src/kernel/triage.js";
 import {
@@ -118,7 +111,7 @@ describe("schedule definitions", () => {
 });
 
 describe("schedule firing", () => {
-  it("prompt action goes down the Primary fast lane with the schedule as source", async () => {
+  it("prompt action posts to the Primary's mailbox with the schedule as source", async () => {
     const schedule = await createSchedule({
       name: "daily reminder",
       action: "prompt",
@@ -126,15 +119,17 @@ describe("schedule firing", () => {
       cron: "0 17 * * *",
     });
     const status = await fireSchedule(schedule);
-    expect(status).toBe("reply");
-    expect(handleUserMessage).toHaveBeenCalledWith(
-      "提醒我喝水",
-      `connector:schedule:${schedule.id}`,
-    );
+    // Firing is posting: the answer arrives later and never holds the loop.
+    const [prompt] = await pendingMessages("primary");
+    expect(status).toBe(`posted ${prompt!.id}`);
+    expect(prompt!.source).toBe(`connector:schedule:${schedule.id}`);
+    expect(prompt!.payload).toMatchObject({ prompt: "提醒我喝水", scheduleId: schedule.id });
     // Two-phase: the firing intent is on the log, and bookkeeping advanced.
-    expect(await listEvents({ kind: "schedule.fired" })).toHaveLength(1);
+    const fired = await listEvents({ kind: "schedule.fired" });
+    expect(fired).toHaveLength(1);
+    expect(prompt!.causedBy).toBe(fired[0]!.id);
     const after = await getSchedule(schedule.id);
-    expect(after.lastStatus).toBe("reply");
+    expect(after.lastStatus).toBe(status);
     expect(after.lastRunAt).not.toBeNull();
   });
 
@@ -273,7 +268,7 @@ describe("schedule api", () => {
 
     const ran = await app.request(`/api/schedules/${schedule.id}/run`, { method: "POST" });
     expect(ran.status).toBe(200);
-    expect(((await ran.json()) as { status: string }).status).toBe("reply");
+    expect(((await ran.json()) as { status: string }).status).toMatch(/^posted ev_/);
 
     expect(
       (await app.request(`/api/schedules/${schedule.id}`, { method: "DELETE" })).status,

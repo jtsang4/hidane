@@ -85,8 +85,9 @@ export function buildApp(): Hono {
   const webDist = resolve(process.cwd(), config.webDist);
   if (existsSync(join(webDist, "index.html"))) {
     app.use("*", serveStatic({ root: config.webDist }));
-    const indexHtml = readFileSync(join(webDist, "index.html"), "utf8");
-    app.get("*", (c) => c.html(indexHtml));
+    // Read per request, not once: a cached copy outlives a rebuild of the web
+    // app and then points deep links at asset hashes that no longer exist.
+    app.get("*", (c) => c.html(readFileSync(join(webDist, "index.html"), "utf8")));
   }
 
   return app;

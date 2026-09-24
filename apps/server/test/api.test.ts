@@ -1,18 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/agents/primary.js", () => ({
-  handleUserMessage: vi.fn(async () => ({ action: "reply", reply: "stub" })),
-}));
-vi.mock("../src/agents/manager.js", () => ({
-  handleThreadMessage: vi.fn(async () => "stub"),
-}));
-
+import { readFile } from "node:fs/promises";
 import { buildApp } from "../src/connectors/http.js";
 import { config } from "../src/config.js";
 import { appendEvent, listEvents } from "../src/kernel/events.js";
+import { pendingMessages } from "../src/kernel/mailbox.js";
 import { createWorkItem } from "../src/kernel/workItems.js";
-import { handleUserMessage } from "../src/agents/primary.js";
-import { handleThreadMessage } from "../src/agents/manager.js";
 
 afterEach(() => {
   config.apiToken = undefined;
@@ -43,7 +36,7 @@ describe("api", () => {
     expect(body.events).toHaveLength(1);
   });
 
-  it("accepts chat asynchronously and fires the primary", async () => {
+  it("accepts chat asynchronously by posting it to the Primary's mailbox", async () => {
     const app = buildApp();
     const res = await app.request("/api/chat", {
       method: "POST",
@@ -51,8 +44,13 @@ describe("api", () => {
       body: JSON.stringify({ text: "hello" }),
     });
     expect(res.status).toBe(202);
-    // third arg: attached images (empty for a plain text message)
-    expect(handleUserMessage).toHaveBeenCalledWith("hello", "connector:web", []);
+    const body = (await res.json()) as { messageId: string };
+    // Recording and delivery are one append: the message is on the main thread
+    // and is the Primary's next input. Nothing waited for an answer.
+    const inbox = await pendingMessages("primary");
+    expect(inbox.map((e) => e.id)).toEqual([body.messageId]);
+    expect(inbox[0]?.threadId).toBe("main");
+    expect(inbox[0]?.lane).toBe("interrupt");
     const empty = await app.request("/api/chat", {
       method: "POST",
       body: JSON.stringify({ text: " " }),
@@ -60,24 +58,57 @@ describe("api", () => {
     expect(empty.status).toBe(400);
   });
 
-  it("records and dispatches thread messages", async () => {
+  it("delivers a message addressed to a work item without asking the Primary", async () => {
     const item = await createWorkItem("Api goal");
     const app = buildApp();
-    const res = await app.request(`/api/work-items/${item.id}/messages`, {
+    const res = await app.request("/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "do it" }),
+      body: JSON.stringify({ text: "do it", target: item.id, focus: true }),
     });
     expect(res.status).toBe(202);
-    expect(handleThreadMessage).toHaveBeenCalledWith(item.id, "do it");
-    const recorded = await listEvents({ threadId: item.threadId, kind: "user.message" });
-    expect(recorded).toHaveLength(1);
+    const { messageId } = (await res.json()) as { messageId: string };
+    expect(await pendingMessages("primary")).toHaveLength(0);
+    const forwarded = await pendingMessages(`manager:${item.id}`);
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]?.payload["of"]).toBe(messageId);
+    expect(forwarded[0]?.payload["root"]).toBe(messageId);
+    const attributed = await listEvents({ kind: "message.attributed" });
+    expect(attributed[0]?.payload).toMatchObject({ of: messageId, workItemId: item.id, by: "focus" });
 
-    const missing = await app.request("/api/work-items/wi_nope/messages", {
+    const missing = await app.request("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ text: "x" }),
+      body: JSON.stringify({ text: "x", target: "wi_nope" }),
     });
     expect(missing.status).toBe(404);
+  });
+
+  it("lets the person move a message to another work item; the newest attribution wins", async () => {
+    const first = await createWorkItem("First");
+    const second = await createWorkItem("Second");
+    const app = buildApp();
+    const res = await app.request("/api/chat", {
+      method: "POST",
+      body: JSON.stringify({ text: "颜色再深一点", target: first.id }),
+    });
+    const { messageId } = (await res.json()) as { messageId: string };
+    const moved = await app.request(`/api/messages/${messageId}/route`, {
+      method: "POST",
+      body: JSON.stringify({ workItemId: second.id }),
+    });
+    expect(moved.status).toBe(200);
+    const attributions = await listEvents({ kind: "message.attributed" });
+    expect(attributions.map((e) => e.workItemId)).toEqual([first.id, second.id]);
+    expect(attributions[1]?.payload).toMatchObject({ by: "user", previous: first.id });
+    expect(await pendingMessages(`manager:${second.id}`)).toHaveLength(1);
+
+    const toNew = await app.request(`/api/messages/${messageId}/route`, {
+      method: "POST",
+      body: JSON.stringify({ workItemId: "new" }),
+    });
+    const created = (await toNew.json()) as { workItemId: string };
+    expect(created.workItemId).toMatch(/^wi_/);
+    expect(await pendingMessages(`manager:${created.workItemId}`)).toHaveLength(1);
   });
 
   it("serves work item detail with thread events and 404s unknown ids", async () => {
@@ -113,11 +144,13 @@ describe("api", () => {
       }),
     });
     expect(res.status).toBe(202);
-    expect(handleUserMessage).toHaveBeenCalledWith("what is this", "connector:web", [
-      { data: png, mimeType: "image/png" },
-    ]);
+    // Bytes go to files; the message carries references the turn will load.
+    const [message] = await pendingMessages("primary");
+    const images = message?.payload["images"] as { path: string; mimeType: string }[];
+    expect(images).toHaveLength(1);
+    expect(images[0]?.mimeType).toBe("image/png");
+    expect((await readFile(images[0]!.path)).toString("base64")).toBe(png);
 
-    vi.clearAllMocks();
     // Images alone are a valid message; the model still needs words to route on.
     const imageOnly = await app.request("/api/chat", {
       method: "POST",
@@ -125,11 +158,10 @@ describe("api", () => {
       body: JSON.stringify({ images: [{ data: png, mimeType: "image/jpeg" }] }),
     });
     expect(imageOnly.status).toBe(202);
-    const call = (handleUserMessage as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(String(call[0])).toContain("图片");
-    expect(call[2]).toHaveLength(1);
+    const inbox = await pendingMessages("primary");
+    expect(String(inbox[1]?.payload["text"])).toContain("图片");
+    expect(inbox[1]?.payload["imageCount"]).toBe(1);
 
-    vi.clearAllMocks();
     // Neither text nor images is still a bad request.
     const nothing = await app.request("/api/chat", {
       method: "POST",
@@ -137,7 +169,7 @@ describe("api", () => {
       body: JSON.stringify({ images: [] }),
     });
     expect(nothing.status).toBe(400);
-    expect(handleUserMessage).not.toHaveBeenCalled();
+    expect(await pendingMessages("primary")).toHaveLength(2);
   });
 
   it("reports the worklog event count so an empty day is distinguishable", async () => {
@@ -187,7 +219,7 @@ describe("api", () => {
     expect(created.item.status).toBe("open");
     // No brief means nothing is dispatched — an empty item is a valid outcome.
     expect(created.dispatched).toBe(false);
-    expect(handleThreadMessage).not.toHaveBeenCalled();
+    expect(await pendingMessages(`manager:${created.item.id}`)).toHaveLength(0);
 
     const withBrief = await app.request("/api/work-items", {
       method: "POST",
@@ -195,11 +227,12 @@ describe("api", () => {
       body: JSON.stringify({ title: "带首条指令", brief: "先做第一步" }),
     });
     const dispatched = (await withBrief.json()) as { item: { id: string } };
-    await new Promise((r) => setTimeout(r, 50));
-    expect(handleThreadMessage).toHaveBeenCalledWith(dispatched.item.id, "先做第一步");
-    // The brief is recorded before dispatch, so a crash mid-run leaves evidence.
-    const recorded = await listEvents({ workItemId: dispatched.item.id, kind: "user.message" });
-    expect(recorded).toHaveLength(1);
+    // The brief is what the person said to this item, so it is in the
+    // conversation (main thread) and is the Manager's first message.
+    const inbox = await pendingMessages(`manager:${dispatched.item.id}`);
+    expect(inbox.map((e) => e.payload["text"])).toEqual(["先做第一步"]);
+    const said = await listEvents({ threadId: "main", kind: "user.message" });
+    expect(said.map((e) => e.payload["text"])).toEqual(["先做第一步"]);
 
     const bad = await app.request("/api/work-items", {
       method: "POST",
@@ -415,8 +448,10 @@ describe("memory and execution control", () => {
 
   it("cancelling with nothing running is a 409, not a silent success", async () => {
     const app = buildApp();
-    const res = await app.request("/api/work-items/wi_idle/cancel", { method: "POST" });
+    const idle = await createWorkItem("idle", "test");
+    const res = await app.request(`/api/work-items/${idle.id}/cancel`, { method: "POST" });
     expect(res.status).toBe(409);
+    expect((await app.request("/api/work-items/wi_nope/cancel", { method: "POST" })).status).toBe(404);
     expect(await listEvents({ kind: "execution.cancelled" })).toHaveLength(0);
   });
 });

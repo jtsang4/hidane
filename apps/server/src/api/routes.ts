@@ -1,15 +1,28 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { appendEvent, getCursor, listEvents } from "../kernel/events.js";
+import { appendEvent, getCursor, getEvent, listEvents } from "../kernel/events.js";
 import {
   createWorkItem,
   getWorkItem,
+  listChildren,
   listWorkItems,
-  setWorkItemStatus,
+  setWorkItemDeadline,
 } from "../kernel/workItems.js";
+import { activeExecutionFor, busyWorkItemIds } from "../kernel/executions.js";
+import { mailboxesWithPending } from "../kernel/mailbox.js";
+import { onEventAppended } from "../kernel/notify.js";
+import {
+  addGlobalRule,
+  globalPolicyPath,
+  readPolicy,
+  removeGlobalRule,
+  validatePattern,
+} from "../kernel/policies.js";
 import { renderDay, today } from "../projections/worklog.js";
-import { handleUserMessage } from "../agents/primary.js";
-import { handleThreadMessage } from "../agents/manager.js";
+import { buildBoard } from "../projections/board.js";
+import { changeStatus, reattribute, submitMessage } from "../agents/ingress.js";
+import { cancelTree, poolStatus } from "../agents/workerPool.js";
+import { runtimeStatus } from "../agents/runtime.js";
 import { liveTextSnapshot, subscribeLiveText, type LiveTextFrame } from "../agents/liveText.js";
 import { describeEffectiveModel } from "../agents/sdk.js";
 import { IMAGE_ONLY_TEXT } from "../connectors/feishu.js";
@@ -31,7 +44,6 @@ import {
   type ScheduleInput,
 } from "../kernel/schedules.js";
 import { fireSchedule } from "../connectors/scheduler.js";
-import { activeExecutionId, cancelActiveWorker, hasActiveWorker } from "../agents/rpcWorker.js";
 import {
   listArtifacts,
   readArtifact,
@@ -64,8 +76,11 @@ function parseInboundImages(
 /** Interval between SSE keep-alives; clients treat prolonged silence as a
  *  dropped stream, so this bounds how long a stale view can look current. */
 const SSE_PING_MS = 15_000;
-/** Poll cadence for the durable log. Live reply text does not wait for it. */
-const SSE_POLL_MS = 1500;
+/**
+ * Fallback cadence for the durable log. Appends wake the stream through the
+ * database's NOTIFY; this only bounds how late a missed notification lands.
+ */
+const SSE_POLL_MS = 5000;
 
 /**
  * Where a stream should resume from, as an exclusive seq.
@@ -98,9 +113,10 @@ export function resumeCursor(
 }
 
 /**
- * Read API = queries over the event log and its state tables.
- * Write API = two async entrances (main chat, thread message): they return
- * immediately after recording intent; replies arrive as events over SSE.
+ * Read API = queries over the event log, its state tables and projections.
+ * Write API = the message door (`/api/chat`, optionally addressed to a work
+ * item) and direct state operations; they return once the intent is recorded
+ * and delivered, and answers arrive as events over SSE.
  */
 export function registerApi(app: Hono): void {
   app.get("/api/events", async (c) => {
@@ -112,6 +128,7 @@ export function registerApi(app: Hono): void {
       ? rawKind.split(",").map((k) => k.trim()).filter(Boolean)
       : undefined;
     const filters = {
+      conversation: q["conversation"] !== undefined,
       threadId: q["thread"],
       workItemId: q["item"],
       ...(kinds ? { kinds } : { kind: rawKind }),
@@ -166,6 +183,11 @@ export function registerApi(app: Hono): void {
         pendingFrames.push(frame);
         wake?.();
       });
+      let appended = false;
+      const unlisten = onEventAppended(() => {
+        appended = true;
+        wake?.();
+      });
       stream.onAbort(() => {
         open = false;
         wake?.();
@@ -187,6 +209,7 @@ export function registerApi(app: Hono): void {
             await stream.writeSSE({ event: "stream", data: JSON.stringify(frame) });
             lastWrite = Date.now();
           }
+          appended = false;
           try {
             if (!Number.isFinite(cursor) || cursor === Number.MAX_SAFE_INTEGER) {
               const last = await listEvents({ tail: 1 });
@@ -219,7 +242,10 @@ export function registerApi(app: Hono): void {
           // Frames that arrived while the query was in flight woke nobody —
           // `wake` is only armed during the sleep. Skipping it keeps them from
           // waiting out a full cycle they were meant to interrupt.
-          if (!open || pendingFrames.length > 0) continue;
+          if (!open || pendingFrames.length > 0 || appended) {
+            appended = false;
+            continue;
+          }
           await new Promise<void>((resolve) => {
             const timer = setTimeout(() => {
               wake = undefined;
@@ -234,6 +260,7 @@ export function registerApi(app: Hono): void {
         }
       } finally {
         unsubscribe();
+        unlisten();
       }
     });
   });
@@ -241,28 +268,34 @@ export function registerApi(app: Hono): void {
   app.get("/api/work-items", async (c) => {
     const all = c.req.query("all") !== undefined;
     const items = await listWorkItems(all ? undefined : "open");
-    // Which items are busy is process-level truth here. Clients used to infer
-    // it from a window of recent events, which quietly went wrong once a busy
-    // run pushed its own execution.started out of that window.
-    const running = items.filter((i) => hasActiveWorker(i.id)).map((i) => i.id);
+    // Which items are busy comes from the executions table: durable, and not
+    // inferred from a window of recent events that a long run pushes out.
+    const busy = new Set(await busyWorkItemIds());
+    const running = items.filter((i) => busy.has(i.id)).map((i) => i.id);
     return c.json({ items, running });
   });
 
   app.get("/api/work-items/:id", async (c) => {
     try {
       const item = await getWorkItem(c.req.param("id"));
-      // Bounded tail, not the whole thread: a long-running item accumulates
-      // thousands of execution and side-effect rows, and rendering all of them
-      // was the page's slowest path. Older events page in through /api/events.
+      // Bounded tail over everything about the item, whichever thread it was
+      // written on; older events page in through /api/events?item=.
       const limit = Math.min(Number(c.req.query("limit") ?? 200), 500);
-      const page = await listEvents({ threadId: item.threadId, tail: limit + 1 });
+      const page = await listEvents({ workItemId: item.id, tail: limit + 1 });
       const hasMore = page.length > limit;
       const events = hasMore ? page.slice(page.length - limit) : page;
-      // Whether a worker is busy is process-level truth, for the same reason
-      // /api/work-items reports it: a long run pushes its own execution.started
-      // out of any bounded window, and inferring "busy" from that window then
-      // quietly goes wrong. Bounding the events above is exactly that window.
-      return c.json({ item, events, hasMore, running: hasActiveWorker(item.id) });
+      const [execution, children] = await Promise.all([
+        activeExecutionFor(item.id),
+        listChildren(item.id),
+      ]);
+      return c.json({
+        item,
+        events,
+        hasMore,
+        running: execution !== undefined,
+        execution: execution ?? null,
+        children,
+      });
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }
@@ -275,32 +308,25 @@ export function registerApi(app: Hono): void {
       title?: string;
       brief?: string;
       repo?: string;
+      parentId?: string;
     };
     const title = (body.title ?? "").trim();
     if (!title) return c.json({ ok: false, error: "title required" }, 400);
+    if (body.parentId) {
+      try {
+        await getWorkItem(body.parentId);
+      } catch {
+        return c.json({ ok: false, error: "parent not found" }, 400);
+      }
+    }
     const item = await createWorkItem(title, "connector:web", {
       repo: body.repo?.trim() || undefined,
+      parentId: body.parentId,
     });
     const brief = (body.brief ?? "").trim();
-    if (brief) {
-      await appendEvent({
-        source: "connector:web",
-        kind: "user.message",
-        threadId: item.threadId,
-        workItemId: item.id,
-        payload: { text: brief },
-      });
-      // Dispatch detached: the manager may run for minutes.
-      void handleThreadMessage(item.id, brief).catch(async (err) => {
-        await appendEvent({
-          source: "connector:web",
-          kind: "agent.error",
-          threadId: item.threadId,
-          workItemId: item.id,
-          payload: { error: String(err) },
-        }).catch(() => {});
-      });
-    }
+    // The brief is something the person said to this item: it enters through
+    // the same door as any message, addressed explicitly.
+    if (brief) await submitMessage({ text: brief, source: "connector:web", target: item.id });
     return c.json({ ok: true, item, dispatched: brief.length > 0 }, 201);
   });
 
@@ -344,94 +370,129 @@ export function registerApi(app: Hono): void {
   });
 
   app.patch("/api/work-items/:id", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { status?: string };
-    const status = body.status;
-    if (status !== "open" && status !== "done" && status !== "closed") {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      status?: string;
+      deadlineAt?: string | null;
+    };
+    const id = c.req.param("id");
+    const { status, deadlineAt } = body;
+    if (status === undefined && deadlineAt === undefined) {
+      return c.json({ ok: false, error: "status or deadlineAt required" }, 400);
+    }
+    if (status !== undefined && status !== "open" && status !== "done" && status !== "closed") {
       return c.json({ ok: false, error: "status must be open | done | closed" }, 400);
     }
+    if (deadlineAt !== undefined && deadlineAt !== null && Number.isNaN(Date.parse(deadlineAt))) {
+      return c.json({ ok: false, error: "deadlineAt must be an ISO timestamp or null" }, 400);
+    }
     try {
-      const item = await setWorkItemStatus(c.req.param("id"), status, "connector:web");
+      let item = await getWorkItem(id);
+      if (status !== undefined) item = await changeStatus(id, status, "connector:web");
+      if (deadlineAt !== undefined) item = await setWorkItemDeadline(id, deadlineAt, "connector:web");
       return c.json({ ok: true, item });
     } catch {
       return c.json({ ok: false, error: "not found" }, 404);
     }
   });
 
-  // Stopping a runaway execution: without this the only option was waiting out
-  // the 600s timeout while watching it go.
+  // Stops the item and everything under it. Without this the only option was
+  // waiting out the 600s timeout while watching it go.
   app.post("/api/work-items/:id/cancel", async (c) => {
     const id = c.req.param("id");
-    const executionId = activeExecutionId(id);
-    if (!executionId && !hasActiveWorker(id)) {
-      return c.json({ ok: false, error: "no running execution" }, 409);
+    try {
+      await getWorkItem(id);
+    } catch {
+      return c.json({ ok: false, error: "not found" }, 404);
     }
-    // Intent before the effect, like every other side effect here — otherwise
-    // the stop lands in the log after the execution it stopped.
-    await appendEvent({
-      source: "connector:web",
-      kind: "execution.cancelled",
-      workItemId: id,
-      ...(executionId ? { executionId } : {}),
-      payload: { reason: "cancelled from the web ui" },
-    });
-    const cancelled = await cancelActiveWorker(id);
-    if (!cancelled) return c.json({ ok: false, error: "no running execution" }, 409);
-    return c.json({ ok: true, executionId: executionId ?? null });
+    const cancelled = await cancelTree(id, "cancelled from the web ui", "connector:web");
+    if (cancelled.length === 0) return c.json({ ok: false, error: "no running execution" }, 409);
+    return c.json({ ok: true, cancelled });
   });
 
   app.post("/api/chat", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       text?: string;
       images?: { data?: unknown; mimeType?: unknown }[];
+      target?: string;
+      replyTo?: string;
+      focus?: boolean;
     };
     const text = (body.text ?? "").trim();
     const images = parseInboundImages(body.images);
     if (!text && images.length === 0) {
       return c.json({ ok: false, error: "text or images required" }, 400);
     }
+    if (body.target) {
+      try {
+        await getWorkItem(body.target);
+      } catch {
+        return c.json({ ok: false, error: "target not found" }, 404);
+      }
+    }
     // An image-only message still needs words for the routing prompt; the same
     // stand-in the Feishu connector uses, so both channels read alike.
-    const prompt = text || IMAGE_ONLY_TEXT;
-    // Fire and forget: the fast lane records + routes; outcome arrives as events.
-    void handleUserMessage(prompt, "connector:web", images).catch(async (err) => {
-      await appendEvent({
-        source: "connector:web",
-        kind: "agent.error",
-        threadId: "main",
-        payload: { error: String(err) },
-      }).catch(() => {});
+    const message = await submitMessage({
+      text: text || IMAGE_ONLY_TEXT,
+      images,
+      source: "connector:web",
+      ...(body.target ? { target: body.target, focus: body.focus === true } : {}),
+      ...(body.replyTo ? { replyTo: body.replyTo } : {}),
     });
-    return c.json({ ok: true, accepted: true }, 202);
+    return c.json({ ok: true, accepted: true, messageId: message.id }, 202);
   });
 
-  app.post("/api/work-items/:id/messages", async (c) => {
-    const id = c.req.param("id");
-    const body = (await c.req.json().catch(() => ({}))) as { text?: string };
-    const text = (body.text ?? "").trim();
-    if (!text) return c.json({ ok: false, error: "text required" }, 400);
-    let item;
+  // The person corrects where a message went, or answers "which one?".
+  app.post("/api/messages/:id/route", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { workItemId?: string; title?: string };
+    const messageId = c.req.param("id");
+    let workItemId = body.workItemId;
+    if (!workItemId) return c.json({ ok: false, error: "workItemId required" }, 400);
     try {
-      item = await getWorkItem(id);
-    } catch {
-      return c.json({ ok: false, error: "not found" }, 404);
+      if (workItemId === "new") {
+        const message = await getEvent(messageId);
+        if (!message || message.kind !== "user.message") throw new Error("message not found");
+        const title = (body.title ?? String(message.payload["text"] ?? "")).trim().slice(0, 60) || "新任务";
+        const item = await createWorkItem(title, "connector:web", { of: messageId });
+        workItemId = item.id;
+      }
+      await reattribute(messageId, workItemId, "connector:web");
+      return c.json({ ok: true, workItemId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ ok: false, error: message }, 404);
     }
-    await appendEvent({
-      source: "connector:web",
-      kind: "user.message",
-      threadId: item.threadId,
-      workItemId: item.id,
-      payload: { text },
-    });
-    void handleThreadMessage(item.id, text).catch(async (err) => {
-      await appendEvent({
-        source: "connector:web",
-        kind: "agent.error",
-        threadId: item.threadId,
-        workItemId: item.id,
-        payload: { error: String(err) },
-      }).catch(() => {});
-    });
-    return c.json({ ok: true, accepted: true }, 202);
+  });
+
+  app.get("/api/board", async (c) => {
+    return c.json({ cards: await buildBoard(runtimeStatus()?.activeTurns ?? []) });
+  });
+
+  app.get("/api/policies", async (c) => {
+    const policy = await readPolicy(globalPolicyPath());
+    return c.json({ path: globalPolicyPath(), rules: policy.rules });
+  });
+
+  app.post("/api/policies", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      pattern?: string;
+      reason?: string;
+      tools?: string[];
+    };
+    const pattern = (body.pattern ?? "").trim();
+    const reason = (body.reason ?? "").trim();
+    const invalid = validatePattern(pattern);
+    if (invalid) return c.json({ ok: false, error: invalid }, 400);
+    if (!reason) return c.json({ ok: false, error: "reason required" }, 400);
+    const tools = Array.isArray(body.tools)
+      ? body.tools.filter((t): t is string => typeof t === "string" && t.trim() !== "")
+      : undefined;
+    const rule = await addGlobalRule({ pattern, reason, tools });
+    return c.json({ ok: true, rule }, 201);
+  });
+
+  app.delete("/api/policies/:id", async (c) => {
+    const ok = await removeGlobalRule(c.req.param("id"));
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: "not found" }, 404);
   });
 
   app.get("/api/memories", async (c) => {
@@ -558,6 +619,7 @@ export function registerApi(app: Hono): void {
       describeEffectiveModel().catch((err) => `error: ${String(err.message ?? err)}`),
     ]);
     const latestSeq = latest[0]?.seq ?? 0;
+    const mailboxes = await mailboxesWithPending();
     return c.json({
       latestSeq,
       triageCursor: cursor,
@@ -565,6 +627,13 @@ export function registerApi(app: Hono): void {
       lastHeartbeatAt: heartbeats[0]?.ts ?? null,
       openWorkItems: open.length,
       model,
+      runtime: {
+        up: runtimeStatus() !== undefined,
+        activeTurns: runtimeStatus()?.activeTurns ?? [],
+        pendingMailboxes: mailboxes.length,
+        pendingMessages: mailboxes.reduce((n, m) => n + m.count, 0),
+        workers: poolStatus(),
+      },
     });
   });
 }

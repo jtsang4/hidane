@@ -35,6 +35,16 @@ export const config = {
   webDist: env("HIDANE_WEB_DIST") ?? "../web/dist",
   /** Memory distiller interval in seconds (daemon). */
   distillIntervalSec: Number(env("HIDANE_DISTILL_SEC") ?? 600),
+  /** Longest causal chain (message → turn → message …) before a person is asked. */
+  maxHops: Number(env("HIDANE_MAX_HOPS") ?? 24),
+  /** Worker subprocesses running at once; further executions queue. */
+  maxWorkers: Number(env("HIDANE_MAX_WORKERS") ?? 3),
+  /** Agent turns (Primary / Manager model calls) running at once. */
+  maxConcurrentTurns: Number(env("HIDANE_MAX_TURNS") ?? 4),
+  /** Executions one work item may start before it must ask a person to continue. */
+  maxExecutionsPerItem: Number(env("HIDANE_MAX_EXECUTIONS_PER_ITEM") ?? 12),
+  /** Below this routing confidence the Primary asks instead of guessing. */
+  attributionThreshold: Number(env("HIDANE_ATTRIBUTION_THRESHOLD") ?? 0.6),
   /** Feishu channel binding (all optional; connector disabled when unset). */
   feishuAppId: env("FEISHU_APP_ID"),
   feishuAppSecret: env("FEISHU_APP_SECRET"),
