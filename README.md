@@ -13,30 +13,59 @@ are a derived view: consumers keep cursors, events are never destroyed, history
 replays.
 
 ```
-connectors (cli / webhook / timer / ...)
+connectors (web / cli / feishu / webhook / timer / schedule)
     │ capture + normalize only, never judge
     ▼
-event log (append-only spine) ◄────────────────┐
-    ├─► triage (deterministic rules first)      │
-    │        ▼ few events wake the model        │
-    │   Primary ─► Manager ─► Worker ───────────┘ (actions written back as events)
-    └─► projections (daily worklog, indexes)
-
-user chat: fast lane straight to Primary, write-through to the log
+event log (append-only spine) ◄──────────────────────────────┐
+    │  an event with a `mailbox` is also a message to that agent loop
+    ├─► triage (rules first) ──► primary mailbox             │
+    ├─► primary turn ──► manager:<wi> mailbox                │
+    ├─► manager turn ──► worker pool ──► execution.finished ─┘ (back to its owner)
+    └─► projections (daily worklog, task board)
 ```
 
-Three agent roles, one loop — the same pi agent instantiated at three scopes:
+**The runtime is an event loop per agent.** Each agent loop (`primary`,
+`manager:<work item>`) has a mailbox: the events addressed to it, read from its
+own cursor. A **turn** takes everything that piled up since the last one (so
+several messages sent minutes apart are decided together), makes one model call,
+and applies the resulting effects. A turn never waits on long work: it dispatches
+a worker and ends; the worker's `execution.finished` is posted back to the
+Manager's mailbox as the next message. Executions are recorded in a small
+`executions` table with their owner, so one lost to a restart is reported rather
+than forgotten. Mailboxes with a person's message in them (interrupt lane) are
+served before background work; idle work (memory distillation, archiving) runs
+only when nothing else is pending.
+
+Three agent roles, one loop — the same turn machinery at three scopes:
 
 | Role | Lifetime | Persists |
 |---|---|---|
-| **Primary** | permanent | identity, routing policy, work-item lifecycle actions |
-| **Manager** | per work item | work item state, thread |
+| **Primary** | permanent | identity, attribution of messages to work items, lifecycle actions |
+| **Manager** | per work item | work item state, current understanding (`TASK.md`), thread |
 | **Worker** | per execution | nothing — trace goes to the log |
 
-Every work item owns a **thread** (interaction lane) and a **workspace**
-(execution home, one directory per work item). Worker executions run inside the
-workspace with tools and native pi skill discovery; session traces are archived
-under `<workspace>/.hidane/sessions`.
+Work items form a **tree**. A Manager fans out by creating child work items (one
+workspace, one writer each) and hears back once when all of them have settled.
+Across the tree, facts propagate like DOM events:
+
+- **Bubbling** — a question a level cannot settle (`escalation.raised`) or a
+  message that is not its own (`message.reroute_requested`) climbs one level at
+  a time to the Primary and then to the person, carrying what each level tried.
+  Which kinds bubble is declared per kind; tool traffic never does.
+- **Capture** — before any worker tool call runs, it passes the policy files
+  from the global one down through each ancestor workspace to its own
+  (`POLICY.json`), and any of them can refuse it. Rules only, no model. While a
+  person's new message is queued for a running worker, changes are paused until
+  it has been read.
+- **Cancel** flows down the tree; its source is a person, a deadline, or a spent
+  budget (`HIDANE_MAX_HOPS` bounds any causal chain of messages).
+
+Every message a person sends lands on the main thread and is **attributed** to a
+work item cheapest-first: an explicit target or a reply needs no model; only the
+rest go to the Primary, which asks ("which one?") rather than guessing when it is
+not confident. The person can move a message to another item at any time. Every
+answer names the message it answers (`payload.root`), which is how the web UI
+shows a late reply under its question instead of at the bottom.
 
 ## Quickstart (local dev)
 
@@ -110,12 +139,17 @@ dev loads it from the repo root, and docker compose / Coolify substitute it into
 | `HIDANE_HOME` | `~/.hidane` | workspaces / worklogs / memory / session traces |
 | `PORT` | `2718` | daemon http port |
 | `HIDANE_HEARTBEAT_SEC` | `300` | heartbeat connector interval |
-| `HIDANE_DISTILL_SEC` | `600` | memory distiller interval |
+| `HIDANE_DISTILL_SEC` | `600` | memory distiller interval (runs when idle; forced after 3×) |
 | `HIDANE_PI_PROVIDER` / `HIDANE_PI_MODEL` | pi defaults | model override — set both or neither |
 | `HIDANE_ROUTE_THINKING` | `low` | thinking level for routing/planning |
 | `HIDANE_WORKER_THINKING` | `medium` | thinking level for executions |
 | `HIDANE_ROUTE_TIMEOUT_SEC` | `180` | per-routing-call timeout |
 | `HIDANE_WORKER_TIMEOUT_SEC` | `600` | per-execution timeout |
+| `HIDANE_MAX_WORKERS` | `3` | worker subprocesses at once; further executions queue |
+| `HIDANE_MAX_TURNS` | `4` | agent turns (model calls) running at once |
+| `HIDANE_MAX_HOPS` | `24` | longest causal chain of messages before a person is asked |
+| `HIDANE_MAX_EXECUTIONS_PER_ITEM` | `12` | executions one work item may start before it asks to continue |
+| `HIDANE_ATTRIBUTION_THRESHOLD` | `0.6` | below this routing confidence the Primary asks instead of guessing |
 | `HIDANE_API_TOKEN` | unset | bearer token for `/api/*` — **required in production** |
 | `HIDANE_WEBHOOK_SECRET` | unset | HMAC-SHA256 secret for `/webhook/*` — **required in production** |
 
@@ -135,8 +169,9 @@ User-defined timers managed at `/schedules` in the web UI (or `/api/schedules`):
   `connector.http` event. `wake: true` on the definition asks triage to wake
   the Primary with it; otherwise it is record-only.
 - **prompt** — hand the Primary a task on a clock (cron with timezone, or a
-  fixed interval ≥10s), exactly like a user message. The reply also goes to the
-  bound Feishu main chat when one exists — reminders actually reach you.
+  fixed interval ≥10s): firing posts a `schedule.prompt` to the Primary's
+  mailbox and returns. The reply also goes to the bound Feishu main chat when
+  one exists — reminders actually reach you.
 
 After daemon downtime an overdue schedule fires once and re-anchors from now —
 never a catch-up storm.
@@ -148,6 +183,8 @@ never a catch-up storm.
   `execution_id`.
 - Side effects are two-phase: intent event before, result event after.
 - Connectors capture, never judge. Triage is rules-first; models wake rarely.
+- A turn decides and returns; long work is dispatched and its outcome comes
+  back as a message. Nothing waits in memory for something a restart can lose.
 - The kernel knows work items, executions, side effects and artifacts — it does
   not model software engineering (no built-in CI/CD, dependency graphs, deploy
   pipelines).
@@ -172,7 +209,9 @@ and subscribe to `im.message.receive_v1`. Grant `im:message:send_as_bot`,
 `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly`,
 `im:chat:readonly`, and `im:resource` (without the last one, image messages
 arrive but their bytes cannot be downloaded for the vision model). A p2p message maps to the main thread; the reply-thread
-under a bot-posted `📋 wi_x` root maps to that work item's thread.
+under a bot-posted `📋 wi_x` root is addressed to that work item directly.
+Answers are delivered by an outbox consumer (its own cursor), so a reply reaches
+Feishu whichever process wrote it; answers about a work item go into its thread.
 
 ## Done in v1
 
@@ -181,8 +220,13 @@ under a bot-posted `📋 wi_x` root maps to that work item's thread.
 - Worktree workspace provider for coding work items
 - Side-effect permission gate as a pi extension (`tool_call` intercept)
 - Web UI (chat, work items, events, worklog, status) with SSE + i18n
+- Per-agent event loop: durable mailboxes, turn batching, non-blocking dispatch,
+  restart recovery, priority lanes, idle work
+- Work tree: fan-out to child work items, bubbling escalations, policy capture,
+  cascading cancel, causal budgets
+- Conversation UI: task cards, attribution chips with re-routing, in-progress
+  tray, focus panel, off-screen notices with a digest
 
 ## Roadmap
 
-- Escalation policy & digests on the main thread
 - Perspective-diverse verification for high-stakes executions

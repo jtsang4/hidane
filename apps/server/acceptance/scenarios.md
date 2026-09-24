@@ -9,6 +9,10 @@
 - 本仓库是 pnpm monorepo：服务端命令在 `apps/server` 下执行（`pnpm dev <cmd>`）
 - daemon 若设置了 `HIDANE_API_TOKEN`，API 调用需带 `authorization: Bearer <token>`
 - CLI：在仓库根目录用 `pnpm dev <command>`（`chat` / `items` / `events` / `log` / `daemon` / `init`）
+- 运行模型：每个 agent（`primary`、`manager:<wi>`）有一个收件箱，它是事件日志的派生视图
+  （`events.mailbox` + `cursors` 里的 `mailbox:<地址>` 游标）。一个 turn 取走积压的全部消息，
+  只做决策、不等待；worker 结果以 `execution.finished` 投递回 Manager 的收件箱。
+  `chat` 在没有 daemon 时自己跑循环，有 daemon 时只投递并跟随回复
 - daemon HTTP 端口：2718（`/health`、`POST /webhook/:name`）
 - 查询数据库可用：`docker exec hidane-pg psql -U hidane -d hidane -c "..."`
 - 工作区目录：`~/.hidane/workspaces/<work_item_id>/`；日志投影：`~/.hidane/worklogs/`
@@ -22,7 +26,10 @@
 - primary 将其路由为新工作项（而不是直接回复敷衍）
 - 工作项拥有自己的线程和工作区目录
 - worker 真的在工作区产出了文件，且文件内容与任务相符
-- 事件日志里有完整链条：`user.message` → `route.decision` → `execution.started` → `execution.finished`（ok=true）→ `agent.reply`
+- 事件日志里有完整链条：`user.message`（主线程，mailbox=primary）→ `route.decision` →
+  `message.attributed`（created=true）→ 转发到 Manager 收件箱的 `user.message` → `manager.decision` →
+  `execution.started` → `execution.finished`（ok=true，mailbox=`manager:<wi>`）→ 第二个 `manager.decision` → `agent.reply`
+- 所有回复的 `payload.root` 都指向最初那条 `user.message` 的 id（界面靠它把回复放在问题下面）
 - 最终回复内容与实际产物一致（不是编造的）
 
 ## 场景 2：后台车道与分诊
@@ -30,8 +37,9 @@
 启动 daemon，向 webhook 端点投递一条事件。期望：
 
 - webhook 立即被接受并落日志（`connector.webhook`），此时不阻塞、不判断
-- 分诊循环在几秒内产出 `triage.decision`，webhook 规则为唤醒 primary
-- primary 对该外部事件产出了合理的回应（`agent.reply`，内容与事件相关，非乱答）
+- 分诊循环在几秒内产出 `triage.decision`，webhook 规则为唤醒 primary；这条决策本身就是投给
+  primary 收件箱的消息（`mailbox = 'primary'`），分诊循环**不等** primary 处理完
+- primary 对该外部事件产出了合理的回应（`agent.reply`，`payload.rootKind = external`，内容与事件相关，非乱答）
 - 心跳事件（`connector.heartbeat`）只被记录，分诊决定为 record，不唤醒任何模型
 - `/health` 返回数据库正常
 - 结束后清理你启动的后台进程
@@ -90,8 +98,8 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
   客户端只能靠「静默」判断连接已死；没有 ping 就无法区分「系统很安静」和「连接已断」，
   界面会一直显示过期数据却看起来一切正常。同时也防止空闲连接被反向代理掐断。
 - 有新事件时 `event: hidane` 正常推送，且 `id` 为事件 seq
-- 写口是异步的：`POST /api/chat` 立刻返回 202（不等模型），随后 `user.message`
-  与回复才作为事件出现——请确认返回码与事件到达确实是分离的两件事
+- 写口是异步的：`POST /api/chat` 立刻返回 202 与 `messageId`（不等模型），`user.message`
+  已落库，回复稍后作为 `payload.root = messageId` 的事件出现——请确认返回码与回复到达确实是分离的两件事
 
 ## 场景 4F：工作项状态可改
 
@@ -126,9 +134,9 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
   自动 fire ≥2 次，每次落 `schedule.fired` + `connector.http`（含 status/body），
   且 triage 决策为 `scheduled-http-record-only`（wake 未设时**不**唤醒模型）
 - 创建 `action: prompt` + `cron`（如 `0 17 * * *`，`timezone: Asia/Shanghai`）：
-  `nextRunAt` 与时区换算一致；`POST /api/schedules/:id/run` 立即触发一次真实
-  Primary 链路（`user.message` 的 source 为 `connector:schedule:<id>`），
-  之后 `nextRunAt` 仍是原 cron 的下一个时刻
+  `nextRunAt` 与时区换算一致；`POST /api/schedules/:id/run` 立即返回（状态 `posted ev_…`），
+  向 primary 收件箱投递一条 `schedule.prompt`（source 为 `connector:schedule:<id>`），随后
+  Primary 的回复以它为 root 出现；之后 `nextRunAt` 仍是原 cron 的下一个时刻
 - 非法定义在创建时被 400 拒绝（如 `cron: "banana"`、`intervalSec: 1`、
   http 动作但 url 不是 http(s)、cron 与 intervalSec 同时给或都不给）
 - PATCH `enabled: false` 后 `nextRunAt` 变 null，调度循环不再触发它
@@ -145,6 +153,7 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
   执行**数秒内**结束并落 `execution.finished`，且 `cancelled: true` / `ok: false`
   ——注意 `abort()` 会让 agent 自然 idle，若按「谁先完成」判定会把被中止的执行
   错记为成功，结果标签必须跟随用户意图。没有执行在跑时 cancel 返回 409 且不落事件。
+  Manager 收到被取消的结果时按规则直接回复「执行已取消。」，不调用模型。
 - 也应能在主会话中说“停止这个正在运行的工作项”；Primary 直接发出同样的取消意图，
   不应把停止请求转成新的 Manager/Worker 执行。
 - **手写记忆**：`POST /api/memories` 写入一条，出现在 `/api/memories` 列表中，
@@ -172,8 +181,9 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 不是每个任务都从对话开始。`POST /api/work-items` 直接开一个工作项。期望：
 
 - 只给 `title` → 201，工作项 status 为 `open`，**不**触发 Manager（没有 brief 就没有派活）
-- 给 `title` + `brief` → 201，brief 先落 `user.message` 事件**再**派发（崩在中间也留证据），
-  且 Manager 真被调起（可观察到 `manager.decision` 或后续执行事件）
+- 给 `title` + `brief` → 201，brief 作为「对这个工作项说的话」落在主线程（带 `target`），
+  并记一条 `message.attributed`（by=explicit），再投递到 Manager 收件箱；Manager 真被调起
+  （可观察到 `manager.decision` 或后续执行事件）
 - 通过主会话说“先记录这个工作项，暂时不要开始”时，Primary 应创建 open 工作项并记录
   deferred 消息，但不启动 Manager/Worker；后续明确要求开始时仍可正常路由。
 - `title` 为空或纯空白 → 400
@@ -221,13 +231,105 @@ SSE 曾在并发下出现「200 头 + 空 body」——首次写入前先查库�
   且 `hasMore` 正确。**kind 过滤必须发生在 SQL 里**：若放到取回之后再筛，一页 N 行能渲染出
   几条气泡就不可知，甚至出现一页全是 `route.decision`、翻页看起来失效
 - 单个 kind（`kind=execution.finished`）语义不变，事件页的筛选照旧可用
-- 工作项详情 `/api/work-items/:id` 默认不再返回整条线程：带 `limit` 时只回最新的若干条，
-  并给出 `hasMore`；更早的部分用 `/api/events?thread=<threadId>&before=` 往回翻
-- 详情返回的 `running` 来自 worker 注册表，不是从事件窗口推断的。
+- `/api/events?page=1&conversation=1` 返回对话视图：主线程上说的话、归属记录，加上任何线程上的回复
+- 工作项详情 `/api/work-items/:id` 默认不再返回整条线程：带 `limit` 时只回该工作项的最新若干条事件
+  （按 work_item_id，不分线程），并给出 `hasMore`；更早的部分用 `/api/events?item=<id>&before=` 往回翻
+- 详情返回的 `running` 来自 `executions` 表（持久化），不是从事件窗口推断的。
   **这是本场景要守住的回归**：长执行会把自己的 `execution.started` 挤出窗口，
   一旦改回从事件推断，运行中的工作项会显示成空闲、「中止执行」按钮随之消失
 - 往回翻页时，最新一页会随实时事件前移；两者以 id 取并集而不是直接拼接，
   否则夹在中间的事件不属于任何一页而被静默丢掉（seq 是全局的，看相邻值发现不了这个洞）
+
+## 场景 5A：任务运行时对话不被阻塞
+
+让一个需要几分钟的任务跑起来（例如「写个脚本每秒打印一次，运行 2 分钟」），在它执行期间再问一个
+无关的小问题。期望：
+
+- 小问题在数秒内得到回答（`agent.reply` 的 root 是这条小问题），不必等任务结束
+- 任务结果稍后到达，其 `agent.reply` 的 root 仍是最初那条任务消息，而不是最新的消息
+- `/api/status` 的 `runtime` 显示有 worker 在跑，同时 primary 收件箱没有积压
+
+## 场景 5B：分钟级补充被合并，而不是各自返工
+
+对同一个工作项在它执行期间连续补充两句（直接对工作项说：`POST /api/chat` 带 `target`）。期望：
+
+- worker 运行中收到的话被**直接转给正在运行的执行**（`execution.steered`，不产生新的 `manager.decision`）
+- 最终产物体现了补充的要求（例如补充「支持 --dry-run」，脚本里就有这个参数）
+- 在 Manager 规划期间（尚未派出 worker）到达的几句话，下一个 turn 一次取走：
+  只有一个 `manager.decision` 的 `of` 同时包含这几条消息
+
+## 场景 5C：归属有歧义时不瞎猜，可改派
+
+先建两个相似的工作项（如「做 login.html」「做 register.html」），再说一句含糊的话（「按钮颜色再深一点」）。期望：
+
+- Primary 产出 `attribution.ambiguous`（带候选项），**不**把消息投给任何一个 Manager
+- 通过 `POST /api/messages/:id/route {workItemId}` 选定后，落 `message.attributed`（by=user）并投递给对应 Manager
+- 再改派到另一个工作项：新的 `message.attributed` 带 `previous`，原事件保留不改（只追加）
+- 改派到 `new` 会新建工作项并投递
+- 界面上：用户消息下方显示归属标签，歧义时显示候选按钮，不出现重复的问题气泡
+
+## 场景 5D：问题逐层上报到人
+
+提一个缺信息就做不了的任务（如「把 register.html 部署到我的服务器」，不给地址）。期望：
+
+- Manager 不会静默停住：要么派 worker，要么回复，要么上报；只写「当前理解」的 turn 会被自动追问一次
+- 上报路径：`escalation.raised`（投给父级收件箱，顶层即 primary）→ primary 按规则（不调模型）
+  在主线程落 `escalation`，带 `question`、`path`（每层写明已尝试过什么）与 `workItemId`
+- 看板 `/api/board` 中该卡片 `state = waiting`，`escalation.question` 即该问题
+- 用 `POST /api/chat {replyTo: <escalation id>}` 回答后，消息投给该工作项的 Manager（payload 带 `answers`），
+  卡片不再是 waiting，任务继续推进
+
+## 场景 5E：捕获阶段的规则可以拦下动作
+
+`POST /api/policies {"pattern":"\\brm\\b","reason":"不允许删除文件"}` 加一条全局规则，然后让某个工作项
+「用 rm 删掉工作区里的某个文件」。期望：
+
+- 文件仍在；落 `policy.blocked`（payload 含 `rule` 与规则原文 `reason`，不含守卫的英文前缀）
+- 该执行的 `execution.finished.payload.policyBlocks` 非空，Manager 据此回复或上报
+- 规则只做匹配，不经过模型；删除规则后同样的操作可以执行
+- 结束后删除你加的规则
+
+## 场景 5F：扇出成子任务，取消沿树向下
+
+让一个任务拆成几个互相独立的部分（「分别调研 A、B、C，最后给对比表」）。期望：
+
+- Manager 用子工作项扇出（`work_items.parent_id` 指向父项），每个子项有自己的工作区与 Manager
+- 子项完成后 `done`；全部结束时父项收到一条 `children.settled`（含每个子项的结果），随后给出汇总
+- 子项的回复带 `payload.child = true`，不在主对话里出现；父项的汇总以最初的消息为 root
+- 看板上父项在子项运行时为 `delegated`
+- 另起一次扇出，在子项运行时 `POST /api/work-items/<父项>/cancel`：每个仍在执行的子项都落
+  `execution.cancelled`（payload.via 为父项 id），随后各自的 `execution.finished` 带 `cancelled: true`
+
+## 场景 5G：重启不丢事
+
+让一个长执行跑起来，然后 `kill -9` daemon（连同 worker 子进程）再启动。期望：
+
+- 启动日志写明「N execution(s) lost to the last restart」
+- 该执行在 `executions` 表里为 `lost`，并有一条 `execution.finished`（`lost: true`）投递给其 Manager
+- Manager 据此决定重试或说明情况——不会有一个永远「运行中」、无人跟进的执行
+- 重启前积压在收件箱里的消息（游标之后的事件）在重启后被处理
+
+## 场景 5H：因果链有上限
+
+把 `HIDANE_MAX_HOPS` 调小（如 3）启动 daemon，让一个会多轮执行的任务跑起来。期望：
+
+- 超过上限时消息不再投递，改为主线程上的一条 `escalation`（`reason: budget`）
+- 同理 `HIDANE_MAX_EXECUTIONS_PER_ITEM` 用尽后不再派 worker，而是上报
+- 人回复该工作项后可以继续（新的因果链从 0 开始）
+
+## 场景 5I：界面（需真实浏览器）
+
+打开 Web 界面，验证：
+
+- 对话流里每条消息下方有归属标签（归入「X」· 自动判断 / 你指定的 / 按当前聚焦 · 改）
+- 新建的任务以卡片出现在创建它的那条消息下方，状态原位更新（规划中 → 运行中 → 空闲 / 等你回答）
+- 迟到的回复出现在它所回答的消息下面；若该位置不在视野内，底部出现一行通知，点「查看」跳过去
+  （只滚动对话区，外层页面不跟着动），超过 3 条时合并为「还有 N 条更新」
+- 顶部「进行中」栏列出运行中、等回答和有新进展的任务；点击打开右侧聚焦面板（移动端全屏），
+  输入框自动变为「发给「X」」，面板内有对话、产物、执行时间线
+- 「回答」按钮把输入框切到「回答「X」的问题」，发送后问题关闭
+- 规则页可以增删规则；中英文切换后界面文案全部翻译（任务标题等内容保持原文）
+- 宽屏下对话内容居中限宽；宽表格可横向滚动且有可见滚动条
 
 ## 场景 4：事件不灭与重放
 
