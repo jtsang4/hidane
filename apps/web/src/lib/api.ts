@@ -8,6 +8,10 @@ export interface HidaneEvent {
   workItemId: string | null;
   executionId: string | null;
   payload: Record<string, unknown>;
+  /** Agent loop the event was also a message to, if any. */
+  mailbox?: string | null;
+  causedBy?: string | null;
+  hop?: number;
 }
 
 export type WorkItemStatus = "open" | "done" | "closed";
@@ -31,8 +35,56 @@ export interface WorkItem {
   status: WorkItemStatus;
   workspace: string;
   threadId: string;
+  parentId: string | null;
+  deadlineAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type CardState = "waiting" | "running" | "queued" | "thinking" | "delegated" | "idle" | "done" | "closed";
+
+/** One task card: the board projection's view of a work item. */
+export interface BoardCard {
+  item: WorkItem;
+  state: CardState;
+  understanding: string | null;
+  lastReply: { text: string; ts: string; seq: number } | null;
+  execution: {
+    id: string;
+    status: string;
+    startedAt: string | null;
+    instructions: string;
+    toolCalls: number;
+    lastTool: string | null;
+  } | null;
+  escalation: { id: string; question: string; reason: string; path: EscalationStep[]; ts: string } | null;
+  lastPolicyBlock: { reason: string; ts: string } | null;
+  anchor: string | null;
+  childIds: string[];
+  lastSeq: number;
+}
+
+export interface EscalationStep {
+  workItemId: string;
+  title: string;
+  tried: string;
+}
+
+export interface Execution {
+  id: string;
+  workItemId: string;
+  owner: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled" | "lost";
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface PolicyRule {
+  id: string;
+  pattern: string;
+  reason: string;
+  tools?: string[];
 }
 
 export interface Schedule {
@@ -87,6 +139,13 @@ export interface StatusInfo {
   lastHeartbeatAt: string | null;
   openWorkItems: number;
   model?: string;
+  runtime?: {
+    up: boolean;
+    activeTurns: string[];
+    pendingMailboxes: number;
+    pendingMessages: number;
+    workers: { running: number; queued: number };
+  };
 }
 
 const TOKEN_KEY = "hidane-token";
@@ -167,10 +226,13 @@ export const api = {
     kind?: string;
     item?: string;
     thread?: string;
+    /** Everything said on the main thread plus every answer, wherever written. */
+    conversation?: boolean;
     before?: number;
     limit?: number;
   }) => {
     const q = new URLSearchParams({ page: "1" });
+    if (params.conversation) q.set("conversation", "1");
     if (params.kind) q.set("kind", params.kind);
     if (params.item) q.set("item", params.item);
     if (params.thread) q.set("thread", params.thread);
@@ -190,17 +252,37 @@ export const api = {
       events: HidaneEvent[];
       hasMore: boolean;
       running: boolean;
+      execution: Execution | null;
+      children: WorkItem[];
     }>(`/api/work-items/${id}${limit !== undefined ? `?limit=${limit}` : ""}`),
-  chat: (text: string, images: OutboundImage[] = []) =>
-    apiFetch<{ ok: boolean }>(`/api/chat`, {
+  /**
+   * The one message door. `target` addresses a work item directly (no routing
+   * guess); `replyTo` answers a specific event, e.g. an escalated question.
+   */
+  chat: (
+    text: string,
+    images: OutboundImage[] = [],
+    opts: { target?: string; replyTo?: string; focus?: boolean } = {},
+  ) =>
+    apiFetch<{ ok: boolean; messageId: string }>(`/api/chat`, {
       method: "POST",
-      body: JSON.stringify(images.length > 0 ? { text, images } : { text }),
+      body: JSON.stringify({ text, ...(images.length > 0 ? { images } : {}), ...opts }),
     }),
-  threadMessage: (id: string, text: string) =>
-    apiFetch<{ ok: boolean }>(`/api/work-items/${id}/messages`, {
+  /** Move a message to another work item, or answer "which one?". `"new"` makes one. */
+  routeMessage: (messageId: string, workItemId: string) =>
+    apiFetch<{ ok: boolean; workItemId: string }>(`/api/messages/${messageId}/route`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ workItemId }),
     }),
+  board: () => apiFetch<{ cards: BoardCard[] }>(`/api/board`),
+  policies: () => apiFetch<{ path: string; rules: PolicyRule[] }>(`/api/policies`),
+  addPolicy: (input: { pattern: string; reason: string; tools?: string[] }) =>
+    apiFetch<{ ok: boolean; rule: PolicyRule }>(`/api/policies`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deletePolicy: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/policies/${id}`, { method: "DELETE" }),
   worklog: (day: string) =>
     apiFetch<{ day: string; markdown: string; eventCount: number }>(`/api/worklog/${day}`),
   status: () => apiFetch<StatusInfo>(`/api/status`),
@@ -227,7 +309,7 @@ export const api = {
       `/api/schedules/${id}/run`,
       { method: "POST" },
     ),
-  createWorkItem: (input: { title: string; brief?: string; repo?: string }) =>
+  createWorkItem: (input: { title: string; brief?: string; repo?: string; parentId?: string }) =>
     apiFetch<{ ok: boolean; item: WorkItem; dispatched: boolean }>(`/api/work-items`, {
       method: "POST",
       body: JSON.stringify(input),
@@ -241,7 +323,7 @@ export const api = {
       `/api/work-items/${id}/file?path=${encodeURIComponent(path)}`,
     ),
   cancelExecution: (id: string) =>
-    apiFetch<{ ok: boolean; executionId: string | null }>(`/api/work-items/${id}/cancel`, {
+    apiFetch<{ ok: boolean; cancelled: string[] }>(`/api/work-items/${id}/cancel`, {
       method: "POST",
     }),
   addMemory: (kind: MemoryEntry["kind"], content: string) =>

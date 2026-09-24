@@ -29,10 +29,15 @@ export interface LiveReply {
   sinceSeq: number;
 }
 
-/** Kinds that constitute the durable answer a live bubble stands in for. */
-const ANSWER_KINDS = new Set<string>(
-  CONVERSATION_KINDS.filter((kind) => kind !== "user.message"),
-);
+/**
+ * Kinds that constitute the durable answer a live bubble stands in for. A
+ * "which task?" question is streamed like a reply but lands as its own kind,
+ * and must retire the bubble too or the question shows twice.
+ */
+const ANSWER_KINDS = new Set<string>([
+  ...CONVERSATION_KINDS.filter((kind) => kind !== "user.message"),
+  "attribution.ambiguous",
+]);
 
 const replies = new SvelteMap<string, LiveReply>();
 /**

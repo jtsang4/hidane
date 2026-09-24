@@ -25,6 +25,14 @@
     { label: $t("status.lastHeartbeat"), value: data.lastHeartbeatAt ? $t("status.heartbeatAt", { time: fmtDateTime(data.lastHeartbeatAt), s: heartbeatAge ?? 0 }) : $t("status.none"), tone: heartbeatOk ? "success" : "danger" },
     { label: $t("status.openItems"), value: String(data.openWorkItems) },
     { label: $t("status.model"), value: data.model ?? $t("status.none"), tone: data.model?.startsWith("error:") ? "danger" : undefined },
+    ...(data.runtime
+      ? [
+          { label: $t("status.runtime"), value: data.runtime.up ? $t("status.ok") : $t("status.runtimeDown"), tone: data.runtime.up ? ("success" as const) : ("danger" as const) },
+          { label: $t("status.turns"), value: data.runtime.activeTurns.length > 0 ? data.runtime.activeTurns.join(", ") : "0" },
+          { label: $t("status.pendingMessages"), value: String(data.runtime.pendingMessages) },
+          { label: $t("status.workers"), value: $t("status.workersValue", data.runtime.workers) },
+        ]
+      : []),
   ] : []);
 
   async function enableNotifications(): Promise<void> {
@@ -51,7 +59,7 @@
           <div class="text-xs text-muted">{card.label}</div>
           <div class="mt-1 flex items-center gap-2 text-lg font-semibold">
             {card.value}
-            {#if card.tone}<Badge tone={card.tone}>{card.tone === "success" ? $t("status.ok") : $t("status.attention")}</Badge>{/if}
+            {#if card.tone && card.value !== $t("status.ok")}<Badge tone={card.tone}>{card.tone === "success" ? $t("status.ok") : $t("status.attention")}</Badge>{/if}
           </div>
         </Card>
       {/each}

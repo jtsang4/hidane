@@ -45,3 +45,45 @@ export function shouldReconnect(
 ): boolean {
   return now - lastHeardAt > reconnectAfterMs && now - connectedAt > reconnectAfterMs;
 }
+
+const CONVERSATION = new Set([
+  "user.message",
+  "agent.reply",
+  "agent.error",
+  "escalation",
+  "message.attributed",
+  "attribution.ambiguous",
+  "execution.steered",
+]);
+
+/**
+ * Which cached queries one log event can have made stale.
+ *
+ * Invalidating everything on every event refetched every open list per tool
+ * call once workers ran — a busy execution emits side effects several times a
+ * second. The board and the lists are refreshed on a throttle by the caller;
+ * the conversation and the item it concerns right away, since that is what the
+ * reader is looking at.
+ */
+export function invalidationFor(event: {
+  kind: string;
+  threadId: string | null;
+  workItemId: string | null;
+}): { now: string[][]; throttled: string[][] } {
+  const now: string[][] = [];
+  const throttled: string[][] = [["board"], ["status"], ["events"], ["worklog"]];
+  if (CONVERSATION.has(event.kind) && (event.threadId === "main" || event.kind === "agent.reply" || event.kind === "execution.steered")) {
+    now.push(["conversation"]);
+  }
+  if (event.workItemId) now.push(["item", event.workItemId]);
+  if (event.kind.startsWith("work_item.") || event.kind.startsWith("execution.")) {
+    throttled.push(["items"]);
+  }
+  if (event.workItemId && event.kind === "execution.finished") throttled.push(["files", event.workItemId]);
+  if (event.kind.startsWith("schedule.") || event.kind === "connector.http") {
+    throttled.push(["schedules"], ["schedule-runs"]);
+  }
+  if (event.kind.startsWith("memory.")) throttled.push(["memories"]);
+  if (event.kind.startsWith("policy.")) throttled.push(["policies"]);
+  return { now, throttled };
+}

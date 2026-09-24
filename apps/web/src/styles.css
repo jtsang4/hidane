@@ -22,3 +22,14 @@ body,
 body {
   @apply bg-background text-foreground antialiased;
 }
+
+/* Wide agent tables scroll sideways. macOS overlay scrollbars hide until you
+   scroll, so the clipped columns looked simply cut off; a styled scrollbar
+   stays visible and says there is more. */
+.markdown table::-webkit-scrollbar {
+  height: 6px;
+}
+.markdown table::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--color-muted) 55%, transparent);
+  border-radius: 3px;
+}

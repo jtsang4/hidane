@@ -124,3 +124,14 @@ describe("liveText", () => {
     expect(maxSeq([event(7, "agent.reply"), event(3, "user.message")])).toBe(7);
   });
 });
+
+describe("which-task questions", () => {
+  it("retire the live bubble that streamed them", async () => {
+    const { applyLiveFrame, liveRepliesFor, noteLiveEvent, resetLiveText } = await import("../src/lib/liveText.js");
+    resetLiveText();
+    applyLiveFrame(JSON.stringify({ id: "ls_q", threadId: "main", delta: "哪一个？" }));
+    applyLiveFrame(JSON.stringify({ id: "ls_q", threadId: "main", done: true }));
+    noteLiveEvent({ seq: 50, kind: "attribution.ambiguous", threadId: "main" });
+    expect(liveRepliesFor("main", 50)).toHaveLength(0);
+  });
+});

@@ -40,4 +40,4 @@
   }
 </script>
 
-<div class={cn(BASE, "break-words", className)} {@attach renderMarkdown}></div>
+<div class={cn("markdown", BASE, "break-words", className)} {@attach renderMarkdown}></div>

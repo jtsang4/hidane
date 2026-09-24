@@ -4,7 +4,7 @@
   import { t } from "../i18n/index.js";
   import { api, ApiError } from "../lib/api.js";
   import { matchesItem } from "../lib/search.js";
-  import { navigate } from "../lib/router.svelte.js";
+  import { focusHref, navigate } from "../lib/router.svelte.js";
   import { pushToast } from "../lib/toast.js";
   import Badge from "../components/ui/Badge.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -49,7 +49,7 @@
   function openItem(id: string, event: MouseEvent): void {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    navigate(`/items/${id}`);
+    navigate(focusHref(id));
   }
 </script>
 
@@ -75,7 +75,7 @@
   {/if}
   <Input bind:value={query} placeholder={$t("items.search")} />
   {#each shown as item (item.id)}
-    <a href={`/items/${item.id}`} class="block" onclick={(event) => openItem(item.id, event)}>
+    <a href={focusHref(item.id)} class="block" onclick={(event) => openItem(item.id, event)}>
       <Card class="transition-colors hover:bg-surface-2">
         <div class="flex items-center justify-between gap-2">
           <div class="min-w-0">

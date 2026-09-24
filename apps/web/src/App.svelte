@@ -11,6 +11,7 @@
     Logs,
     MessageCircle,
     ScrollText,
+    ShieldCheck,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
   import i18n, { t, language, switchLanguage } from "./i18n/index.js";
@@ -24,7 +25,7 @@
   import { resetLiveText } from "./lib/liveText.js";
   import { badgeTitle, completionFrom, notifyPermission } from "./lib/notify.js";
   import { clearToasts, pushToast } from "./lib/toast.js";
-  import { navigate, initRouter, routeFor, routerState } from "./lib/router.svelte.js";
+  import { focusHref, navigate, initRouter, routeFor, routerState } from "./lib/router.svelte.js";
   import type { LiveState } from "./lib/live.js";
   import { cn } from "./lib/utils.js";
   import LiveLane from "./components/LiveLane.svelte";
@@ -32,12 +33,12 @@
   import Button from "./components/ui/Button.svelte";
   import Card from "./components/ui/Card.svelte";
   import Input from "./components/ui/Input.svelte";
-  import ChatPage from "./pages/ChatPage.svelte";
+  import ConversationPage from "./pages/ConversationPage.svelte";
   import EventsPage from "./pages/EventsPage.svelte";
-  import ItemDetailPage from "./pages/ItemDetailPage.svelte";
   import ItemsPage from "./pages/ItemsPage.svelte";
   import LogPage from "./pages/LogPage.svelte";
   import MemoryPage from "./pages/MemoryPage.svelte";
+  import PoliciesPage from "./pages/PoliciesPage.svelte";
   import SchedulesPage from "./pages/SchedulesPage.svelte";
   import StatusPage from "./pages/StatusPage.svelte";
 
@@ -63,6 +64,7 @@
     { to: "/log", key: "nav.log", icon: ScrollText },
     { to: "/memory", key: "nav.memory", icon: Brain },
     { to: "/schedules", key: "nav.schedules", icon: AlarmClock },
+    { to: "/policies", key: "nav.policies", icon: ShieldCheck },
     { to: "/status", key: "nav.status", icon: Activity },
   ] as const;
 
@@ -73,6 +75,11 @@
   let route = $derived(routeFor(routerState.path));
   let nextLang = $derived<"zh" | "en">($language === "en" ? "zh" : "en");
   let liveLabel = $derived($t(live === "live" ? "live.live" : live === "connecting" ? "live.connecting" : "live.offline"));
+
+  // A work item lives beside the conversation now; old links still land on it.
+  $effect(() => {
+    if (route.name === "item") navigate(focusHref(route.id), { replace: true });
+  });
 
   onMount(() => {
     const stopRouter = initRouter();
@@ -189,12 +196,10 @@
         </button>
       </nav>
       <main class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {#if route.name === "chat"}
-          <ChatPage />
+        {#if route.name === "chat" || route.name === "item"}
+          <ConversationPage />
         {:else if route.name === "items"}
           <ItemsPage />
-        {:else if route.name === "item"}
-          <ItemDetailPage id={route.id} />
         {:else if route.name === "events"}
           <EventsPage />
         {:else if route.name === "log"}
@@ -203,6 +208,8 @@
           <MemoryPage />
         {:else if route.name === "schedules"}
           <SchedulesPage />
+        {:else if route.name === "policies"}
+          <PoliciesPage />
         {:else if route.name === "status"}
           <StatusPage />
         {:else}

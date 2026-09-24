@@ -2,7 +2,7 @@
   import { useQueryClient } from "@tanstack/svelte-query";
   import { eventStreamUrl } from "../lib/api.js";
   import { applyLiveFrame, noteLiveEvent } from "../lib/liveText.js";
-  import { livenessFrom, shouldReconnect, type LiveState } from "../lib/live.js";
+  import { invalidationFor, livenessFrom, shouldReconnect, type LiveState } from "../lib/live.js";
 
   let {
     enabled,
@@ -12,6 +12,27 @@
   const queryClient = useQueryClient();
   let liveState = $state<LiveState>("connecting");
   let attempt = $state(0);
+
+  /** Lists and the board refetch at most this often while a worker is busy. */
+  const THROTTLE_MS = 700;
+  const throttled = new Map<string, string[]>();
+  let flushTimer: number | undefined;
+
+  function refresh(event: { kind: string; threadId: string | null; workItemId: string | null } | null): void {
+    // An unparseable frame still means something changed: refetch everything.
+    if (!event) {
+      void queryClient.invalidateQueries();
+      return;
+    }
+    const { now, throttled: later } = invalidationFor(event);
+    for (const key of now) void queryClient.invalidateQueries({ queryKey: key });
+    for (const key of later) throttled.set(JSON.stringify(key), key);
+    flushTimer ??= window.setTimeout(() => {
+      flushTimer = undefined;
+      for (const key of throttled.values()) void queryClient.invalidateQueries({ queryKey: key });
+      throttled.clear();
+    }, THROTTLE_MS);
+  }
 
   $effect(() => {
     const currentAttempt = attempt;
@@ -36,13 +57,14 @@
       heard();
       const data = (event as MessageEvent<string>).data;
       window.dispatchEvent(new MessageEvent("hidane:event", { data }));
+      let parsed: { seq: number; kind: string; threadId: string | null; workItemId: string | null } | null = null;
       try {
-        noteLiveEvent(JSON.parse(data) as { seq: number; kind: string; threadId: string | null });
+        parsed = JSON.parse(data) as typeof parsed;
+        if (parsed) noteLiveEvent(parsed);
       } catch {
-        // A frame we cannot parse still proves the stream is alive; the query
-        // invalidation below refetches the authoritative copy regardless.
+        // A frame we cannot parse still proves the stream is alive.
       }
-      void queryClient.invalidateQueries();
+      refresh(parsed);
     });
     // Text of a reply still being written. Deliberately no invalidation: these
     // arrive per token, and refetching a page of history for each one would be
@@ -60,6 +82,8 @@
 
     return () => {
       window.clearInterval(timer);
+      window.clearTimeout(flushTimer);
+      flushTimer = undefined;
       source.close();
     };
   });
