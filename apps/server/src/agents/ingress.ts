@@ -164,6 +164,27 @@ export async function reattribute(
 }
 
 /**
+ * The person hides something they said. Only their own main-thread messages
+ * qualify; hiding twice records nothing new. What a Manager already read is
+ * not recalled — hiding is about what is shown and fed forward from now on.
+ */
+export async function redactMessage(messageId: string, source: string): Promise<HidaneEvent | null> {
+  const message = await getEvent(messageId);
+  if (!message || message.kind !== "user.message" || message.threadId !== "main") {
+    throw new Error("message not found");
+  }
+  if (message.payload["redacted"] === true) return null;
+  return appendEvent({
+    source,
+    kind: "message.redacted",
+    threadId: "main",
+    workItemId: message.workItemId ?? undefined,
+    causedBy: message.id,
+    payload: { of: message.id, root: rootOf(message) },
+  });
+}
+
+/**
  * Status changes that close a child may settle its parent's fan-out. Every
  * path that changes a status goes through here so the parent is always told.
  */

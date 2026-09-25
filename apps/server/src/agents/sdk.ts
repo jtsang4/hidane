@@ -162,8 +162,16 @@ export function getRoleSession(
   return existing;
 }
 
-export function getPrimarySession(charter: string): Promise<AgentSession> {
-  return getRoleSession("primary", {
+/**
+ * A fresh Primary session for one turn. The Primary's continuity is rebuilt
+ * from the log each turn (`recentConversation`), so nothing carries over in
+ * the session: it cannot grow without bound, needs no compaction mid-turn,
+ * and behaves the same before and after a restart. Each turn still leaves its
+ * own trace file. The caller disposes it.
+ */
+export async function openPrimarySession(charter: string): Promise<AgentSession> {
+  await mkdir(config.home, { recursive: true });
+  return createRoleSession({
     charter,
     cwd: config.home,
     sessionDir: sessionsDir(),

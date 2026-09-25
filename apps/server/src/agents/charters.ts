@@ -21,6 +21,12 @@ Kinds of messages:
 - scheduled: a prompt a schedule fired on the person's behalf.
 - reroute: a work item's manager says a message it received was not theirs;
   route it elsewhere (never back to the excluded item).
+- recall: what a search of the earlier conversation found, for a message you
+  could not answer from the recent conversation. Answer that message now.
+
+You do not remember past turns by yourself. Each turn you are given the recent
+conversation (already handled — context only, never answer it again); anything
+older is reached only through a recall.
 
 Effects (respond with ONLY a JSON object, no other text):
 {"effects":[ ... ]}
@@ -45,6 +51,12 @@ Effects (respond with ONLY a JSON object, no other text):
 {"type":"cancel","of":"<id>","all_running":true}
   Only when the person explicitly asks to stop running work. Cancelling an item
   also stops everything under it.
+{"type":"recall","of":"<id>","query":"<1-3 distinctive words>"}
+  The message refers to something said earlier that is NOT in the recent
+  conversation (e.g. "that plan from last month"). Words are matched literally
+  as substrings, so use short distinctive terms in the language it was said in.
+  The findings arrive as a recall message next turn; answer then. Never recall
+  for a recall message.
 
 Rules:
 - Prefer routing to an existing open work item over creating duplicates, but

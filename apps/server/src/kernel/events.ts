@@ -39,7 +39,7 @@ export interface HidaneEvent {
   hop: number;
 }
 
-interface EventRow {
+export interface EventRow {
   seq: number;
   id: string;
   ts: Date;
@@ -55,7 +55,7 @@ interface EventRow {
   hop: number;
 }
 
-function toEvent(row: EventRow): HidaneEvent {
+export function toEvent(row: EventRow): HidaneEvent {
   return {
     seq: Number(row.seq),
     id: row.id,
@@ -73,10 +73,26 @@ function toEvent(row: EventRow): HidaneEvent {
   };
 }
 
-const SELECT_COLS = sqlFragment();
-function sqlFragment() {
-  return `seq::int AS seq, id, ts, source, kind, thread_id, work_item_id, execution_id, payload, mailbox, lane, caused_by, hop`;
-}
+/**
+ * A person's message whose content they chose to hide (`message.redacted`),
+ * or a Manager's forwarded copy of one. Must be evaluated against a row of
+ * `events` named `events`.
+ */
+export const REDACTED_SQL = `(events.kind = 'user.message' AND EXISTS (
+  SELECT 1 FROM events r WHERE r.kind = 'message.redacted'
+    AND r.payload->>'of' IN (events.id, events.payload->>'of')))`;
+
+/**
+ * Hiding is a read-time projection: the row is never rewritten (the log is
+ * append-only), but no reader — API, stream, agent context, distiller,
+ * worklog — sees the content again. Structural keys (root, of, target, channel)
+ * survive so threads still group.
+ */
+const PAYLOAD_SQL = `CASE WHEN ${REDACTED_SQL}
+  THEN (payload - 'text' - 'images' - 'imageCount') || '{"redacted": true, "text": ""}'::jsonb
+  ELSE payload END AS payload`;
+
+export const SELECT_COLS = `seq::int AS seq, id, ts, source, kind, thread_id, work_item_id, execution_id, ${PAYLOAD_SQL}, mailbox, lane, caused_by, hop`;
 
 /** Append one event to the log (write-through; facts only). */
 export async function appendEvent(input: EventInput): Promise<HidaneEvent> {
@@ -134,6 +150,8 @@ export interface ListFilter {
    * message they answer (payload.root) by the reader, not by position.
    */
   conversation?: boolean | undefined;
+  /** With `conversation`: drop answers to webhooks and schedules. */
+  personOnly?: boolean | undefined;
   tail?: number | undefined;
   limit?: number | undefined;
 }
@@ -145,8 +163,11 @@ export const CONVERSATION_MAIN_KINDS = [
   "escalation",
   "message.attributed",
   "attribution.ambiguous",
+  "message.redacted",
 ] as const;
 export const CONVERSATION_ANY_KINDS = ["agent.reply", "execution.steered"] as const;
+
+export const CONVERSATION_SQL = `((thread_id = 'main' AND kind IN (${CONVERSATION_MAIN_KINDS.map((k) => `'${k}'`).join(", ")})) OR kind IN (${CONVERSATION_ANY_KINDS.map((k) => `'${k}'`).join(", ")}))`;
 
 /** Read events in seq order with optional filters. */
 export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]> {
@@ -171,10 +192,11 @@ export async function listEvents(filter: ListFilter = {}): Promise<HidaneEvent[]
     });
     where.push(`kind IN (${holes.join(", ")})`);
   }
-  if (filter.conversation) {
-    const main = CONVERSATION_MAIN_KINDS.map((k) => `'${k}'`).join(", ");
-    const any = CONVERSATION_ANY_KINDS.map((k) => `'${k}'`).join(", ");
-    where.push(`((thread_id = 'main' AND kind IN (${main})) OR kind IN (${any}))`);
+  if (filter.conversation) where.push(CONVERSATION_SQL);
+  if (filter.personOnly) {
+    // Answers to a webhook or a schedule carry their origin; the person's own
+    // messages and everything answering them do not.
+    where.push(`coalesce(payload->>'rootKind', '') NOT IN ('external', 'scheduled')`);
   }
   if (filter.afterSeq !== undefined) add("seq > ?", filter.afterSeq);
   if (filter.beforeSeq !== undefined) add("seq < ?", filter.beforeSeq);

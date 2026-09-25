@@ -58,7 +58,8 @@ export function meaningfulEvents(events: HidaneEvent[]): HidaneEvent[] {
     "work_item.created",
     "work_item.status_changed",
   ]);
-  return events.filter((e) => KINDS.has(e.kind));
+  // A message the person hid must not come back as a memory.
+  return events.filter((e) => KINDS.has(e.kind) && e.payload["redacted"] !== true);
 }
 
 function eventLine(e: HidaneEvent): string {

@@ -5,7 +5,7 @@ const stubs = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/agents/sdk.js", () => ({
-  getPrimarySession: vi.fn(async () => ({})),
+  openPrimarySession: vi.fn(async () => ({ dispose: vi.fn() })),
   getManagerSession: vi.fn(async () => ({})),
   promptRole: stubs.promptRole,
 }));

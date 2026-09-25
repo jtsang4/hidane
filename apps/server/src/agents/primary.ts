@@ -1,5 +1,5 @@
 import { appendEvent, getEvent, listEvents, type HidaneEvent } from "../kernel/events.js";
-import { rootOf } from "../kernel/mailbox.js";
+import { post, rootOf } from "../kernel/mailbox.js";
 import { busyWorkItemIds } from "../kernel/executions.js";
 import {
   createWorkItem,
@@ -9,7 +9,9 @@ import {
 } from "../kernel/workItems.js";
 import { config } from "../config.js";
 import { PRIMARY_CHARTER } from "./charters.js";
-import { getPrimarySession } from "./sdk.js";
+import { openPrimarySession } from "./sdk.js";
+import { PRIMARY } from "./addresses.js";
+import { describeRecall, recentConversation, searchConversation } from "../projections/conversation.js";
 import { recallForPrimary } from "./distiller.js";
 import { loadImages, storedImagesOf } from "./inbox.js";
 import { nowLine, str, think, type Effect } from "./think.js";
@@ -24,6 +26,7 @@ const ROUTABLE = new Set([
   "triage.decision",
   "schedule.prompt",
   "message.reroute_requested",
+  "conversation.recalled",
 ]);
 
 function isWorkItemStatus(value: unknown): value is WorkItemStatus {
@@ -53,6 +56,8 @@ function describe(m: HidaneEvent): string {
       return `[${m.id}] (external: ${String(m.payload["ofKind"] ?? "event")}) ${String(m.payload["summary"] ?? "")}`;
     case "schedule.prompt":
       return `[${m.id}] (scheduled "${String(m.payload["name"] ?? "")}") ${String(m.payload["prompt"] ?? "")}`;
+    case "conversation.recalled":
+      return `[${m.id}] (recall: you searched earlier conversation for "${String(m.payload["query"] ?? "")}" to answer ${String(m.payload["of"] ?? "")}; answer that message now with of="${m.id}". Do not recall again.)\nThe message: ${String(m.payload["original"] ?? "")}\nFound:\n${String(m.payload["text"] ?? "")}`;
     case "message.reroute_requested":
       return `[${m.id}] (reroute: work item ${String((m.payload["exclude"] as string[] | undefined)?.join(", ") ?? "")} says this is not theirs — do not route it back there) ${text}`;
     default:
@@ -63,6 +68,13 @@ function describe(m: HidaneEvent): string {
 /** Where an answer to this message belongs in the conversation, and how to title it. */
 function rootMeta(m: HidaneEvent): Record<string, unknown> {
   const meta: Record<string, unknown> = { of: m.id, root: rootOf(m) };
+  // A recall answers the message it was made for, and takes its framing along.
+  if (m.kind === "conversation.recalled") {
+    for (const key of ["rootKind", "rootText"]) {
+      if (m.payload[key] !== undefined) meta[key] = m.payload[key];
+    }
+    return meta;
+  }
   if (m.kind === "triage.decision") {
     meta["rootKind"] = "external";
     meta["rootText"] = String(m.payload["summary"] ?? "").slice(0, 200);
@@ -141,6 +153,36 @@ async function attributionSubject(m: HidaneEvent): Promise<HidaneEvent> {
 async function applyEffect(ctx: TurnContext, e: Effect): Promise<void> {
   const m = ctx.message(e["of"]);
   if (!m) return;
+
+  // Looking further back than the recent conversation. The turn does not wait
+  // for it: the findings come back as the next message in this mailbox.
+  if (e.type === "recall") {
+    const query = str(e["query"]);
+    // One look back per message; a recall result must be answered as is.
+    if (!query || m.kind === "conversation.recalled") return;
+    ctx.cover(m, e["also_of"]);
+    const found = await searchConversation({ query, limit: 8 });
+    const hits = found.events.filter((hit) => !ctx.batch.some((b) => b.id === hit.id));
+    const meta = rootMeta(m);
+    await post({
+      source: "agent:primary",
+      kind: "conversation.recalled",
+      mailbox: PRIMARY,
+      lane: "interrupt",
+      threadId: "main",
+      causedBy: m,
+      payload: {
+        of: m.id,
+        root: meta["root"],
+        ...(meta["rootKind"] !== undefined ? { rootKind: meta["rootKind"], rootText: meta["rootText"] } : {}),
+        query,
+        original: describe(m),
+        hits: hits.map((hit) => hit.id),
+        text: describeRecall(hits),
+      },
+    });
+    return;
+  }
 
   if (e.type === "reply") {
     ctx.cover(m, e["also_of"]);
@@ -338,10 +380,11 @@ export async function primaryTurn(_address: string, messages: HidaneEvent[]): Pr
   }
   if (batch.length === 0) return;
 
-  const [all, busy, memories] = await Promise.all([
+  const [all, busy, memories, recent] = await Promise.all([
     listWorkItems(),
     busyWorkItemIds(),
     recallForPrimary(),
+    recentConversation({ exclude: new Set(batch.map(rootOf)) }),
   ]);
   const ctx = new TurnContext(batch, all, busy);
   const understanding = await latestUnderstanding(ctx.open.map((i) => i.id));
@@ -355,7 +398,7 @@ export async function primaryTurn(_address: string, messages: HidaneEvent[]): Pr
       : "(none)";
 
   const images = await loadImages(batch.flatMap((m) => storedImagesOf(m.payload)));
-  const session = await getPrimarySession(PRIMARY_CHARTER);
+  const session = await openPrimarySession(PRIMARY_CHARTER);
   const thought = await think(
     session,
     [
@@ -364,12 +407,13 @@ export async function primaryTurn(_address: string, messages: HidaneEvent[]): Pr
       `Open work items (routing targets):\n${openList}`,
       `All work items (status management):\n${allList}`,
       `Running executions (cancellation targets):\n${runningList}`,
+      recent.text,
       `Messages this turn:\n${batch.map(describe).join("\n")}`,
     ]
       .filter(Boolean)
       .join("\n\n"),
     { images, liveThreadId: "main" },
-  );
+  ).finally(() => session.dispose());
 
   await appendEvent({
     source: "agent:primary",

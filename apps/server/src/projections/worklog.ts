@@ -10,6 +10,9 @@ function fmtTime(iso: string): string {
 }
 
 function line(e: HidaneEvent): string {
+  if (e.payload["redacted"] === true) {
+    return `- \`${fmtTime(e.ts)}\` **${e.kind}** (${e.source}) (hidden by the person)`;
+  }
   const text = e.payload["text"] ?? e.payload["note"] ?? e.payload["summary"];
   const detail =
     typeof text === "string" && text.length > 0

@@ -121,7 +121,25 @@ export async function migrate(): Promise<void> {
     )`;
   await db`CREATE INDEX IF NOT EXISTS executions_status_idx ON executions (status, created_at)`;
   await db`CREATE INDEX IF NOT EXISTS executions_item_idx ON executions (work_item_id, created_at)`;
+
+  // History access: every read masks hidden messages, and the conversation's
+  // day index and search filter by kind over the whole log.
+  await db`CREATE INDEX IF NOT EXISTS events_kind_idx ON events (kind, seq)`;
+  await db`CREATE INDEX IF NOT EXISTS events_redacted_idx ON events ((payload->>'of')) WHERE kind = 'message.redacted'`;
+  // Substring search over what was said. Optional: without the extension the
+  // same query still answers, by scanning the conversation kinds.
+  try {
+    await db`CREATE EXTENSION IF NOT EXISTS pg_trgm`;
+    await db.unsafe(`CREATE INDEX IF NOT EXISTS events_said_trgm_idx ON events
+      USING gin (${SAID_SQL} gin_trgm_ops)
+      WHERE kind IN ('user.message', 'agent.reply', 'escalation')`);
+  } catch (err) {
+    console.warn(`conversation search index unavailable; searching without it (${String(err instanceof Error ? err.message : err)})`);
+  }
 }
+
+/** The searchable words of a conversation event; the trigram index is built on exactly this expression. */
+export const SAID_SQL = `(coalesce(payload->>'text', '') || ' ' || coalesce(payload->>'question', ''))`;
 
 export async function closeDb(): Promise<void> {
   if (sqlInstance) {

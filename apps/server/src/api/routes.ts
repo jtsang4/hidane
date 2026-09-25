@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { appendEvent, getCursor, getEvent, listEvents } from "../kernel/events.js";
+import { appendEvent, getCursor, getEvent, listEvents, type HidaneEvent } from "../kernel/events.js";
 import {
   createWorkItem,
   getWorkItem,
@@ -20,7 +20,14 @@ import {
 } from "../kernel/policies.js";
 import { renderDay, today } from "../projections/worklog.js";
 import { buildBoard } from "../projections/board.js";
-import { changeStatus, reattribute, submitMessage } from "../agents/ingress.js";
+import {
+  conversationDays,
+  recentConversation,
+  searchConversation,
+  searchWorkItems,
+  titlesFor,
+} from "../projections/conversation.js";
+import { changeStatus, reattribute, redactMessage, submitMessage } from "../agents/ingress.js";
 import { cancelTree, poolStatus } from "../agents/workerPool.js";
 import { runtimeStatus } from "../agents/runtime.js";
 import { liveTextSnapshot, subscribeLiveText, type LiveTextFrame } from "../agents/liveText.js";
@@ -129,6 +136,7 @@ export function registerApi(app: Hono): void {
       : undefined;
     const filters = {
       conversation: q["conversation"] !== undefined,
+      personOnly: q["conversation"] !== undefined && q["origin"] === "person",
       threadId: q["thread"],
       workItemId: q["item"],
       ...(kinds ? { kinds } : { kind: rawKind }),
@@ -139,6 +147,50 @@ export function registerApi(app: Hono): void {
     // cursors). One extra row tells us whether an older page exists.
     if (q["before"] !== undefined || q["page"] !== undefined) {
       const limit = Math.min(Number(q["limit"] ?? 50), 200);
+      const titled = async (events: HidaneEvent[]) =>
+        filters.conversation ? await titlesFor(events) : {};
+      // A window around one event: how a search hit, a link or a day is
+      // opened without paging through everything newer first. Walks both ways.
+      if (q["around"] !== undefined) {
+        const target = await getEvent(q["around"]);
+        if (!target) return c.json({ ok: false, error: "not found" }, 404);
+        const half = Math.floor(limit / 2);
+        const [older, newer] = await Promise.all([
+          listEvents({ ...filters, beforeSeq: target.seq, tail: half + 1 }),
+          listEvents({ ...filters, afterSeq: target.seq - 1, limit: limit - half + 1 }),
+        ]);
+        const hasMore = older.length > half;
+        const hasNewer = newer.length > limit - half;
+        const events = [
+          ...(hasMore ? older.slice(1) : older),
+          ...(hasNewer ? newer.slice(0, limit - half) : newer),
+        ];
+        return c.json({
+          events,
+          hasMore,
+          hasNewer,
+          oldestSeq: events[0]?.seq ?? null,
+          newestSeq: events.at(-1)?.seq ?? null,
+          titles: await titled(events),
+        });
+      }
+      if (q["after"] !== undefined) {
+        const after = Number(q["after"]);
+        if (!Number.isInteger(after) || after < 0) {
+          return c.json({ ok: false, error: "after must be a seq" }, 400);
+        }
+        const page = await listEvents({ ...filters, afterSeq: after, limit: limit + 1 });
+        const hasNewer = page.length > limit;
+        const events = hasNewer ? page.slice(0, limit) : page;
+        return c.json({
+          events,
+          hasMore: true,
+          hasNewer,
+          oldestSeq: events[0]?.seq ?? null,
+          newestSeq: events.at(-1)?.seq ?? null,
+          titles: await titled(events),
+        });
+      }
       const before = q["before"] !== undefined ? Number(q["before"]) : undefined;
       const page = await listEvents({
         ...filters,
@@ -150,7 +202,10 @@ export function registerApi(app: Hono): void {
       return c.json({
         events,
         hasMore,
+        hasNewer: false,
         oldestSeq: events[0]?.seq ?? null,
+        newestSeq: events.at(-1)?.seq ?? null,
+        titles: await titled(events),
       });
     }
     const events = await listEvents({
@@ -460,6 +515,43 @@ export function registerApi(app: Hono): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ ok: false, error: message }, 404);
+    }
+  });
+
+  // Everything ever said, not just what a reader has loaded.
+  app.get("/api/conversation/search", async (c) => {
+    const query = (c.req.query("q") ?? "").trim();
+    if (!query) return c.json({ ok: false, error: "q required" }, 400);
+    const rawBefore = c.req.query("before");
+    const before = rawBefore !== undefined ? Number(rawBefore) : undefined;
+    const limit = Number(c.req.query("limit") ?? 20);
+    const [page, items] = await Promise.all([
+      searchConversation({ query, before, limit: Number.isFinite(limit) ? limit : 20 }),
+      // Items only with the first page: they are a short list, not a feed.
+      before === undefined ? searchWorkItems(query) : Promise.resolve([]),
+    ]);
+    return c.json({ ...page, items, titles: await titlesFor(page.events) });
+  });
+
+  app.get("/api/conversation/days", async (c) => {
+    return c.json({ days: await conversationDays(c.req.query("tz")) });
+  });
+
+  // Where the Primary's view of the conversation currently begins; the view
+  // marks it so nobody assumes the assistant remembers everything above.
+  app.get("/api/conversation/context", async (c) => {
+    const recent = await recentConversation();
+    return c.json({ fromId: recent.fromId, turns: recent.turns });
+  });
+
+  // Hide something the person said (a pasted secret, a wrong message). The
+  // original row stays — the log is append-only — but every reader masks it.
+  app.post("/api/messages/:id/redact", async (c) => {
+    try {
+      const event = await redactMessage(c.req.param("id"), "connector:web");
+      return c.json({ ok: true, eventId: event?.id ?? null });
+    } catch (err) {
+      return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 404);
     }
   });
 
