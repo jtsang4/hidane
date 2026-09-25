@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, type HidaneEvent } from "../src/lib/api.js";
 import { buildTurns } from "../src/lib/conversation.js";
 import {
+  awayFromLatest,
   contextBoundary,
   dayBreaks,
   daysByMonth,
@@ -113,6 +114,23 @@ describe("reading history by day", () => {
     expect(contextBoundary(turns, "m1", true)).toBe("m1");
     expect(contextBoundary(turns, null)).toBeNull();
     expect(contextBoundary(turns, "unloaded")).toBeNull();
+  });
+});
+
+describe("the way back to the newest message", () => {
+  const base = { mode: "live" as const, follow: true, searching: false, primed: true, hasTurns: true };
+
+  it("appears when scrolled up in the live view or reading older history", () => {
+    expect(awayFromLatest(base)).toBe(false);
+    expect(awayFromLatest({ ...base, follow: false })).toBe(true);
+    // The bottom of a window of history is still not "now".
+    expect(awayFromLatest({ ...base, mode: "window", follow: true })).toBe(true);
+  });
+
+  it("stays out of the way while searching or before the view has settled", () => {
+    expect(awayFromLatest({ ...base, follow: false, searching: true })).toBe(false);
+    expect(awayFromLatest({ ...base, follow: false, primed: false })).toBe(false);
+    expect(awayFromLatest({ ...base, follow: false, hasTurns: false })).toBe(false);
   });
 });
 

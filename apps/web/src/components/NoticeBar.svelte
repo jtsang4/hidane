@@ -24,8 +24,9 @@
   }
 </script>
 
+<!-- Positioned by the page, which stacks it under the "back to latest" button. -->
 {#if notices.length > 0}
-  <div class="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center px-3" role="status" aria-live="polite">
+  <div class="flex max-w-full justify-center" role="status" aria-live="polite">
     <div class="pointer-events-auto flex max-w-full flex-col gap-1 rounded-lg border border-border bg-surface/95 p-1.5 text-xs shadow-lg backdrop-blur">
       {#each view.shown as notice (notice.root)}
         <button class="flex items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-2" onclick={() => onjump(notice)}>

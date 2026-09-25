@@ -7,7 +7,7 @@
   import { api, ApiError, type BoardCard, type HidaneEvent } from "../lib/api.js";
   import { loadSeen, saveSeen, trayCards } from "../lib/board.js";
   import { buildTurns, type Turn } from "../lib/conversation.js";
-  import { contextBoundary, dayBreaks, loadedRange } from "../lib/history.js";
+  import { awayFromLatest, contextBoundary, dayBreaks, loadedRange } from "../lib/history.js";
   import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
   import { addNotice, dropNotices, noticeFor, type Notice } from "../lib/notices.js";
   import { atFrom, conversationHref, focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
@@ -135,6 +135,7 @@
   let showOptimistic = $derived(mode === "live" && optimistic !== null && !(optimistic.messageId !== null && seen.has(optimistic.messageId)));
   let hasOlder = $derived(olderKnown ?? conversationQuery.data?.hasMore ?? false);
   let breaks = $derived(dayBreaks(turns));
+  let showLatest = $derived(awayFromLatest({ mode, follow, searching, primed, hasTurns: turns.length > 0 }));
   let boundary = $derived(contextBoundary(turns, contextQuery.data?.fromId ?? null, hasOlder));
   let target = $derived<ComposerTarget | null>(
     replyTarget ?? (focus ? { id: focus, title: titleOf(focus), mode: "focus" } : null),
@@ -328,6 +329,20 @@
     follow = true;
     void queryClient.invalidateQueries({ queryKey: ["conversation", "page"] });
     void tick().then(() => viewport?.scrollTo(0, viewport.scrollHeight));
+  }
+
+  /**
+   * Back to the newest message. In the live view the loaded history is kept
+   * and the view just scrolls down; a window of older history is replaced.
+   */
+  function goLatest(): void {
+    if (mode === "window") {
+      backToLatest();
+      return;
+    }
+    if (atFrom(routerState.search)) navigate(focusHref(focus));
+    follow = true;
+    viewport?.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
   }
 
   $effect(() => {
@@ -581,9 +596,8 @@
         {/if}
       </div>
       {#if mode === "window" && !searching}
-        <div class="flex items-center justify-center gap-2 border-b border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted" role="status">
-          <span>{$t("chat.viewingHistory")}</span>
-          <Button variant="outline" size="sm" onclick={() => backToLatest()}><ArrowDown size={12} aria-hidden="true" />{$t("chat.backToLatest")}</Button>
+        <div class="border-b border-border bg-surface-2/60 px-3 py-1.5 text-center text-xs text-muted" role="status">
+          {$t("chat.viewingHistory")}
         </div>
       {/if}
       <!-- `relative` keeps absolutely positioned descendants (screen-reader text,
@@ -603,7 +617,7 @@
              for the observer to measure it (collapsing it here would mean the
              observer never fires and the first pin never happens). While
              searching it collapses so the results start at the top. -->
-        <div bind:this={content} class={cn("mx-auto max-w-3xl space-y-5", turns.length > 0 && !primed && "invisible", searching && "invisible h-0 overflow-hidden")}>
+        <div bind:this={content} class={cn("mx-auto max-w-3xl space-y-5", turns.length > 0 && !primed && "invisible", searching && "invisible h-0 overflow-hidden", showLatest && "pb-10")}>
           <div bind:this={topSentinel} aria-hidden="true"></div>
           {#if hasOlder}
             <div class="text-center">
@@ -636,7 +650,19 @@
           <div bind:this={bottomSentinel} aria-hidden="true"></div>
         </div>
       </div>
-      <NoticeBar {notices} {titleOf} onjump={jump} ondismiss={() => (notices = [])} />
+      <!-- Just above the composer: the way back to the newest message, then
+           any off-screen updates. Stacked so neither covers the other. -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-2 px-3">
+        {#if showLatest}
+          <button
+            class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs text-foreground shadow-lg backdrop-blur hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary"
+            onclick={goLatest}
+          >
+            <ArrowDown size={14} aria-hidden="true" />{$t("chat.backToLatest")}
+          </button>
+        {/if}
+        <NoticeBar {notices} {titleOf} onjump={jump} ondismiss={() => (notices = [])} />
+      </div>
     </div>
     {#if focus}
       <div class="flex min-h-0 w-full flex-col border-border md:w-[46%] md:max-w-2xl md:border-l">

@@ -124,6 +124,23 @@ export function loadedRange(events: Iterable<{ seq: number }>): { oldest: number
 }
 
 /**
+ * Offer a way back to the newest message whenever the reader is not there:
+ * scrolled up in the live view, or reading a window of older history. Not
+ * while searching (the stream is hidden) or before the first pin (the view
+ * has not settled at the bottom yet).
+ */
+export function awayFromLatest(state: {
+  mode: "live" | "window";
+  follow: boolean;
+  searching: boolean;
+  primed: boolean;
+  hasTurns: boolean;
+}): boolean {
+  if (state.searching || !state.primed || !state.hasTurns) return false;
+  return state.mode === "window" || !state.follow;
+}
+
+/**
  * Whether the Primary's view begins inside what is loaded — only then is there
  * a place to mark it, with older turns above it that the assistant does not see.
  */
