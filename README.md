@@ -67,6 +67,17 @@ not confident. The person can move a message to another item at any time. Every
 answer names the message it answers (`payload.root`), which is how the web UI
 shows a late reply under its question instead of at the bottom.
 
+The main conversation only ever grows, so it is read as **history, not a feed**:
+it is searched on the server (every message ever said, plus work item titles),
+opened at any event (`/?at=<event id>` — search hits, day jumps, links, a work
+item's origin), and walked in both directions from there. A person can hide
+something they said (`message.redacted`); the row stays in the append-only log,
+but every reader — API, stream, search, worklog, agent context, distiller —
+masks it. The Primary does not carry the conversation in an ever-growing model
+session: each turn opens a fresh one and reads a bounded window of recent turns
+rebuilt from the log, and when a message refers to something older it emits a
+`recall`, whose search results come back as its next message.
+
 ## Quickstart (local dev)
 
 Requirements: Node ≥ 24, pnpm, Docker, [pi](https://github.com/earendil-works/pi-mono) installed and authed.
@@ -226,6 +237,8 @@ Feishu whichever process wrote it; answers about a work item go into its thread.
   cascading cancel, causal budgets
 - Conversation UI: task cards, attribution chips with re-routing, in-progress
   tray, focus panel, off-screen notices with a digest
+- Conversation history: server-side search, windows around any event with
+  permalinks, day index, hide-a-message, a bounded Primary context with recall
 
 ## Roadmap
 
