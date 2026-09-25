@@ -54,6 +54,7 @@ const CONVERSATION = new Set([
   "message.attributed",
   "attribution.ambiguous",
   "execution.steered",
+  "message.redacted",
 ]);
 
 /**

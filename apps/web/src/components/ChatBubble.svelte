@@ -12,7 +12,19 @@
     event,
     ghost = false,
     streaming = false,
-  }: { event: HidaneEvent; ghost?: boolean; streaming?: boolean } = $props();
+    hidden = false,
+    anchored = false,
+  }: {
+    event: HidaneEvent;
+    ghost?: boolean;
+    streaming?: boolean;
+    /** The person hid it after it was loaded; the server masks later copies itself. */
+    hidden?: boolean;
+    /** Addressable as `#ev-<id>` for jumps; only where the event is shown once per page. */
+    anchored?: boolean;
+  } = $props();
+
+  let redacted = $derived(hidden || event.payload["redacted"] === true);
 </script>
 
 {#if event.kind === "escalation"}
@@ -27,9 +39,11 @@
 {:else if event.kind === "agent.error"}
   <div class="flex justify-center"><Badge tone="danger">{payloadText(event)}</Badge></div>
 {:else}
-  <div class={cn("flex", event.kind === "user.message" ? "justify-end" : "justify-start")}>
-    <div class={cn("max-w-[85%] rounded-lg px-3 py-2 text-sm break-words", event.kind === "user.message" ? "bg-primary text-primary-foreground" : "bg-surface-2", ghost && "opacity-60")}>
-      {#if event.kind === "user.message"}
+  <div id={anchored ? `ev-${event.id}` : undefined} class={cn("flex", event.kind === "user.message" ? "justify-end" : "justify-start")}>
+    <div class={cn("max-w-[85%] rounded-lg px-3 py-2 text-sm break-words", redacted ? "border border-dashed border-border text-muted italic" : event.kind === "user.message" ? "bg-primary text-primary-foreground" : "bg-surface-2", ghost && "opacity-60")}>
+      {#if redacted}
+        <span>{$t("chat.hidden")}</span>
+      {:else if event.kind === "user.message"}
         <span class="whitespace-pre-wrap">{payloadText(event)}</span>
       {:else}
         <Markdown content={payloadText(event)} />

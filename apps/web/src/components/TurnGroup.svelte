@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlarmClock, CircleHelp, CornerDownRight, Webhook } from "@lucide/svelte";
+  import { AlarmClock, CircleHelp, CornerDownRight, EyeOff, Link, Webhook } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import type { BoardCard, EscalationStep } from "../lib/api.js";
   import { turnRouting, type Turn } from "../lib/conversation.js";
@@ -24,6 +24,8 @@
     onanswer,
     onanswerEscalation,
     onstop,
+    onlink,
+    onhide,
   }: {
     turn: Turn;
     cards: ReadonlyMap<string, BoardCard>;
@@ -36,6 +38,10 @@
     onanswer: (card: BoardCard) => void;
     onanswerEscalation: (eventId: string, workItemId: string) => void;
     onstop: (id: string) => void;
+    /** Copy a permalink to the person's message. */
+    onlink: (messageId: string) => void;
+    /** Hide what the person said. */
+    onhide: (messageId: string) => void;
   } = $props();
 
   let createdCard = $derived(turn.createdItem ? cards.get(turn.createdItem) : undefined);
@@ -46,7 +52,17 @@
 
 <section id={`turn-${turn.root}`} data-root={turn.root} class={cn("space-y-2 rounded-lg transition-colors", highlighted && "bg-primary/5 ring-1 ring-primary/30")}>
   {#if turn.message}
-    <ChatBubble event={turn.message} />
+    {@const message = turn.message}
+    <div class="group/said">
+      <ChatBubble event={message} hidden={turn.redacted} anchored />
+      <!-- Revealed on hover or keyboard focus; always shown where there is no hover. -->
+      <div class="mt-0.5 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/said:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        <button class="rounded p-1 text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary" aria-label={$t("chat.copyLink")} title={$t("chat.copyLink")} onclick={() => onlink(message.id)}><Link size={12} aria-hidden="true" /></button>
+        {#if !turn.redacted && message.payload["redacted"] !== true}
+          <button class="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger focus-visible:outline-2 focus-visible:outline-primary" aria-label={$t("chat.hide")} title={$t("chat.hide")} onclick={() => onhide(message.id)}><EyeOff size={12} aria-hidden="true" /></button>
+        {/if}
+      </div>
+    </div>
     <AttributionChip {turn} {choices} {titleOf} {onroute} {onfocus} />
     {#if turnRouting(turn)}
       <div class="flex justify-end" role="status" aria-live="polite">
@@ -100,7 +116,7 @@
         {#if answer.kind === "agent.reply" && answer.workItemId}
           <button class="ml-1 text-[10px] text-muted hover:text-foreground" onclick={() => answer.workItemId && onfocus(answer.workItemId)}>{titleOf(answer.workItemId)}</button>
         {/if}
-        <ChatBubble event={answer} />
+        <ChatBubble event={answer} anchored />
       </div>
     {/if}
   {/each}

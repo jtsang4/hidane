@@ -25,7 +25,12 @@ export interface Turn {
   seq: number;
   /** Most recent activity in the turn. */
   lastSeq: number;
+  /** The person hid what they said here. */
+  redacted: boolean;
 }
+
+/** Longer than any routing turn can take; see `turnRouting`. */
+const ROUTING_WINDOW_MS = 15 * 60 * 1000;
 
 const ANSWER_KINDS = new Set(["agent.reply", "escalation", "agent.error", "execution.steered"]);
 
@@ -63,6 +68,7 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
         answers: [],
         seq,
         lastSeq: seq,
+        redacted: false,
       };
       turns.set(root, turn);
     }
@@ -75,7 +81,15 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
       const turn = turnFor(e.id, e.seq);
       turn.message = e;
       turn.seq = Math.min(turn.seq, e.seq);
+      if (e.payload["redacted"] === true) turn.redacted = true;
       lastMessageRoot = e.id;
+      continue;
+    }
+    // Arrives after a message already on screen, whose loaded copy still
+    // holds the words; the server masks any copy fetched from now on.
+    if (e.kind === "message.redacted") {
+      const of = str(e.payload["of"]);
+      if (of) turnFor(of, e.seq).redacted = true;
       continue;
     }
     if (e.kind === "message.attributed") {
@@ -128,9 +142,13 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
  * attributed, the task card carries the progress; until then the turn itself
  * shows that routing is under way.
  */
-export function turnRouting(turn: Turn): boolean {
+export function turnRouting(turn: Turn, now = Date.now()): boolean {
   return (
     turn.message !== null &&
+    // Routing always ends in an answer within minutes (a skipped message gets a
+    // fallback reply); older history without one predates answers naming
+    // their message, and was never waiting.
+    now - Date.parse(turn.message.ts) < ROUTING_WINDOW_MS &&
     turn.attribution === null &&
     turn.ambiguous === null &&
     turn.answers.length === 0

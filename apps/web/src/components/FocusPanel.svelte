@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Archive, ArrowUpLeft, Check, RotateCcw, Square, X } from "@lucide/svelte";
+  import { Archive, ArrowUpLeft, Check, MessageSquareText, RotateCcw, Square, X } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
   import { api, ApiError, type BoardCard, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
@@ -8,6 +8,7 @@
   import { executionGroups } from "../lib/grouping.js";
   import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
   import { nextCursor } from "../lib/pagination.js";
+  import { conversationHref, navigate } from "../lib/router.svelte.js";
   import { pushToast } from "../lib/toast.js";
   import { fmtDateTime } from "../lib/utils.js";
   import Artifacts from "./Artifacts.svelte";
@@ -67,6 +68,18 @@
   let live = $derived(liveRepliesFor(data?.item.threadId ?? "", maxSeq(thread)));
   let hasOlder = $derived((data?.hasMore ?? false) && !exhausted);
   let parent = $derived(data?.item.parentId ? cards.get(data.item.parentId) : undefined);
+  /** The message this item was created for; old items are on no board, so the log is asked too. */
+  let origin = $derived.by(() => {
+    if (card?.anchor) return card.anchor;
+    const of = events.find((e) => e.kind === "work_item.created")?.payload["of"];
+    return typeof of === "string" && of ? of : null;
+  });
+
+  function showOrigin(at: string): void {
+    // Beside the conversation the panel can stay; full-screen it would hide the jump.
+    const beside = window.matchMedia("(min-width: 768px)").matches;
+    navigate(conversationHref({ at, focus: beside ? id : null }));
+  }
 
   async function loadOlder(): Promise<void> {
     if (loadingOlder || exhausted) return;
@@ -119,6 +132,12 @@
           {#if item.parentId}
             <button class="mt-1 flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => item.parentId && onfocus(item.parentId)}>
               <ArrowUpLeft size={12} />{$t("task.parent")} · {parent?.item.title ?? item.parentId}
+            </button>
+          {/if}
+          {#if origin}
+            {@const at = origin}
+            <button class="mt-1 flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => showOrigin(at)}>
+              <MessageSquareText size={12} aria-hidden="true" />{$t("task.origin")}
             </button>
           {/if}
         </div>

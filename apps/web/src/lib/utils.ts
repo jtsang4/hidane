@@ -66,3 +66,22 @@ export function shiftDay(day: string, delta: number): string {
   if (!y || !m || !d) return day;
   return ymd(new Date(y, m - 1, d + delta));
 }
+
+/** A `YYYY-MM-DD` day as a heading, e.g. "2026年9月25日 星期四". */
+export function fmtDay(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  if (!y || !m || !d) return day;
+  return new Date(y, m - 1, d).toLocaleDateString(dateLocale(), {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+/** A `YYYY-MM` month as a heading. */
+export function fmtMonth(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  if (!y || !m) return month;
+  return new Date(y, m - 1, 1).toLocaleDateString(dateLocale(), { year: "numeric", month: "long" });
+}

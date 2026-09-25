@@ -1,23 +1,25 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import i18n, { t } from "../i18n/index.js";
-  import { api, type BoardCard, type HidaneEvent } from "../lib/api.js";
+  import { ArrowDown, UserRound } from "@lucide/svelte";
+  import i18n, { language, t } from "../i18n/index.js";
+  import { api, ApiError, type BoardCard, type HidaneEvent } from "../lib/api.js";
   import { loadSeen, saveSeen, trayCards } from "../lib/board.js";
   import { buildTurns, type Turn } from "../lib/conversation.js";
+  import { contextBoundary, dayBreaks, loadedRange } from "../lib/history.js";
   import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
   import { addNotice, dropNotices, noticeFor, type Notice } from "../lib/notices.js";
-  import { nextCursor } from "../lib/pagination.js";
-  import { focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
+  import { atFrom, conversationHref, focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
   import { isPinnedToBottom } from "../lib/scroll.js";
-  import { matchesQuery } from "../lib/search.js";
   import { pushToast } from "../lib/toast.js";
-  import { cn } from "../lib/utils.js";
+  import { cn, fmtDay } from "../lib/utils.js";
   import ChatBubble from "../components/ChatBubble.svelte";
   import Composer, { type ComposerTarget } from "../components/Composer.svelte";
+  import DayPicker from "../components/DayPicker.svelte";
   import FocusPanel from "../components/FocusPanel.svelte";
   import NoticeBar from "../components/NoticeBar.svelte";
+  import SearchResults from "../components/SearchResults.svelte";
   import TaskTray from "../components/TaskTray.svelte";
   import TurnGroup from "../components/TurnGroup.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -30,12 +32,27 @@
   let viewport = $state<HTMLDivElement | undefined>();
   let content = $state<HTMLDivElement | undefined>();
   let topSentinel = $state<HTMLDivElement | undefined>();
+  let bottomSentinel = $state<HTMLDivElement | undefined>();
   let composer = $state<Composer | undefined>();
-  /** Cursor bookkeeping only — rendering reads the union in `seen`. */
-  let olderPages = $state<HidaneEvent[][]>([]);
   let loadingOlder = $state(false);
-  let exhausted = $state(false);
+  let loadingNewer = $state(false);
+  /** Whether history older than what is loaded exists; null until a page has said. */
+  let olderKnown = $state<boolean | null>(null);
+  /**
+   * `live`: the newest page is loaded and the view follows new events.
+   * `window`: a stretch of history opened by a jump (search hit, link, day).
+   * It grows both ways as the reader scrolls and rejoins the live edge once a
+   * newer page reaches it; until then new events are not mixed into it, since
+   * the gap between the two would read as a continuous conversation.
+   */
+  let mode = $state<"live" | "window">("live");
+  let hasNewer = $state(false);
+  let personOnly = $state(false);
   let query = $state("");
+  /** The query as last settled, which the results follow. */
+  let settled = $state("");
+  /** A search the reader left by opening a result, offered back to them. */
+  let returnQuery = $state<string | null>(null);
   /** At the live edge and wanting to stay there. */
   let follow = $state(true);
   /** The first page has been pinned to the live edge; paging waits for it. */
@@ -46,61 +63,85 @@
   let notices = $state<Notice[]>([]);
   let highlighted = $state<string | null>(null);
   let seenSeq = $state<Record<string, number>>(loadSeen());
+  /**
+   * A jump is landing. Paging waits: a window opens scrolled to its top, and
+   * an older page prepended then would pin the view there instead of at the
+   * event that was asked for.
+   */
+  let anchoring = $state(false);
+  /** The `?at=` last acted on; plain on purpose, it must not drive effects. */
+  let handledAt: string | null = null;
 
   /**
-   * Every conversation event this session has observed, keyed by id. The
-   * newest page slides forward on each refetch while older pages keep their
-   * cursor; retaining the union is sound because the log is append-only.
+   * Every conversation event loaded into the view, keyed by id. In live mode
+   * the newest page slides forward on each refetch while older pages keep
+   * their cursor; retaining the union is sound because the log is append-only.
    */
   const seen = new SvelteMap<string, HidaneEvent>();
+  /** Work item titles the server sent along with pages, for items no board shows any more. */
+  const titles = new SvelteMap<string, string>();
 
   const conversationQuery = createQuery(() => ({
-    queryKey: ["conversation"],
-    queryFn: () => api.eventsPage({ conversation: true, limit: PAGE_SIZE }),
+    queryKey: ["conversation", "page", personOnly],
+    queryFn: () => api.eventsPage({ conversation: true, personOnly, limit: PAGE_SIZE }),
   }));
   const boardQuery = createQuery(() => ({
     queryKey: ["board"],
     queryFn: () => api.board(),
   }));
+  const contextQuery = createQuery(() => ({
+    queryKey: ["conversation", "context"],
+    queryFn: () => api.conversationContext(),
+  }));
+
+  function absorb(page: { events: HidaneEvent[]; titles?: Record<string, string> }): void {
+    for (const event of page.events) seen.set(event.id, event);
+    for (const [id, title] of Object.entries(page.titles ?? {})) titles.set(id, title);
+  }
 
   $effect(() => {
-    const page = conversationQuery.data?.events;
+    const page = conversationQuery.data;
     if (!page) return;
-    for (const event of page) seen.set(event.id, event);
+    if (untrack(() => mode) === "live") absorb(page);
+    else for (const [id, title] of Object.entries(page.titles ?? {})) titles.set(id, title);
+  });
+
+  // Debounced: every keystroke is a query over the whole log.
+  $effect(() => {
+    const next = query.trim();
+    const timer = window.setTimeout(() => (settled = next), 250);
+    return () => window.clearTimeout(timer);
   });
 
   let focus = $derived(focusFrom(routerState.search));
   let all = $derived([...seen.values()].sort((a, b) => a.seq - b.seq));
   let turns = $derived(buildTurns(all));
   let searching = $derived(query.trim().length > 0);
-  let visibleTurns = $derived(
-    searching
-      ? turns.filter((turn) => [turn.message, ...turn.answers].some((e) => e !== null && matchesQuery(e, query)))
-      : turns,
-  );
   let cards = $derived(boardQuery.data?.cards ?? []);
   let cardMap = $derived(new Map(cards.map((card) => [card.item.id, card])));
   /** Titles for items no longer on the board (closed long ago), from what was said about them. */
   let knownTitles = $derived.by(() => {
-    const titles = new Map<string, string>();
+    const known = new Map<string, string>();
     for (const turn of turns) {
       const title = turn.attribution?.payload["title"];
-      if (turn.attribution?.workItemId && typeof title === "string") titles.set(turn.attribution.workItemId, title);
+      if (turn.attribution?.workItemId && typeof title === "string") known.set(turn.attribution.workItemId, title);
     }
-    return titles;
+    return known;
   });
   let choices = $derived(cards.filter((card) => card.item.status === "open").map((card) => ({ id: card.item.id, title: card.item.title })));
   let tray = $derived(trayCards(cards, seenSeq));
   /** Primary replies still being written. */
   let live = $derived(liveRepliesFor("main", maxSeq(all)));
-  let showOptimistic = $derived(optimistic !== null && !(optimistic.messageId !== null && seen.has(optimistic.messageId)));
-  let hasOlder = $derived((conversationQuery.data?.hasMore ?? false) && !exhausted);
+  let showOptimistic = $derived(mode === "live" && optimistic !== null && !(optimistic.messageId !== null && seen.has(optimistic.messageId)));
+  let hasOlder = $derived(olderKnown ?? conversationQuery.data?.hasMore ?? false);
+  let breaks = $derived(dayBreaks(turns));
+  let boundary = $derived(contextBoundary(turns, contextQuery.data?.fromId ?? null, hasOlder));
   let target = $derived<ComposerTarget | null>(
     replyTarget ?? (focus ? { id: focus, title: titleOf(focus), mode: "focus" } : null),
   );
 
   function titleOf(id: string): string {
-    return cardMap.get(id)?.item.title ?? knownTitles.get(id) ?? id;
+    return cardMap.get(id)?.item.title ?? titles.get(id) ?? knownTitles.get(id) ?? id;
   }
 
   /**
@@ -160,7 +201,8 @@
   function onScroll(): void {
     const el = viewport;
     if (!el) return;
-    follow = isPinnedToBottom(el);
+    // Only the live edge can be followed: the bottom of a window is not "now".
+    follow = mode === "live" && isPinnedToBottom(el);
     refreshSeen();
     if (notices.length > 0) {
       notices = dropNotices(notices, new Set(notices.filter((n) => turnVisible(n.root)).map((n) => n.root)));
@@ -191,45 +233,154 @@
     return () => window.removeEventListener("hidane:event", onEvent);
   });
 
-  function jump(notice: Notice): void {
-    notices = notices.filter((n) => n.root !== notice.root);
-    const el = document.getElementById(`turn-${notice.root}`);
+  /** Scroll only the conversation to an element and mark its turn for a moment. */
+  function reveal(el: HTMLElement, root: string, behavior: ScrollBehavior = "smooth"): void {
     const view = viewport;
-    if (el && view && view.offsetParent !== null) {
-      // Scroll only the conversation: scrollIntoView also moves every scrollable
-      // ancestor, which shifts the whole app shell.
-      const offset = el.getBoundingClientRect().top - view.getBoundingClientRect().top;
-      view.scrollTo({ top: view.scrollTop + offset - view.clientHeight / 4, behavior: "smooth" });
-      highlighted = notice.root;
-      window.setTimeout(() => {
-        if (highlighted === notice.root) highlighted = null;
-      }, 2000);
-    } else if (notice.workItemId) {
-      openFocus(notice.workItemId);
+    if (!view || view.offsetParent === null) return;
+    // scrollIntoView would also move every scrollable ancestor, shifting the app shell.
+    const offset = el.getBoundingClientRect().top - view.getBoundingClientRect().top;
+    view.scrollTo({ top: view.scrollTop + offset - view.clientHeight / 4, behavior });
+    highlighted = root;
+    window.setTimeout(() => {
+      if (highlighted === root) highlighted = null;
+    }, 2400);
+  }
+
+  /** The turn holding an event, by any of the events it is made of. */
+  function turnOf(id: string): Turn | undefined {
+    return turns.find(
+      (turn) =>
+        turn.root === id ||
+        turn.message?.id === id ||
+        turn.attribution?.id === id ||
+        turn.ambiguous?.id === id ||
+        turn.answers.some((answer) => answer.id === id),
+    );
+  }
+
+  function revealLoaded(id: string, behavior: ScrollBehavior = "smooth"): boolean {
+    const turn = turnOf(id);
+    const el = document.getElementById(`ev-${id}`) ?? (turn ? document.getElementById(`turn-${turn.root}`) : null);
+    if (!el || !turn) return false;
+    follow = false;
+    reveal(el, turn.root, behavior);
+    return true;
+  }
+
+  /**
+   * Open the conversation at one event, however old: go there if it is loaded,
+   * otherwise replace the view with a window of history around it.
+   */
+  async function openAt(id: string): Promise<void> {
+    if (seen.has(id)) {
+      await tick();
+      if (revealLoaded(id)) return;
+    }
+    try {
+      let page = await api.eventsPage({ conversation: true, personOnly, around: id, limit: PAGE_SIZE });
+      // The filter may hide exactly what was asked for (an answer to a webhook).
+      if (personOnly && !page.events.some((event) => event.id === id)) {
+        personOnly = false;
+        page = await api.eventsPage({ conversation: true, around: id, limit: PAGE_SIZE });
+      }
+      follow = false;
+      anchoring = true;
+      mode = "window";
+      seen.clear();
+      absorb(page);
+      olderKnown = page.hasMore;
+      hasNewer = page.hasNewer ?? false;
+      if (!hasNewer) rejoinLive();
+      await tick();
+      // Markdown and cards settle after the first paint.
+      window.requestAnimationFrame(() => {
+        if (!revealLoaded(id, "instant")) pushToast(i18n.t("chat.notFound"));
+        window.setTimeout(() => (anchoring = false), 300);
+      });
+    } catch (error) {
+      anchoring = false;
+      pushToast(error instanceof ApiError && error.status === 404 ? i18n.t("chat.notFound") : error instanceof Error ? error.message : String(error));
     }
   }
 
+  /** The window has reached the newest event: it is the live view again. */
+  function rejoinLive(): void {
+    mode = "live";
+    hasNewer = false;
+    const page = conversationQuery.data;
+    if (page) absorb(page);
+    void queryClient.invalidateQueries({ queryKey: ["conversation", "page"] });
+  }
+
+  /**
+   * Drop any window and show the newest page, pinned to the bottom. With
+   * `refill` false the page is left to arrive: after a filter change the
+   * cached one still holds the old filter's events.
+   */
+  function backToLatest(refill = true): void {
+    if (atFrom(routerState.search)) navigate(focusHref(focus));
+    mode = "live";
+    hasNewer = false;
+    olderKnown = null;
+    seen.clear();
+    const page = conversationQuery.data;
+    if (page && refill) absorb(page);
+    follow = true;
+    void queryClient.invalidateQueries({ queryKey: ["conversation", "page"] });
+    void tick().then(() => viewport?.scrollTo(0, viewport.scrollHeight));
+  }
+
+  $effect(() => {
+    const at = atFrom(routerState.search);
+    if (!at) {
+      handledAt = null;
+      return;
+    }
+    if (at === handledAt) return;
+    handledAt = at;
+    untrack(() => void openAt(at));
+  });
+
+  function jump(notice: Notice): void {
+    notices = notices.filter((n) => n.root !== notice.root);
+    if (!revealLoaded(notice.root)) goTo(notice.root);
+  }
+
   async function loadOlder(): Promise<void> {
-    if (loadingOlder || exhausted) return;
-    const cursor = nextCursor(conversationQuery.data?.events ?? [], olderPages);
+    if (loadingOlder || !hasOlder) return;
+    const cursor = loadedRange(seen.values())?.oldest;
     if (cursor === undefined) return;
     const el = viewport;
     // Distance from the bottom survives a prepend; scrollTop does not.
     const fromBottom = el ? el.scrollHeight - el.scrollTop : 0;
     loadingOlder = true;
     try {
-      const page = await api.eventsPage({ conversation: true, before: cursor, limit: PAGE_SIZE });
-      if (page.events.length > 0) {
-        olderPages = [...olderPages, page.events];
-        for (const event of page.events) seen.set(event.id, event);
-      }
-      if (!page.hasMore || page.events.length === 0) exhausted = true;
+      const page = await api.eventsPage({ conversation: true, personOnly, before: cursor, limit: PAGE_SIZE });
+      absorb(page);
+      olderKnown = page.hasMore && page.events.length > 0;
       await tick();
       if (el) el.scrollTop = el.scrollHeight - fromBottom;
     } catch (error) {
       pushToast(error instanceof Error ? error.message : String(error));
     } finally {
       loadingOlder = false;
+    }
+  }
+
+  async function loadNewer(): Promise<void> {
+    if (loadingNewer || mode !== "window" || !hasNewer) return;
+    const cursor = loadedRange(seen.values())?.newest;
+    if (cursor === undefined) return;
+    loadingNewer = true;
+    try {
+      const page = await api.eventsPage({ conversation: true, personOnly, after: cursor, limit: PAGE_SIZE });
+      absorb(page);
+      hasNewer = page.hasNewer ?? false;
+      if (!hasNewer) rejoinLive();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      loadingNewer = false;
     }
   }
 
@@ -241,8 +392,8 @@
   $effect(() => {
     const sentinel = topSentinel;
     const root = viewport;
-    olderPages.length;
-    if (!sentinel || !root || !hasOlder || !primed || searching) return;
+    seen.size;
+    if (!sentinel || !root || !hasOlder || !primed || searching || anchoring) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -255,13 +406,53 @@
     return () => observer.disconnect();
   });
 
+  /** Scroll-down paging inside a window of history, toward the live edge. */
+  $effect(() => {
+    const sentinel = bottomSentinel;
+    const root = viewport;
+    seen.size;
+    if (!sentinel || !root || mode !== "window" || !hasNewer || searching || anchoring) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadNewer();
+      },
+      { root, rootMargin: "0px 0px 300px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
+
+  function setPersonOnly(next: boolean): void {
+    if (next === personOnly) return;
+    personOnly = next;
+    backToLatest(false);
+  }
+
+  /** Open the conversation at an event through the URL, so it can be linked and gone back from. */
+  function goTo(id: string): void {
+    if (atFrom(routerState.search) === id) void openAt(id);
+    else navigate(conversationHref({ at: id, focus }));
+  }
+
+  function openHit(event: HidaneEvent): void {
+    returnQuery = query.trim();
+    query = "";
+    settled = "";
+    goTo(event.id);
+  }
+
+  function backToSearch(): void {
+    if (returnQuery) query = returnQuery;
+    returnQuery = null;
+  }
+
   function openFocus(id: string): void {
-    navigate(focusHref(id));
+    navigate(conversationHref({ at: atFrom(routerState.search), focus: id }));
   }
 
   function closeFocus(): void {
     replyTarget = null;
-    navigate(focusHref(null));
+    navigate(conversationHref({ at: atFrom(routerState.search), focus: null }));
   }
 
   function answer(card: BoardCard): void {
@@ -296,6 +487,34 @@
     }
   }
 
+  async function copyLink(messageId: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${conversationHref({ at: messageId })}`);
+      pushToast(i18n.t("chat.linkCopied"), "default");
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function hide(messageId: string): Promise<void> {
+    if (!confirm(i18n.t("chat.hideConfirm"))) return;
+    try {
+      await api.redactMessage(messageId);
+      const event = seen.get(messageId);
+      if (event) {
+        const payload: Record<string, unknown> = { ...event.payload, text: "", redacted: true };
+        delete payload["images"];
+        delete payload["imageCount"];
+        seen.set(messageId, { ...event, payload });
+      }
+      pushToast(i18n.t("chat.hideDone"), "default");
+      void queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      void queryClient.invalidateQueries({ queryKey: ["conversation-search"] });
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   function clearTarget(): void {
     if (replyTarget) replyTarget = null;
     else closeFocus();
@@ -303,6 +522,17 @@
 </script>
 
 {#snippet turnView(turn: Turn)}
+  {@const day = breaks.get(turn.root)}
+  {#if day}
+    {#key $language}
+      <div class="flex items-center gap-3 pt-2 text-[11px] text-muted" role="separator" aria-label={fmtDay(day)}>
+        <span class="h-px flex-1 bg-border"></span><span>{fmtDay(day)}</span><span class="h-px flex-1 bg-border"></span>
+      </div>
+    {/key}
+  {/if}
+  {#if boundary === turn.root}
+    <p class="rounded-md border border-dashed border-border px-3 py-1.5 text-center text-[11px] text-muted" role="note">{$t("chat.contextBoundary")}</p>
+  {/if}
   <TurnGroup
     {turn}
     cards={cardMap}
@@ -315,6 +545,8 @@
     onanswer={answer}
     onanswerEscalation={answerEscalation}
     onstop={(id) => void stop(id)}
+    onlink={(id) => void copyLink(id)}
+    onhide={(id) => void hide(id)}
   />
 {/snippet}
 
@@ -323,22 +555,55 @@
   <div class="flex min-h-0 flex-1">
     <div class={cn("relative flex min-w-0 flex-1 flex-col", focus && "hidden md:flex")}>
       <div class="border-b border-border p-2">
-        <div class="mx-auto max-w-3xl">
-        <Input bind:value={query} placeholder={$t("chat.search")} aria-label={$t("chat.search")} />
-        {#if searching}
-          <p class="px-1 pt-1 text-xs text-muted">
-            {$t("chat.searchMatches", { n: visibleTurns.length })}{#if hasOlder}<span class="px-1">·</span>{$t("chat.searchPartial")}{/if}
-          </p>
-        {/if}
+        <div class="mx-auto flex max-w-3xl items-center gap-1.5">
+          <Input
+            bind:value={query}
+            type="search"
+            placeholder={$t("chat.search")}
+            aria-label={$t("chat.search")}
+            onkeydown={(event) => { if (event.key === "Escape") query = ""; }}
+          />
+          <DayPicker onpick={goTo} />
+          <button
+            class={cn("flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs focus-visible:outline-2 focus-visible:outline-primary", personOnly ? "border-primary/60 bg-primary/10 text-foreground" : "border-border text-muted hover:text-foreground")}
+            aria-pressed={personOnly}
+            aria-label={$t("chat.personOnly")}
+            title={$t("chat.personOnlyHint")}
+            onclick={() => setPersonOnly(!personOnly)}
+          >
+            <UserRound size={14} aria-hidden="true" /><span class="hidden sm:inline" aria-hidden="true">{$t("chat.personOnly")}</span>
+          </button>
         </div>
+        {#if !searching && returnQuery}
+          <div class="mx-auto max-w-3xl pt-1">
+            <button class="px-1 text-xs text-primary hover:underline" onclick={backToSearch}>← {$t("chat.searchBack", { query: returnQuery })}</button>
+          </div>
+        {/if}
       </div>
+      {#if mode === "window" && !searching}
+        <div class="flex items-center justify-center gap-2 border-b border-border bg-surface-2/60 px-3 py-1.5 text-xs text-muted" role="status">
+          <span>{$t("chat.viewingHistory")}</span>
+          <Button variant="outline" size="sm" onclick={() => backToLatest()}><ArrowDown size={12} aria-hidden="true" />{$t("chat.backToLatest")}</Button>
+        </div>
+      {/if}
       <!-- `relative` keeps absolutely positioned descendants (screen-reader text,
            menus) inside the scroller; otherwise they overflow the page shell and
            the whole app scrolls with the conversation. -->
       <div bind:this={viewport} onscroll={onScroll} class="relative flex-1 overflow-y-auto p-4">
+        {#if searching}
+          <div class="mx-auto max-w-3xl">
+            {#if settled}
+              <SearchResults query={settled} {titleOf} onopen={openHit} onfocus={openFocus} />
+            {:else}
+              <p class="px-1 text-xs text-muted">{$t("chat.searching")}</p>
+            {/if}
+          </div>
+        {/if}
         <!-- Hidden, not unmounted, until the first pin: the height must be real
-             for the observer to measure it. -->
-        <div bind:this={content} class={cn("mx-auto max-w-3xl space-y-5", turns.length > 0 && !primed && "invisible")}>
+             for the observer to measure it (collapsing it here would mean the
+             observer never fires and the first pin never happens). While
+             searching it collapses so the results start at the top. -->
+        <div bind:this={content} class={cn("mx-auto max-w-3xl space-y-5", turns.length > 0 && !primed && "invisible", searching && "invisible h-0 overflow-hidden")}>
           <div bind:this={topSentinel} aria-hidden="true"></div>
           {#if hasOlder}
             <div class="text-center">
@@ -350,18 +615,25 @@
             <p class="text-center text-xs text-muted">{$t("chat.historyStart")}</p>
           {/if}
           {#if turns.length === 0 && !showOptimistic && conversationQuery.data}<p class="pt-16 text-center text-sm text-muted">{$t("conversation.empty")}</p>{/if}
-          {#if searching && visibleTurns.length === 0 && turns.length > 0}<p class="pt-8 text-center text-sm text-muted">{$t("chat.searchEmpty")}</p>{/if}
-          {#each visibleTurns as turn (turn.root)}{@render turnView(turn)}{/each}
-          {#if !searching}
-            {#if showOptimistic && optimistic}
-              {@const ghost = { seq: 0, id: "optimistic", ts: new Date().toISOString(), source: "connector:web", kind: "user.message", threadId: "main", workItemId: null, executionId: null, payload: { text: optimistic.text } } satisfies HidaneEvent}
-              <ChatBubble event={ghost} ghost />
-            {/if}
+          {#each turns as turn (turn.root)}{@render turnView(turn)}{/each}
+          {#if mode === "window" && hasNewer}
+            <div class="text-center">
+              <Button variant="outline" size="sm" onclick={() => void loadNewer()} disabled={loadingNewer}>
+                {loadingNewer ? $t("common.loading") : $t("chat.loadNewer")}
+              </Button>
+            </div>
+          {/if}
+          {#if showOptimistic && optimistic}
+            {@const ghost = { seq: 0, id: "optimistic", ts: new Date().toISOString(), source: "connector:web", kind: "user.message", threadId: "main", workItemId: null, executionId: null, payload: { text: optimistic.text } } satisfies HidaneEvent}
+            <ChatBubble event={ghost} ghost />
+          {/if}
+          {#if mode === "live"}
             {#each live as reply (reply.id)}
               {@const liveEvent = { seq: 0, id: reply.id, ts: reply.ts, source: "agent:primary", kind: "agent.reply", threadId: reply.threadId, workItemId: null, executionId: null, payload: { text: reply.text } } satisfies HidaneEvent}
               <ChatBubble event={liveEvent} streaming={!reply.done} />
             {/each}
           {/if}
+          <div bind:this={bottomSentinel} aria-hidden="true"></div>
         </div>
       </div>
       <NoticeBar {notices} {titleOf} onjump={jump} ondismiss={() => (notices = [])} />
@@ -379,6 +651,11 @@
     {target}
     onclear={clearTarget}
     onsending={(text) => {
+      // Something new said belongs at the live edge, not inside old history.
+      if (mode === "window" || searching) {
+        query = "";
+        backToLatest();
+      }
       optimistic = { text, messageId: null };
       follow = true;
     }}

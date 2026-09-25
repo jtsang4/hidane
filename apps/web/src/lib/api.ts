@@ -16,6 +16,23 @@ export interface HidaneEvent {
 
 export type WorkItemStatus = "open" | "done" | "closed";
 
+export interface EventsPage {
+  events: HidaneEvent[];
+  hasMore: boolean;
+  /** Only false when the page reaches the live edge. */
+  hasNewer?: boolean;
+  oldestSeq: number | null;
+  newestSeq?: number | null;
+  /** Titles of the work items a conversation page mentions. */
+  titles?: Record<string, string>;
+}
+
+export interface ConversationDay {
+  day: string;
+  count: number;
+  firstId: string;
+}
+
 /** Base64 payload for the vision model — same shape the Feishu connector sends. */
 export interface OutboundImage {
   data: string;
@@ -221,6 +238,8 @@ export const api = {
     return apiFetch<{ events: HidaneEvent[] }>(`/api/events?${q}`);
   },
   /** Cursor page walking backwards; omit `before` for the newest page.
+   *  `around` opens a window centred on one event and `after` walks forwards
+   *  from a seq — both for reading history far from the live edge.
    *  `kind` accepts a comma-separated list to fetch several kinds at once. */
   eventsPage: (params: {
     kind?: string;
@@ -228,20 +247,49 @@ export const api = {
     thread?: string;
     /** Everything said on the main thread plus every answer, wherever written. */
     conversation?: boolean;
+    /** With `conversation`: leave out answers to webhooks and schedules. */
+    personOnly?: boolean;
     before?: number;
+    after?: number;
+    around?: string;
     limit?: number;
   }) => {
     const q = new URLSearchParams({ page: "1" });
     if (params.conversation) q.set("conversation", "1");
+    if (params.personOnly) q.set("origin", "person");
     if (params.kind) q.set("kind", params.kind);
     if (params.item) q.set("item", params.item);
     if (params.thread) q.set("thread", params.thread);
     if (params.before !== undefined) q.set("before", String(params.before));
+    if (params.after !== undefined) q.set("after", String(params.after));
+    if (params.around !== undefined) q.set("around", params.around);
     q.set("limit", String(params.limit ?? 50));
-    return apiFetch<{ events: HidaneEvent[]; hasMore: boolean; oldestSeq: number | null }>(
-      `/api/events?${q}`,
-    );
+    return apiFetch<EventsPage>(`/api/events?${q}`);
   },
+  /** Everything ever said, newest first — not only what has been loaded. */
+  searchConversation: (query: string, before?: number, limit = 20) => {
+    const q = new URLSearchParams({ q: query, limit: String(limit) });
+    if (before !== undefined) q.set("before", String(before));
+    return apiFetch<{
+      events: HidaneEvent[];
+      hasMore: boolean;
+      items: WorkItem[];
+      titles: Record<string, string>;
+    }>(`/api/conversation/search?${q}`);
+  },
+  /** Days anything was said, newest first, in the reader's timezone. */
+  conversationDays: (timeZone: string) =>
+    apiFetch<{ days: ConversationDay[] }>(
+      `/api/conversation/days?tz=${encodeURIComponent(timeZone)}`,
+    ),
+  /** Where the Primary's view of the conversation currently begins. */
+  conversationContext: () =>
+    apiFetch<{ fromId: string | null; turns: number }>(`/api/conversation/context`),
+  /** Hide one of the person's messages from every reader; the log keeps the row. */
+  redactMessage: (messageId: string) =>
+    apiFetch<{ ok: boolean; eventId: string | null }>(`/api/messages/${messageId}/redact`, {
+      method: "POST",
+    }),
   workItems: (all = false) =>
     apiFetch<{ items: WorkItem[]; running: string[] }>(
       `/api/work-items${all ? "?all" : ""}`,

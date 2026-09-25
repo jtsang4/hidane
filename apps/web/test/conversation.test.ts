@@ -67,9 +67,16 @@ describe("conversation turns", () => {
 
   it("shows routing only until the first sign of life", () => {
     const m = ev("user.message", { text: "hi" }, { id: "m1" });
-    expect(turnRouting(buildTurns([m])[0]!)).toBe(true);
+    const soon = Date.parse(m.ts) + 60_000;
+    expect(turnRouting(buildTurns([m])[0]!, soon)).toBe(true);
     const attributed = ev("message.attributed", { of: "m1" }, { workItemId: "wi_a" });
-    expect(turnRouting(buildTurns([m, attributed])[0]!)).toBe(false);
+    expect(turnRouting(buildTurns([m, attributed])[0]!, soon)).toBe(false);
+  });
+
+  it("does not show old history as still routing", () => {
+    // Answers written before they named their message cannot be matched to it.
+    const m = ev("user.message", { text: "上个月的消息" }, { id: "m1" });
+    expect(turnRouting(buildTurns([m])[0]!, Date.parse(m.ts) + 3600_000)).toBe(false);
   });
 
   it("leaves a subtask's report to its parent out of the conversation", () => {

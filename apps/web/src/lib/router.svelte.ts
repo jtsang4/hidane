@@ -46,7 +46,22 @@ export function focusFrom(search = routerState.search): string | null {
 
 /** Link to the conversation with a work item open beside it. */
 export function focusHref(id: string | null): string {
-  return id ? `/?focus=${encodeURIComponent(id)}` : "/";
+  return conversationHref({ focus: id });
+}
+
+/** The event the conversation is opened at, from `?at=` — a permalink. */
+export function atFrom(search = routerState.search): string | null {
+  const id = new URLSearchParams(search).get("at");
+  return id && id.trim() ? id : null;
+}
+
+/** Link to the conversation, optionally opened at an event and/or with a work item beside it. */
+export function conversationHref(opts: { at?: string | null; focus?: string | null }): string {
+  const q = new URLSearchParams();
+  if (opts.focus) q.set("focus", opts.focus);
+  if (opts.at) q.set("at", opts.at);
+  const search = q.toString();
+  return search ? `/?${search}` : "/";
 }
 
 export function navigate(target: string, opts: { replace?: boolean } = {}): void {
