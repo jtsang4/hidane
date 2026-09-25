@@ -6,7 +6,7 @@ import {
   type JsonAgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import { config } from "../config.js";
-import { lastAssistantText } from "./sdk.js";
+import { lastAssistantError, lastAssistantText } from "./sdk.js";
 
 function cliPath(): string {
   // The package is ESM-only (exports has no CJS entry), so resolve the main
@@ -152,6 +152,9 @@ export async function runWorkerExecution(
     opts.sessionDir,
     "--append-system-prompt",
     opts.charter,
+    // The worker's own pi resolves keys only from its environment; this hands
+    // it the same key the in-process roles use, for whichever provider is set.
+    ...(config.piApiKey && config.piProvider ? ["--api-key", config.piApiKey] : []),
   ];
   const pendingInputFile = join(opts.cwd, ".hidane", "pending-input");
   await mkdir(dirname(pendingInputFile), { recursive: true });
@@ -259,6 +262,12 @@ export async function runWorkerExecution(
         toolCalls,
         policyBlocks,
       };
+    }
+    // A provider failure ends the run "idle" with an error message instead of
+    // throwing; counting that as success handed the Manager an empty result.
+    const failure = lastAssistantError(finalMessages);
+    if (failure) {
+      return { ok: false, text, error: failure, durationMs: Date.now() - started, toolCalls, policyBlocks };
     }
     return { ok: true, text, durationMs: Date.now() - started, toolCalls, policyBlocks };
   } catch (err) {

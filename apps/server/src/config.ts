@@ -19,6 +19,12 @@ export const config = {
   /** Optional pi provider/model overrides; defaults come from pi settings. */
   piProvider: env("HIDANE_PI_PROVIDER"),
   piModel: env("HIDANE_PI_MODEL"),
+  /**
+   * API key for `piProvider`, whichever provider that is — so switching
+   * providers never means learning another variable name. The provider's own
+   * variable (DEEPSEEK_API_KEY, OPENCODE_API_KEY, …) still works without it.
+   */
+  piApiKey: env("HIDANE_PI_API_KEY"),
   /** Thinking level for routing/planning calls (primary, manager). */
   routeThinking: env("HIDANE_ROUTE_THINKING") ?? "low",
   /** Thinking level for worker executions. */

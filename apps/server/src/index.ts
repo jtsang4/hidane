@@ -11,7 +11,7 @@ import { acquireRuntimeLock } from "./kernel/runtime.js";
 import { submitMessage } from "./agents/ingress.js";
 import { createAgentRuntime, setCurrentRuntime } from "./agents/runtime.js";
 import { recoverExecutions } from "./agents/workerPool.js";
-import { disposeAgents, describeEffectiveModel } from "./agents/sdk.js";
+import { disposeAgents, describeEffectiveModel, pingModel } from "./agents/sdk.js";
 import { runDistillation } from "./agents/distiller.js";
 import {
   forgetMemory,
@@ -186,6 +186,28 @@ program
     await disposeAgents();
     await closeDb();
     process.exit(0);
+  });
+
+program
+  .command("model")
+  .description("show the provider, model and key source agents will use; --ping calls the model once")
+  .option("--ping", "make one real request to verify the key and model work")
+  .action(async (opts: { ping?: boolean }) => {
+    try {
+      console.log(`model: ${await describeEffectiveModel()}`);
+      if (opts.ping) {
+        const result = await pingModel();
+        if (!result.ok || !result.text.trim()) {
+          console.error(`ping failed after ${result.durationMs}ms: ${result.error ?? "empty reply"}`);
+          process.exit(1);
+        }
+        console.log(`ping ok in ${result.durationMs}ms: ${result.text.trim().slice(0, 80)}`);
+      }
+      process.exit(0);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
   });
 
 program

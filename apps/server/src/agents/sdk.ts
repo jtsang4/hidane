@@ -15,7 +15,14 @@ type ModelOpt = CreateAgentSessionOptions["model"];
 
 let runtimePromise: Promise<ModelRuntime> | undefined;
 function modelRuntime(): Promise<ModelRuntime> {
-  runtimePromise ??= createModelRuntime();
+  runtimePromise ??= createModelRuntime().then(async (runtime) => {
+    // Held in memory only (pi's "runtime" credential source): never written to
+    // auth.json, so the environment stays the one place a key comes from.
+    if (config.piApiKey && config.piProvider) {
+      await runtime.setRuntimeApiKey(config.piProvider, config.piApiKey);
+    }
+    return runtime;
+  });
   return runtimePromise;
 }
 
@@ -69,7 +76,10 @@ async function createModelRuntime(): Promise<ModelRuntime> {
  * fallback once had production quietly running a different model than intended.
  */
 async function resolveModel(): Promise<ModelOpt> {
-  const { piProvider, piModel } = config;
+  const { piProvider, piModel, piApiKey } = config;
+  if (piApiKey && !piProvider) {
+    throw new Error("HIDANE_PI_API_KEY is set but HIDANE_PI_PROVIDER is not: a key needs to know which provider it is for");
+  }
   if (!piProvider && !piModel) {
     await modelRuntime();
     return undefined;
@@ -82,9 +92,17 @@ async function resolveModel(): Promise<ModelOpt> {
   const runtime = await modelRuntime();
   const model = runtime.getModel(piProvider, piModel);
   if (!model) {
+    const known = runtime.getModels(piProvider).map((m) => m.id);
     throw new Error(
-      `model not found: ${piProvider}/${piModel} (check HIDANE_PI_PROVIDER/HIDANE_PI_MODEL and the pi model catalog)`,
+      known.length > 0
+        ? `model not found: ${piProvider}/${piModel}. ${piProvider} offers: ${known.join(", ")}`
+        : `unknown provider: ${piProvider} (check HIDANE_PI_PROVIDER against the pi model catalog)`,
     );
+  }
+  // Checked here rather than on the first message: a missing key otherwise
+  // surfaces as every reply failing, long after the deploy looked healthy.
+  if (!runtime.getProviderAuthStatus(piProvider).configured) {
+    throw new Error(`no API key for provider ${piProvider}: set HIDANE_PI_API_KEY`);
   }
   return model as ModelOpt;
 }
@@ -96,8 +114,13 @@ export async function describeEffectiveModel(): Promise<string> {
     throw err instanceof Error ? err : new Error(String(err));
   });
   if (resolved) {
-    const m = resolved as unknown as { provider?: string; id?: string };
-    return `${m.provider ?? config.piProvider}/${m.id ?? config.piModel} (configured)`;
+    const m = resolved as unknown as { provider?: string; id?: string; input?: string[] };
+    const provider = m.provider ?? config.piProvider ?? "";
+    const auth = (await modelRuntime()).getProviderAuthStatus(provider);
+    // Where the key came from, never the key: "runtime" is HIDANE_PI_API_KEY.
+    const keySource = auth.source === "runtime" ? "HIDANE_PI_API_KEY" : (auth.label ?? auth.source ?? "unknown");
+    const images = m.input?.includes("image") ? "" : ", no image input";
+    return `${provider}/${m.id ?? config.piModel} (configured, key from ${keySource}${images})`;
   }
   return "pi default (HIDANE_PI_PROVIDER/HIDANE_PI_MODEL unset)";
 }
@@ -107,6 +130,8 @@ interface RoleSessionOptions {
   cwd: string;
   sessionDir: string;
   thinking: string;
+  /** Leave no trace file (a health check is not agent work worth keeping). */
+  ephemeral?: boolean;
 }
 
 /**
@@ -139,7 +164,7 @@ async function createRoleSession(opts: RoleSessionOptions): Promise<AgentSession
     thinkingLevel: opts.thinking as NonNullable<Thinking>,
     noTools: "all",
     resourceLoader,
-    sessionManager: SessionManager.create(opts.cwd, opts.sessionDir),
+    sessionManager: opts.ephemeral ? SessionManager.inMemory(opts.cwd) : SessionManager.create(opts.cwd, opts.sessionDir),
   });
   return session;
 }
@@ -211,6 +236,16 @@ export function lastAssistantText(messages: readonly unknown[]): string {
   return "";
 }
 
+/** The provider's error, when the last assistant message ended in one. */
+export function lastAssistantError(messages: readonly unknown[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
+    if (m?.role !== "assistant") continue;
+    return m.stopReason === "error" ? (m.errorMessage ?? "model request failed") : undefined;
+  }
+  return undefined;
+}
+
 const promptQueues = new WeakMap<AgentSession, Promise<unknown>>();
 
 /**
@@ -268,6 +303,13 @@ export async function promptRole(
             }, timeoutSec * 1000);
           }),
         ]);
+        // A provider failure (bad key, unknown model, quota) does not throw: it
+        // ends the turn with an error message, which would otherwise read as
+        // an empty answer and hide the reason.
+        const failure = lastAssistantError(session.messages);
+        if (failure) {
+          return { ok: false, text: "", error: failure, durationMs: Date.now() - started };
+        }
         const reply = lastAssistantText(session.messages);
         return { ok: true, text: reply, durationMs: Date.now() - started };
       } catch (err) {
@@ -284,6 +326,26 @@ export async function promptRole(
     });
   promptQueues.set(session, run);
   return run;
+}
+
+/**
+ * One real round trip to the configured model — the only proof that a
+ * provider, model and key actually work together, short of a failed reply.
+ */
+export async function pingModel(timeoutSec = 90): Promise<{ ok: boolean; text: string; error?: string; durationMs: number }> {
+  await mkdir(config.home, { recursive: true });
+  const session = await createRoleSession({
+    charter: "This is a connectivity check. Reply with exactly: OK",
+    cwd: config.home,
+    sessionDir: sessionsDir(),
+    thinking: "minimal",
+    ephemeral: true,
+  });
+  try {
+    return await promptRole(session, "ping", timeoutSec);
+  } finally {
+    session.dispose();
+  }
 }
 
 /** Dispose all live sessions (daemon shutdown / one-shot CLI exit). */

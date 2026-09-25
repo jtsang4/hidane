@@ -151,7 +151,8 @@ dev loads it from the repo root, and docker compose / Coolify substitute it into
 | `PORT` | `2718` | daemon http port |
 | `HIDANE_HEARTBEAT_SEC` | `300` | heartbeat connector interval |
 | `HIDANE_DISTILL_SEC` | `600` | memory distiller interval (runs when idle; forced after 3×) |
-| `HIDANE_PI_PROVIDER` / `HIDANE_PI_MODEL` | pi defaults | model override — set both or neither |
+| `HIDANE_PI_PROVIDER` / `HIDANE_PI_MODEL` | pi defaults | model override — set both or neither (e.g. `deepseek` or `opencode-go`) |
+| `HIDANE_PI_API_KEY` | unset | API key for `HIDANE_PI_PROVIDER`, whichever provider it is; the provider's own variable (`DEEPSEEK_API_KEY`, `OPENCODE_API_KEY`) is used when this is unset |
 | `HIDANE_ROUTE_THINKING` | `low` | thinking level for routing/planning |
 | `HIDANE_WORKER_THINKING` | `medium` | thinking level for executions |
 | `HIDANE_ROUTE_TIMEOUT_SEC` | `180` | per-routing-call timeout |
@@ -166,6 +167,14 @@ dev loads it from the repo root, and docker compose / Coolify substitute it into
 
 `HIDANE_PI_PROVIDER`/`HIDANE_PI_MODEL` must be set together: a half-configured
 pair raises at startup rather than silently falling back to pi's own default.
+Any provider in pi's catalog works — DeepSeek (`deepseek`) and OpenCode Go
+(`opencode-go`) need nothing beyond these three variables. Switching is a matter
+of changing them; the key follows whichever provider is set, and reaches both
+the in-process roles and every worker subprocess. The daemon refuses to start
+when the model is unknown to that provider (the error lists the ones it offers)
+or no key is configured for it. `pnpm dev model` prints the effective provider,
+model and where its key came from; `pnpm dev model --ping` makes one real
+request (in production: `node dist/index.js model --ping` inside the container).
 At startup hidane performs the same forced model-catalog refresh as the `pi update --models`
 command (bounded to 15 seconds), then merges the result with the project
 catalog baked in at `deploy/pi-models.json`. The effective model is printed on
