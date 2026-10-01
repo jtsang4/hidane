@@ -1,0 +1,4 @@
+# Go embeds frontend/dist, which must exist before the first build.
+!dist/
+dist/*
+!dist/.keep
