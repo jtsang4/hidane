@@ -1,26 +1,32 @@
 # hidane 验收场景
 
-> 本文档由验收 Agent 阅读并针对真实系统执行。场景用自然语言描述意图与期望，
-> 具体操作方式由验收 Agent 自行决定；判决必须附带实际观察到的证据。
+> 本文档由验收 Agent 阅读并针对真实系统执行（`make acceptance` 用本机 `claude` CLI 充当验收 Agent）。
+> 场景用自然语言描述意图与期望，具体操作方式由验收 Agent 自行决定；判决必须附带实际观察到的证据。
 
 ## 环境速查
 
-- 开发数据库：Postgres，`postgres://hidane:hidane@localhost:2716/hidane`（容器 `hidane-pg`，若未运行可 `docker start hidane-pg`）
-- 本仓库是 pnpm monorepo：服务端命令在 `apps/server` 下执行（`pnpm dev <cmd>`）
-- daemon 若设置了 `HIDANE_API_TOKEN`，API 调用需带 `authorization: Bearer <token>`
-- CLI：在仓库根目录用 `pnpm dev <command>`（`chat` / `items` / `events` / `log` / `daemon` / `init`）
+- hidane 是一个 Go 二进制：无参数启动桌面应用（Wails v3）；子命令即 CLI。验收用无 GUI 的
+  `bin/hidane-nogui`（`make build-nogui` 产出，内嵌前端），命令：`serve` / `chat` / `items` / `events` /
+  `log` / `archive` / `distill` / `model [--ping] [--role R]` / `agents` / `memories` / `forget`
+- 数据全在 `HIDANE_HOME`（默认 `~/.hidane`）：SQLite 数据库 `hidane.db`（事件日志 + 少量状态表）、
+  `settings.json`（provider 与角色配置，权限 0600）、`POLICY.json`、`memory/MEMORY.md`、
+  `workspaces/<wi>/`、`worklogs/YYYY/MM/DD/`。**每个场景用 /tmp 下的新 HIDANE_HOME**，不要碰用户自己的 `~/.hidane`
+- 查日志用 `hidane events --tail N [--item ID]`、`GET /api/events`；需要直接查库可用
+  `sqlite3 $HIDANE_HOME/hidane.db`（只读查询；事件表有触发器，UPDATE/DELETE 会被拒绝）
+- `hidane serve --addr 127.0.0.1:<端口>`：同一个 http.Handler 提供 Web 界面、`/api/*`、`/health`、
+  `/webhook/:name`。`/api/*` 始终需要 Bearer token：设了 `HIDANE_API_TOKEN` 就用它，否则启动时随机生成并打印
+  `?token=` 链接；SSE 也接受 `?token=`。同一 HIDANE_HOME 只允许一个 runtime（文件锁）
 - 运行模型：每个 agent（`primary`、`manager:<wi>`）有一个收件箱，它是事件日志的派生视图
   （`events.mailbox` + `cursors` 里的 `mailbox:<地址>` 游标）。一个 turn 取走积压的全部消息，
   只做决策、不等待；worker 结果以 `execution.finished` 投递回 Manager 的收件箱。
-  `chat` 在没有 daemon 时自己跑循环，有 daemon 时只投递并跟随回复
-- daemon HTTP 端口：2718（`/health`、`POST /webhook/:name`）
-- 查询数据库可用：`docker exec hidane-pg psql -U hidane -d hidane -c "..."`
-- 工作区目录：`~/.hidane/workspaces/<work_item_id>/`；日志投影：`~/.hidane/worklogs/`
-- 注意：`chat` 会触发真实 LLM 调用（primary 路由 → manager 规划 → worker 执行），单次可能需要 1-3 分钟
-
+  `chat` 在没有 runtime 时自己跑循环，有 runtime（桌面应用或 serve）时只投递并跟随回复
+- 每个角色（primary / manager / worker / distiller）跑在一个本机 agent CLI 上：`claude`、`codex` 或 `pi`，
+  可选 provider / model / effort，见 `settings.json` 或界面「设置」页。`bin/fake/{claude,codex,pi}` 是
+  按真实协议实现的假 CLI（`make fakeagent`），写入 `settings.json` 的 `binaries` 即可零成本跑通全链路；
+  用真实 CLI 时会产生真实模型调用，单次链路可能需要 1–3 分钟
 ## 场景 1：快车道完整闭环
 
-用 `chat` 提出一个需要实际动手的小任务（例如：创建一个输出当前日期的 shell 脚本并运行验证）。
+用 `hidane chat` 提出一个需要实际动手的小任务（例如：创建一个输出当前日期的 shell 脚本并运行验证）。
 期望：
 
 - primary 将其路由为新工作项（而不是直接回复敷衍）
@@ -34,7 +40,7 @@
 
 ## 场景 2：后台车道与分诊
 
-启动 daemon，向 webhook 端点投递一条事件。期望：
+用 `hidane serve` 启动，向 webhook 端点投递一条事件。期望：
 
 - webhook 立即被接受并落日志（`connector.webhook`），此时不阻塞、不判断
 - 分诊循环在几秒内产出 `triage.decision`，webhook 规则为唤醒 primary；这条决策本身就是投给
@@ -48,12 +54,12 @@
 
 期望：
 
-- `pnpm dev log` 渲染出的当日工作日志包含主线程和场景 1 的工作项分区，内容能对应上真实发生的事
+- `hidane log` 渲染出的当日工作日志包含主线程和场景 1 的工作项分区，内容能对应上真实发生的事
 - 写盘版本落在 `~/.hidane/worklogs/YYYY/MM/DD/worklog.md` 且内容一致
 
 ## 场景 4A：认证边界
 
-daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-secret` 启动。期望：
+`hidane serve` 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-secret` 启动。期望：
 
 - `/api/*` 无 token 或错 token 返回 401；正确 Bearer token 返回 200；SSE 的 `?token=` 查询参数同样有效
 - `/webhook/:name` 无签名或错签名返回 401，事件**不**落日志；正确的 `x-hidane-signature`（sha256= 前缀的 HMAC-SHA256）返回 200 且事件落日志
@@ -61,32 +67,30 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 
 ## 场景 4B：记忆蒸馏与跨日召回
 
-用 `chat` 告诉 Primary 一条明确的、此前不存在的长期偏好（编一条具体的），然后 `pnpm dev distill --min 1`。期望：
+用 `chat` 告诉 Primary 一条明确的、此前不存在的长期偏好（编一条具体的），然后 `hidane distill --min 1`。期望：
 
 - 偏好被提取并晋升进 `~/.hidane/memory/MEMORY.md`（带日期与 id 注释）
 - `memory.candidate` 与 `memory.promoted` 事件落日志
 - 之后的新 `chat` 提问相关话题时，Primary 的回答引用了该偏好（跨进程召回）
 
-## 场景 4C：飞书连接器（本地模拟）
+## 场景 4C：飞书连接器（长连接，无公开回调）
 
-不需要真实飞书应用。期望：
+桌面应用没有公网地址，飞书入站改为官方 Go SDK 的长连接：连接用 App 凭证认证，不再有需要校验 token 的公开写口。期望：
 
-- POST `/feishu/events` 的 `url_verification` 返回相同 challenge
-- 携带正确 verification token 的 `im.message.receive_v1` 用户消息事件被接受，`connector.feishu` 事件落日志（可设 `FEISHU_VERIFICATION_TOKEN` 与假 app 凭证启动 daemon 验证；注意消息处理会尝试回调飞书 API 失败属预期，验证捕获层即可）
-- 相同 event_id 的重复推送被去重（只落一条）
+- `POST /feishu/events` 返回 404：不存在任何未鉴权、能触发执行的飞书端点
+- 入站捕获、去重、图片下载失败的诚实描述、贴纸不唤醒模型、工作项话题的归属、出站分块与卡片格式
+  由 `go test ./internal/feishu/ -v` 覆盖（假 Messenger）——运行它并把通过的用例名作为证据
+- 若环境里有真实的 `FEISHU_APP_ID`/`FEISHU_APP_SECRET`（或 settings.json 的 `feishu` 段），启动 serve 后日志
+  出现 `feishu channel enabled`，给机器人发一条单聊消息能在主线程看到 `connector.feishu` 与回复；没有凭证则 BLOCKED
 
 ## 场景 4D：连接器只捕获、不判断
 
-飞书图片下载在本地必然失败（无真实凭证），正好用来验证「读不懂的消息也不许丢」。
-向 `/feishu/events` 投递一条 `message_type: image` 的用户消息事件。期望：
+读不懂的消息也不许丢（曾经的缺陷：纯图片消息在落日志之前就被丢掉）。期望（依据 `go test ./internal/feishu/`
+与源码之外的实际运行输出）：
 
-- `connector.feishu` 事件**照样落库**（曾经的缺陷：纯图片消息在 appendEvent 之前就被
-  `if (!text) return` 丢掉，用户发的图在日志里毫无痕迹，模型只会答「没收到图片」）
-- 该事件 payload 里 `imageCount` 为 0 且带 `imageFailures`，并另有一条 `agent.error`
-  记录失败原因——失败必须可见，不许被裸 `catch` 吞掉
-- 转给 Agent 的文本诚实说明图片无法查看，而不是谎称「请查看附带图片」
-- 再投递一条 `message_type: sticker`（无 text、无图片）的消息：事件落库，但**不**触发
-  任何模型调用（日志里不应出现对应的 `route.decision`）——记录归记录，唤醒是另一回事
+- 图片下载失败时 `connector.feishu` 照样落库，带 `imageFailures`，另有一条 `agent.error` 记录飞书给出的真实原因
+- 转给 Agent 的文本诚实说明图片无法查看
+- 无文字无图片的消息（贴纸）落库但**不**投递给 Primary
 
 ## 场景 4E：事件流保活与异步写口
 
@@ -118,7 +122,7 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 ## 场景 4G：Web 通道也能发图给多模态模型
 
 `POST /api/chat` 接受 `{"text": "...", "images": [{"data": "<base64>", "mimeType": "image/png"}]}`。
-期望（需 daemon 以 `HIDANE_PI_PROVIDER`/`HIDANE_PI_MODEL` 指向多模态模型启动）：
+期望（需在设置里把 primary 角色指向一个能看图的模型，例如 claude 自带登录的默认模型）：
 
 - 带图请求返回 202，`user.message` 事件 payload 带 `imageCount`
 - 模型**真的看到了图**：自己构造一张内容明确的图（例如中间一个洋红色方块），
@@ -128,7 +132,7 @@ daemon 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-se
 
 ## 场景 4H：定时连接器（调度定义与执行）
 
-daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触发。期望：
+runtime 内置 5s 调度循环。通过 `/api/schedules` 定义、管理、触发。期望：
 
 - 创建一个 `intervalSec: 15`、`action: http`、指向本机 `/health` 的调度：40 秒内
   自动 fire ≥2 次，每次落 `schedule.fired` + `connector.http`（含 status/body），
@@ -145,7 +149,7 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 
 ## 场景 4I：长回复不截断、执行可中止、记忆可手写
 
-- **长回复**：`chunkText` 把超长文本按段落切块而非截断。构造一段 >8000 字的文本，
+- **长回复**：`ChunkText`（`internal/feishu`）把超长文本按段落切块而非截断。构造一段 >8000 字的文本，
   确认切块后**每块不超上限、拼回来内容不丢**（真实事故：8000 字回复在飞书被 `slice(0,4000)`
   砍掉一半，用户读到半截以为系统卡死，在执行早已成功 80 分钟后问「你是不是卡住了？」）
 - **中止执行**：让一个工作项跑起来（要求它做几十次工具调用），在执行中
@@ -204,7 +208,7 @@ daemon 内置 15s 调度循环。通过 `/api/schedules` 定义、管理、触�
 ## 场景 4M：飞书回复以卡片 2.0 下发
 
 飞书 msg_type=text 会把 Markdown 当字面文本显示（一堆 `#` 和 `**`）。
-本地模拟一条入站消息，检查出站投递形态。期望：
+出站形态由 `internal/feishu` 的 `MarkdownCard`/`OutboxOnce` 决定（`go test ./internal/feishu/` 覆盖）。期望：
 
 - 出站 `msg_type` 为 `interactive`（不是 `text`）
 - 卡片 JSON 的 `schema` 为 `"2.0"`（**1.0 只支持 Markdown 子集**，列表与表格会退化成
@@ -220,7 +224,7 @@ SSE 曾在并发下出现「200 头 + 空 body」——首次写入前先查库�
 
 - 同时开 8 条 `/api/events/stream` 连接，**每条**都能读到首个 `hello` 事件（无空 body）
 - 期间正常发一条 chat，各连接都能收到新事件
-- 全部断开后 daemon 仍健康（`/health` ok）
+- 全部断开后服务仍健康（`/health` ok）
 
 ## 场景 4O：对话历史分页加载
 
@@ -338,7 +342,7 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 ## 场景 5G：重启不丢事
 
-让一个长执行跑起来，然后 `kill -9` daemon（连同 worker 子进程）再启动。期望：
+让一个长执行跑起来，然后 `kill -9` 正在跑的 `hidane serve`（连同 agent CLI 子进程）再启动。期望：
 
 - 启动日志写明「N execution(s) lost to the last restart」
 - 该执行在 `executions` 表里为 `lost`，并有一条 `execution.finished`（`lost: true`）投递给其 Manager
@@ -347,7 +351,7 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 ## 场景 5H：因果链有上限
 
-把 `HIDANE_MAX_HOPS` 调小（如 3）启动 daemon，让一个会多轮执行的任务跑起来。期望：
+把 `HIDANE_MAX_HOPS` 调小（如 3）启动 `hidane serve`，让一个会多轮执行的任务跑起来。期望：
 
 - 超过上限时消息不再投递，改为主线程上的一条 `escalation`（`reason: budget`）
 - 同理 `HIDANE_MAX_EXECUTIONS_PER_ITEM` 用尽后不再派 worker，而是上报
@@ -355,7 +359,7 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 ## 场景 5I：界面（需真实浏览器）
 
-打开 Web 界面，验证：
+打开界面（`hidane serve` 打印的链接；桌面应用里同一套界面），验证：
 
 - 对话流里每条消息下方有归属标签（归入「X」· 自动判断 / 你指定的 / 按当前聚焦 · 改）
 - 新建的任务以卡片出现在创建它的那条消息下方，状态原位更新（规划中 → 运行中 → 空闲 / 等你回答）
@@ -383,4 +387,43 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 - 事件被消费后依然留在日志里（append-only）
 - 把某个消费者的游标重置后，能重新读到历史事件（重放语义）。
-  可直接操作 cursors 表验证，注意别破坏 triage 消费者的现网状态（可用一个临时消费者名验证）。
+  可直接用 sqlite3 操作 cursors 表验证，注意别破坏 triage 消费者的现网状态（可用一个临时消费者名验证）。
+
+
+## 场景 6A：本机 agent CLI 与 LLM Provider 配置
+
+- `hidane agents` 列出 claude / codex / pi 的可用性、版本与路径；在 `settings.json` 的 `binaries` 里指向
+  `bin/fake/*` 后，`/api/agents` 显示这三个假 CLI 可用
+- `POST /api/providers` 新建一个 provider（例如 DeepSeek 预设：Anthropic 兼容地址 + pi provider 名 + key）：
+  响应与 `GET /api/settings` 里**只有** `hasApiKey` 与末四位提示，任何响应、事件（`settings.updated`）都不含 key；
+  `settings.json` 权限为 0600 且确实存了 key
+- 把 codex 角色指向一个没有 OpenAI Responses 地址的 provider → 400 且原配置不变；claude 需要 Anthropic 兼容地址、
+  pi 需要 pi provider 名，同理
+- 被角色使用中的 provider 不能删除（409，错误里点名角色）
+- 角色指向真实 CLI 时 `hidane model --ping --role <角色>` 返回 `ping ok`（花费少量 token）；指向假 CLI 同样 ok
+- 注入方式核对（可用假 CLI 的 `FAKEAGENT_LOG` 记录或 `ps` 观察）：claude 拿到 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`
+  环境变量；codex 拿到 `-c model_provider=hidane …` 与 `HIDANE_CODEX_API_KEY` 环境变量；pi 拿到 `--provider`。
+  key 不出现在 claude/codex 的命令行参数里
+
+## 场景 6B：闸门在真实 CLI 里生效
+
+对 worker 分别用 claude、codex、pi（真实 CLI）各跑一次：全局 `POLICY.json` 加一条 `forbidden\.txt` 规则，
+让任务「创建 hello.txt 与 forbidden.txt」。期望：
+
+- 三次都只有 `workspaces/<wi>/hello.txt`；`forbidden.txt` 不存在；各有 `policy.blocked`（rule 为该规则 id）
+- 文件都落在该工作项自己的工作区里，**不会**写进 `HIDANE_HOME` 根目录（闸门拒绝工作区外的写入，
+  且禁止 shell 命令改动 hidane 自己的数据目录）
+- 把 `POLICY.json` 改成非法 JSON 后再派一次写操作：被拒（「policy file … is unreadable」），而不是规则静默失效
+- 最终回复如实说明哪个成功、哪个被策略阻止
+
+## 场景 6C：桌面应用
+
+- `make smoke-gui`：真实的 Wails 窗口加载内嵌界面，界面经 Wails 事件（而不是 SSE 回退）收到实时帧后自动退出 0；
+  输出含 `ui ready (live transport: wails)`
+- `make app` 产出 `bin/hidane.app`（含图标与 Info.plist），双击可打开；再次打开不会起第二个实例
+- 桌面模式下 `/boot.js` 为 `desktop: true, auth: false`：不出现 token 输入框
+
+## 场景 6D：自动化测试全绿
+
+- `make test`（go vet 含 nogui 构建标签、`go test ./...`、前端 svelte-check 与 vitest）全部通过
+- `pnpm -C frontend e2e`（Playwright，chromium + webkit，对真实 Go 后端 + 假 CLI）全部通过

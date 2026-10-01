@@ -129,14 +129,14 @@ type Fixtures = {
   /** Put the API token where the SPA's token gate looks for it before any script runs. */
   withToken: boolean;
   /** Browser errors a test expects (matched against "pageerror: …" / "console: …"). */
-  allowedErrors: RegExp[];
+  allowedErrors: RegExp | null;
   browserErrors: string[];
   api: Api;
 };
 
 export const test = base.extend<Fixtures>({
   withToken: [true, { option: true }],
-  allowedErrors: [[], { option: true }],
+  allowedErrors: [null, { option: true }],
 
   page: async ({ page, withToken }, use) => {
     if (withToken) {
@@ -155,7 +155,7 @@ export const test = base.extend<Fixtures>({
         if (message.type() === "error") errors.push(`console: ${message.text()}`);
       });
       await use(errors);
-      const unexpected = errors.filter((error) => !allowedErrors.some((pattern) => pattern.test(error)));
+      const unexpected = errors.filter((error) => !allowedErrors?.test(error));
       expect(unexpected, "unexpected browser errors").toEqual([]);
     },
     { auto: true },

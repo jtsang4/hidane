@@ -78,9 +78,9 @@ for (const kind of ["claude", "codex", "pi"] as const) {
     await expect(panel.getByRole("region", { name: "对话" })).toContainText("已完成：");
 
     const artifacts = panel.getByRole("button", { name: /工作区产物/ });
-    await expect(artifacts).toContainText("(1)");
+    await expect(artifacts).toContainText(`(${files.files.length})`);
     await artifacts.click();
-    const artifact = panel.getByRole("button", { name: "result.txt" });
+    const artifact = panel.getByRole("button", { name: "result.txt", exact: true });
     await expect(artifact).toBeVisible();
     await expect(panel.getByRole("button", { name: "下载 result.txt" })).toBeVisible();
     await artifact.click();

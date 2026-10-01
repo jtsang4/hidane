@@ -4,7 +4,7 @@ test.describe("token gate", () => {
   test.use({
     withToken: false,
     // The wrong token is meant to be refused: the browser logs the 401s it gets back.
-    allowedErrors: [/401|Unauthorized/i, /EventSource/i],
+    allowedErrors: /status of 401 \(Unauthorized\)/,
   });
 
   test("asks for the token, rejects a wrong one and opens the app with the right one", async ({ page }) => {

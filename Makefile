@@ -10,7 +10,7 @@ export CGO_CFLAGS := -mmacosx-version-min=12.0
 export CGO_LDFLAGS := -mmacosx-version-min=12.0
 endif
 
-.PHONY: all frontend build build-nogui fakeagent test test-go test-frontend e2e e2e-ui smoke-gui smoke-live app clean
+.PHONY: all frontend build build-nogui fakeagent test test-go test-frontend e2e smoke-gui smoke-live acceptance app clean
 
 all: build
 
@@ -36,7 +36,7 @@ test: test-go test-frontend
 test-go:
 	go vet ./...
 	go vet -tags nogui ./...
-	go test ./...
+	go test -race ./...
 
 test-frontend:
 	pnpm -C frontend check
@@ -54,6 +54,10 @@ smoke-gui: build
 smoke-live: build-nogui
 	$(BIN)/hidane-nogui agents
 	$(BIN)/hidane-nogui model --ping
+
+# Agent-driven acceptance of acceptance/scenarios.md (spends tokens).
+acceptance:
+	scripts/acceptance.sh
 
 # macOS .app bundle.
 app: build

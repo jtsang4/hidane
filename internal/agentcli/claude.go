@@ -126,13 +126,14 @@ func startClaude(ctx context.Context, l *Launcher, bin string, req Request) (Run
 	if err != nil {
 		return nil, err
 	}
-	r := &claudeRun{p: p, req: req, started: time.Now(), tools: map[string]string{}}
+	// The prompt is counted before the reader starts: a result can arrive
+	// before writeJSON returns.
+	r := &claudeRun{p: p, req: req, started: time.Now(), tools: map[string]string{}, sent: 1}
 	p.readLines(r.onLine)
 	if err := p.writeJSON(claudeUserMessage(req.Prompt, req.Images)); err != nil {
 		p.kill()
 		return nil, err
 	}
-	r.sent = 1
 	p.supervise(ctx, req.Timeout, func() {
 		r.mu.Lock()
 		r.timedOut = true
