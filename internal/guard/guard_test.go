@@ -119,3 +119,49 @@ func TestHookProtocols(t *testing.T) {
 		t.Fatal("unreadable input must fail closed")
 	}
 }
+
+func TestAnUnreadablePolicyFileFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "POLICY.json")
+	_ = os.WriteFile(broken, []byte(`{"rules":[{"id":"x","pattern":"a\\.b","reason":"r"}`), 0o644)
+	env := guard.Env{PolicyFiles: []string{filepath.Join(dir, "missing.json"), broken}}
+	d := guard.Evaluate(guard.Call{Tool: "write", Subject: "anything"}, env)
+	if !d.Block || !strings.Contains(d.Reason, "unreadable") {
+		t.Fatalf("a broken policy file must refuse changes: %+v", d)
+	}
+	if d := guard.Evaluate(guard.Call{Tool: "read", Subject: "x"}, env); d.Block {
+		t.Fatal("reads stay allowed")
+	}
+	if d := guard.Evaluate(guard.Call{Tool: "write", Subject: "x"}, guard.Env{PolicyFiles: []string{filepath.Join(dir, "missing.json")}}); d.Block {
+		t.Fatal("a missing file is simply no rules")
+	}
+}
+
+func TestWorkersStayInTheirWorkspace(t *testing.T) {
+	home := t.TempDir()
+	ws := filepath.Join(home, "workspaces", "wi_1")
+	_ = os.MkdirAll(ws, 0o755)
+	env := guard.Env{Workspace: ws, Protected: home}
+	for _, c := range []guard.Call{
+		{Tool: "write", Subject: filepath.Join(home, "POLICY.json")},
+		{Tool: "edit", Subject: "../../settings.json"},
+		{Tool: "write", Subject: "/etc/hosts"},
+		{Tool: "bash", Subject: "cd " + home + " && echo hi > hello.txt"},
+		{Tool: "bash", Subject: "rm " + filepath.Join(home, "hidane.db")},
+	} {
+		if d := guard.Evaluate(c, env); !d.Block || !d.Policy {
+			t.Errorf("%+v must be refused", c)
+		}
+	}
+	for _, c := range []guard.Call{
+		{Tool: "write", Subject: "notes/a.md"},
+		{Tool: "write", Subject: filepath.Join(ws, "b.txt")},
+		{Tool: "bash", Subject: "cd " + ws + " && echo hi > hello.txt"},
+		{Tool: "bash", Subject: "cat " + filepath.Join(home, "memory", "MEMORY.md")},
+		{Tool: "edit", Subject: "*** Begin Patch"},
+	} {
+		if d := guard.Evaluate(c, env); d.Block {
+			t.Errorf("%+v must pass: %s", c, d.Reason)
+		}
+	}
+}

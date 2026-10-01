@@ -39,9 +39,9 @@
   }
 </script>
 
-<Card class="space-y-2">
+<Card class="space-y-2" role="group" aria-labelledby={`agent-row-${kind}`}>
   <div class="flex flex-wrap items-center gap-2">
-    <h3 class="text-sm font-medium">{$t(`settings.kinds.${kind}`)}</h3>
+    <h3 id={`agent-row-${kind}`} class="text-sm font-medium">{$t(`settings.kinds.${kind}`)}</h3>
     {#if detecting && !info}
       <Badge tone="muted">{$t("settings.agents.detecting")}</Badge>
     {:else if info?.available}

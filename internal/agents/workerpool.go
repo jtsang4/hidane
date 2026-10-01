@@ -208,7 +208,8 @@ func (p *WorkerPool) runJob(j *job) {
 		_ = os.Remove(pending)
 		defer os.Remove(pending)
 		defer os.Remove(blocks)
-		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks}
+		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks,
+			Workspace: it.Workspace, Protected: k.Cfg.Home}
 		r := p.s.Settings.Get().Resolve("worker")
 		req := agentcli.Request{
 			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: it.Workspace, Tools: true,

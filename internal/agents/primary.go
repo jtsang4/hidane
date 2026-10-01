@@ -550,7 +550,7 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 		"Messages this turn:\n" + strings.Join(described, "\n"),
 	}, "\n\n")
 	thought := s.think(ctx, prompt, thinkOpts{
-		Role: "primary", Charter: PrimaryCharter, Cwd: k.Cfg.Home, SessionDir: k.Cfg.SessionsDir(),
+		Role: "primary", Charter: PrimaryCharter, Cwd: roleDir(k, "primary"), SessionDir: k.Cfg.SessionsDir(),
 		Images: imagesOf(batch), LiveThreadID: "main",
 	})
 	var ofIDs []any

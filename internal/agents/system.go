@@ -90,12 +90,20 @@ func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought 
 	return Thought{OK: true, Effects: ParseEffects(res.Text), Raw: res.Text, DurationMs: res.DurationMs, SessionID: res.SessionID}
 }
 
+// roleDir is a reasoning role's empty working directory. Its cwd leaks into
+// what a model writes; the data directory itself must never become a brief's
+// "workspace".
+func roleDir(k *kernel.Kernel, role string) string {
+	dir := filepath.Join(k.Cfg.RuntimeDir(), "roles", role)
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
 // Ping makes one real round trip for a role — the only proof that an agent,
 // provider, model and key actually work together.
 func (s *System) Ping(ctx context.Context, role string) (agentcli.Result, settings.Resolved) {
 	r := s.Settings.Get().Resolve(role)
-	dir := filepath.Join(s.K.Cfg.RuntimeDir(), "ping")
-	_ = os.MkdirAll(dir, 0o755)
+	dir := roleDir(s.K, "ping")
 	req := agentcli.Request{
 		Prompt: "ping", SystemPrompt: PingCharter, Cwd: dir, Model: r.Model, Provider: r.Provider,
 		SessionDir: filepath.Join(dir, "sessions"), Timeout: 150 * time.Second,

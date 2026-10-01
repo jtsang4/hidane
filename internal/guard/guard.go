@@ -34,15 +34,26 @@ type File struct {
 
 // ReadFile returns the rules in a policy file; a missing or broken file has none.
 func ReadFile(path string) File {
+	f, _ := Load(path)
+	return f
+}
+
+// Load reads a policy file. A missing file is no rules and no error; a file
+// that exists but cannot be read or parsed is an error, so the guard can fail
+// closed on it instead of silently dropping every rule it holds.
+func Load(path string) (File, error) {
 	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return File{Rules: []Rule{}}, nil
+	}
 	if err != nil {
-		return File{Rules: []Rule{}}
+		return File{Rules: []Rule{}}, err
 	}
 	var raw struct {
 		Rules []json.RawMessage `json:"rules"`
 	}
-	if json.Unmarshal(b, &raw) != nil {
-		return File{Rules: []Rule{}}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return File{Rules: []Rule{}}, err
 	}
 	out := File{Rules: []Rule{}}
 	for _, r := range raw.Rules {
@@ -51,7 +62,7 @@ func ReadFile(path string) File {
 			out.Rules = append(out.Rules, rule)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func WriteFile(path string, f File) error {
@@ -118,6 +129,11 @@ type Env struct {
 	PendingInputFile string
 	BlocksFile       string
 	ExtraDeny        []string
+	// Workspace is the only place a worker may write.
+	Workspace string
+	// Protected is hidane's own data directory (policies, settings, the log):
+	// no worker may change it, whatever its instructions say.
+	Protected string
 }
 
 const (
@@ -125,6 +141,8 @@ const (
 	EnvPendingInput = "HIDANE_PENDING_INPUT_FILE"
 	EnvBlocksFile   = "HIDANE_POLICY_BLOCKS_FILE"
 	EnvExtraDeny    = "HIDANE_GUARD_DENY"
+	EnvWorkspace    = "HIDANE_WORKSPACE"
+	EnvProtected    = "HIDANE_PROTECTED_DIR"
 )
 
 func lines(s string) []string {
@@ -143,6 +161,8 @@ func EnvFromOS() Env {
 		PendingInputFile: os.Getenv(EnvPendingInput),
 		BlocksFile:       os.Getenv(EnvBlocksFile),
 		ExtraDeny:        lines(os.Getenv(EnvExtraDeny)),
+		Workspace:        os.Getenv(EnvWorkspace),
+		Protected:        os.Getenv(EnvProtected),
 	}
 }
 
@@ -152,7 +172,64 @@ func (e Env) Vars() []string {
 		EnvPolicyFiles + "=" + strings.Join(e.PolicyFiles, "\n"),
 		EnvPendingInput + "=" + e.PendingInputFile,
 		EnvBlocksFile + "=" + e.BlocksFile,
+		EnvWorkspace + "=" + e.Workspace,
+		EnvProtected + "=" + e.Protected,
 	}
+}
+
+func resolved(path string) string {
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+	// A path that does not exist yet: resolve its deepest existing parent.
+	dir, base := filepath.Split(filepath.Clean(path))
+	if dir == "" || dir == path {
+		return path
+	}
+	return filepath.Join(resolved(filepath.Clean(dir)), base)
+}
+
+func inside(root, path string) bool {
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
+// confinement keeps a worker's changes inside its workspace and away from
+// hidane's own data directory. File tools are checked exactly; shell commands
+// can only be checked for naming the protected directory.
+func confinement(call Call, env Env) string {
+	if env.Workspace == "" {
+		return ""
+	}
+	ws := resolved(env.Workspace)
+	switch call.Tool {
+	case "write", "edit":
+		for _, target := range strings.Split(call.Subject, "\n") {
+			target = strings.TrimSpace(target)
+			if target == "" {
+				continue
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(env.Workspace, target)
+			}
+			if !inside(ws, resolved(target)) {
+				return fmt.Sprintf("blocked by hidane guard: %s is outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+			}
+		}
+	case "bash":
+		if env.Protected == "" || readOnlyCommand.MatchString(call.Subject) {
+			return ""
+		}
+		subject := call.Subject
+		for _, ws := range []string{env.Workspace, resolved(env.Workspace)} {
+			subject = strings.ReplaceAll(subject, ws, "")
+		}
+		for _, p := range []string{env.Protected, resolved(env.Protected)} {
+			if strings.Contains(subject, p) {
+				return fmt.Sprintf("blocked by hidane guard: commands may not change hidane's data directory (%s); work inside this work item's workspace (%s)", env.Protected, env.Workspace)
+			}
+		}
+	}
+	return ""
 }
 
 // Evaluate decides one call.
@@ -169,8 +246,16 @@ func Evaluate(call Call, env Env) Decision {
 			}
 		}
 	}
+	if reason := confinement(call, env); reason != "" {
+		return Decision{Block: true, Policy: true, Reason: reason}
+	}
+	isMutating := mutating[call.Tool] && !(call.Tool == "bash" && readOnlyCommand.MatchString(call.Subject))
 	for _, path := range env.PolicyFiles {
-		for _, rule := range ReadFile(path).Rules {
+		file, err := Load(path)
+		if err != nil && mutating[call.Tool] {
+			return Decision{Block: true, Policy: true, Reason: fmt.Sprintf("blocked by hidane guard: policy file %s is unreadable (%v); fix it before changing anything", path, err)}
+		}
+		for _, rule := range file.Rules {
 			tools := rule.Tools
 			applies := false
 			if len(tools) == 0 {
@@ -192,7 +277,6 @@ func Evaluate(call Call, env Env) Decision {
 			return Decision{Block: true, Policy: true, Reason: fmt.Sprintf("blocked by hidane policy %s: %s", rule.ID, rule.Reason)}
 		}
 	}
-	isMutating := mutating[call.Tool] && !(call.Tool == "bash" && readOnlyCommand.MatchString(call.Subject))
 	if isMutating && env.PendingInputFile != "" {
 		if _, err := os.Stat(env.PendingInputFile); err == nil {
 			return Decision{Block: true, Reason: "hidane: the user has sent new input that you have not read yet. Do not change anything now; it arrives before your next step — re-plan with it first."}

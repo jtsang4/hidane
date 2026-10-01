@@ -293,8 +293,8 @@ func eventsCmd(args []string) error {
 	for _, e := range events {
 		b, _ := json.Marshal(e.Payload)
 		brief := string(b)
-		if len(brief) > 120 {
-			brief = brief[:120]
+		if r := []rune(brief); len(r) > 120 {
+			brief = string(r[:120])
 		}
 		tag := ""
 		if e.WorkItemID != "" {

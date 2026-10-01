@@ -69,9 +69,9 @@
   }
 </script>
 
-<Card class="space-y-3">
+<Card class="space-y-3" role="group" aria-labelledby={`role-row-${role}`}>
   <div class="flex flex-wrap items-baseline gap-2">
-    <h3 class="text-sm font-medium">{$t(`settings.roles.${role}`)}</h3>
+    <h3 id={`role-row-${role}`} class="text-sm font-medium">{$t(`settings.roles.${role}`)}</h3>
     <span class="font-mono text-xs text-muted">{role}</span>
   </div>
   <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">

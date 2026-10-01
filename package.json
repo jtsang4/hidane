@@ -1,17 +1,16 @@
 {
   "name": "hidane-monorepo",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm -C apps/server dev",
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "e2e": "pnpm -C apps/server e2e",
-    "smoke": "pnpm -C apps/server smoke"
+    "build": "make build",
+    "test": "make test",
+    "typecheck": "go vet ./... && pnpm -C frontend check",
+    "e2e": "make e2e",
+    "smoke:gui": "make smoke-gui"
   }
 }

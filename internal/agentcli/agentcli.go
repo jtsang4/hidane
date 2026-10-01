@@ -40,7 +40,8 @@ type ToolEvent struct {
 // Request is one run.
 type Request struct {
 	Prompt string
-	// SystemPrompt is the role charter, appended to the CLI's own prompt.
+	// SystemPrompt is the role charter: it replaces the CLI's own prompt for
+	// reasoning roles and is appended to it for workers.
 	SystemPrompt string
 	Cwd          string
 	Images       []Image

@@ -286,8 +286,16 @@ func runHook(command, format string, toolName string, input map[string]any) stri
 
 // ---- claude -----------------------------------------------------------------
 
+func systemPrompt(args []string) string {
+	if s, ok := flag(args, "--system-prompt"); ok {
+		return s
+	}
+	s, _ := flag(args, "--append-system-prompt")
+	return s
+}
+
 func runClaude(args []string) {
-	system, _ := flag(args, "--append-system-prompt")
+	system := systemPrompt(args)
 	session := "11111111-2222-3333-4444-" + fmt.Sprintf("%012d", time.Now().UnixNano()%1e12)
 	if r, ok := flag(args, "--resume"); ok {
 		session = r
@@ -509,7 +517,7 @@ func readAll() ([]byte, error) {
 // ---- pi ---------------------------------------------------------------------
 
 func runPi(args []string) {
-	system, _ := flag(args, "--append-system-prompt")
+	system := systemPrompt(args)
 	toolsOn := !has(args, "--no-tools")
 	sessionDir, _ := flag(args, "--session-dir")
 	sessionFile, resumed := flag(args, "--session")

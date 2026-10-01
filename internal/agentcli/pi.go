@@ -74,7 +74,11 @@ func piArgs(l *Launcher, req Request) ([]string, []string) {
 		args = append(args, "--session-dir", req.SessionDir)
 	}
 	if req.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", req.SystemPrompt)
+		flag := "--append-system-prompt"
+		if !req.Tools {
+			flag = "--system-prompt"
+		}
+		args = append(args, flag, req.SystemPrompt)
 	}
 	if req.Tools {
 		args = append(args, "-e", l.piShimPath())

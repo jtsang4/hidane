@@ -126,7 +126,7 @@ func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillRes
 		lines = append(lines, eventLine(e))
 	}
 	thought := s.think(ctx, joinNonEmpty([]string{existingText, "Recent events:\n" + strings.Join(lines, "\n")}, "\n\n"),
-		thinkOpts{Role: "distiller", Charter: DistillerCharter, Cwd: k.Cfg.Home, SessionDir: k.Cfg.SessionsDir()})
+		thinkOpts{Role: "distiller", Charter: DistillerCharter, Cwd: roleDir(k, "distiller"), SessionDir: k.Cfg.SessionsDir()})
 	if !thought.OK {
 		_, err := k.Append(ctx, kernel.EventInput{Source: "agent:distiller", Kind: "distill.run",
 			Payload: kernel.Payload{"ok": false, "error": thought.Error, "scanned": len(batch)}})

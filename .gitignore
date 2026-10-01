@@ -14,3 +14,10 @@ node_modules/
 .vite/
 coverage/
 *.tsbuildinfo
+
+# Go / Wails build output
+bin/
+/hidane
+/hidane-nogui
+frontend/test-results/
+frontend/playwright-report/

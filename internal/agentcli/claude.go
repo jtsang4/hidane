@@ -43,7 +43,14 @@ func claudeArgs(l *Launcher, req Request) (args []string, env []string) {
 	args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json",
 		"--verbose", "--include-partial-messages", "--replay-user-messages"}
 	if req.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", req.SystemPrompt)
+		// A reasoning role is a router or planner, not a coding agent: told it
+		// is Claude Code with file tools, a model claimed edits it never made.
+		// The charter replaces the prompt there; workers keep it and append.
+		flag := "--append-system-prompt"
+		if !req.Tools {
+			flag = "--system-prompt"
+		}
+		args = append(args, flag, req.SystemPrompt)
 	}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)

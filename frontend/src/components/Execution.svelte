@@ -14,8 +14,10 @@
   $effect(() => {
     if (group.ok === null) open = true;
   });
-  let tone = $derived<"muted" | "success" | "danger">(group.ok === null ? "muted" : group.ok ? "success" : "danger");
-  let label = $derived(group.ok === null ? $t("item.running") : group.ok ? $t("item.success") : $t("item.failed"));
+  /** A stop the person asked for is not a failure of the work. */
+  let cancelled = $derived(group.finished?.payload["cancelled"] === true);
+  let tone = $derived<"muted" | "success" | "danger">(group.ok === null || cancelled ? "muted" : group.ok ? "success" : "danger");
+  let label = $derived(group.ok === null ? $t("item.running") : group.ok ? $t("item.success") : cancelled ? $t("item.cancelled") : $t("item.failed"));
 </script>
 
 <Card class="p-3">

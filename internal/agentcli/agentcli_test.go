@@ -103,6 +103,9 @@ func TestReasoningCallsOnEveryCLI(t *testing.T) {
 			}
 			inv := h.invocations()[0]
 			joined := strings.Join(inv.Args, " ")
+			if agent != "codex" && !strings.Contains(joined, "--system-prompt This is a connectivity check") {
+				t.Fatalf("a reasoning role's charter replaces the coding-agent prompt: %v", inv.Args)
+			}
 			switch agent {
 			case "claude":
 				if !strings.Contains(joined, "--tools  ") && !strings.HasSuffix(joined, "--tools ") {

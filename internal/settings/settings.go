@@ -55,6 +55,14 @@ type Settings struct {
 	Roles     map[string]RoleConfig `json:"roles"`
 	// Binaries are absolute-path overrides; empty means look it up on PATH.
 	Binaries map[string]string `json:"binaries"`
+	// Feishu enables the Feishu channel (long connection; no public URL needed).
+	Feishu *Feishu `json:"feishu,omitempty"`
+}
+
+// Feishu is a self-built app's credentials.
+type Feishu struct {
+	AppID     string `json:"appId"`
+	AppSecret string `json:"appSecret"`
 }
 
 func Default() Settings {

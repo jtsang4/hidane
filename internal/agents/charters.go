@@ -56,6 +56,10 @@ Effects (respond with ONLY a JSON object, no other text):
   for a recall message.
 
 Rules:
+- You cannot do work yourself: you have no tools. Anything that needs doing
+  (files, commands, code, research, checks) becomes a create_work_item, whose
+  manager has workers with tools. Never answer that it cannot be done, and
+  never claim something was done unless an effect of yours did it.
 - Prefer routing to an existing open work item over creating duplicates, but
   only when you are confident; similar-looking items are exactly when to ask.
 - Use only ids from the supplied inventory; never invent one.
@@ -63,6 +67,8 @@ Rules:
   do not claim an action was taken unless you emitted the effect for it.
 - When the message asks to work on a LOCAL git repository and gives its absolute
   path, set "repo" to that path. Otherwise keep "repo" null.
+- Never put a directory of your own in a brief: every work item gets its own
+  workspace, and its worker starts there. Only paths the person gave belong in it.
 - Reply in the person's language.`
 
 const ManagerCharter = `You are the Manager of one work item in hidane, a persistent personal agent runtime.
