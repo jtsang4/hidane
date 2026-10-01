@@ -5,7 +5,7 @@
 //
 // Build inputs: `make build-nogui fakeagent` (bin/hidane-nogui, bin/fake/*).
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,14 @@ for (const path of [binary, join(fakes, "claude"), join(fakes, "codex"), join(fa
   }
 }
 
-const home = mkdtempSync(join(tmpdir(), `hidane-e2e-${port}-`));
+// Playwright stops its web servers with SIGKILL, so the exit handler below
+// rarely runs. A run on this port can only start once the last one is gone
+// (the port would still be bound), so its leftover homes are safe to clear.
+const prefix = `hidane-e2e-${port}-`;
+for (const name of readdirSync(tmpdir())) {
+  if (name.startsWith(prefix)) rmSync(join(tmpdir(), name), { recursive: true, force: true });
+}
+const home = mkdtempSync(join(tmpdir(), prefix));
 const role = { agent: "claude", provider: "", model: "", effort: "low" };
 const settings = {
   providers: [],

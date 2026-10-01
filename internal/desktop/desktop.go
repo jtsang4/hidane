@@ -42,6 +42,7 @@ func Run(cfg *config.Config) error {
 
 	handler := a.Handler(app.HandlerOptions{
 		Desktop: true,
+		Open:    openWithOS,
 		OnLiveHello: func() {
 			wapp.Event.Emit(FrameEvent, map[string]any{"event": "hello", "data": map[string]any{"desktop": true}})
 			snapshot, _, cancelLive := a.Sys.Live.Subscribe()

@@ -304,6 +304,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
 export const api = {
   /** Tells the desktop shell the page loaded and reached the backend. */
+  /** Desktop only: show a workspace file in the file manager. */
+  revealArtifact: (id: string, path: string) =>
+    apiFetch<{ ok: boolean }>(`/api/work-items/${encodeURIComponent(id)}/reveal`, {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
   uiReady: (transport: string) =>
     apiFetch<{ ok: boolean }>(`/api/ui-ready`, { method: "POST", body: JSON.stringify({ transport }) }),
   events: (params: Record<string, string | number | undefined>) => {

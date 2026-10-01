@@ -45,6 +45,10 @@ type Options struct {
 	OnUIReady func(transport string)
 	// OnLiveHello re-greets a page that just subscribed to pushed frames.
 	OnLiveHello func()
+	// Open hands a URL or a file to the operating system (system browser,
+	// Finder). Desktop only: a remote serve client must never open things on
+	// the host.
+	Open func(target string, reveal bool) error
 	// OnSettingsChanged drops anything derived from settings (CLI detection).
 	OnSettingsChanged func()
 	// FireSchedule runs a schedule now.
@@ -170,6 +174,8 @@ func (s *server) routes() {
 	m.HandleFunc("POST /api/agents/test", s.testAgent)
 	m.HandleFunc("POST /api/ui-ready", s.uiReady)
 	m.HandleFunc("POST /api/live/hello", s.liveHello)
+	m.HandleFunc("POST /api/desktop/open-url", s.openURL)
+	m.HandleFunc("POST /api/work-items/{id}/reveal", s.reveal)
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not found")) })
 	m.HandleFunc("/", s.static)

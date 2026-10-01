@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -935,4 +936,68 @@ func (s *server) testAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": ok, "text": strings.TrimSpace(res.Text), "error": errText,
 		"durationMs": res.DurationMs, "agent": resolved.Agent, "model": resolved.Model})
+}
+
+func (s *server) desktopOnly(w http.ResponseWriter) bool {
+	if !s.Desktop || s.Open == nil {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return false
+	}
+	return true
+}
+
+// openURL sends an external link to the system browser: navigating the app's
+// own window to it would leave no way back to the app.
+func (s *server) openURL(w http.ResponseWriter, r *http.Request) {
+	if !s.desktopOnly(w) {
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	_ = readJSON(r, &body)
+	u, err := url.Parse(strings.TrimSpace(body.URL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "mailto") || (u.Scheme != "mailto" && u.Host == "") {
+		writeJSON(w, http.StatusBadRequest, errBody("only http(s) and mailto links open externally"))
+		return
+	}
+	if err := s.Open(u.String(), false); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// reveal shows a workspace file in the file manager; a webview cannot save
+// downloads the way a browser does.
+func (s *server) reveal(w http.ResponseWriter, r *http.Request) {
+	if !s.desktopOnly(w) {
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	_ = readJSON(r, &body)
+	item, err := s.K.GetWorkItem(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return
+	}
+	target := item.Workspace
+	if body.Path != "" {
+		target = kernel.ResolveInside(item.Workspace, body.Path)
+		if target == "" {
+			writeJSON(w, http.StatusForbidden, errBody("path outside workspace"))
+			return
+		}
+	}
+	if _, err := os.Stat(target); err != nil {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return
+	}
+	if err := s.Open(target, true); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

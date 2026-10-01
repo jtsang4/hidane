@@ -35,6 +35,8 @@ export default defineConfig({
       timeout: 30_000,
       stdout: "pipe",
       stderr: "pipe",
+      // serve.mjs stops the server and removes its temporary HIDANE_HOME on SIGTERM.
+      gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
     },
     {
       command: `node e2e/serve.mjs ${SLOW_PORT} ${SLOW_DELAY_MS}`,
@@ -43,6 +45,8 @@ export default defineConfig({
       timeout: 30_000,
       stdout: "pipe",
       stderr: "pipe",
+      // serve.mjs stops the server and removes its temporary HIDANE_HOME on SIGTERM.
+      gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
     },
   ],
 });

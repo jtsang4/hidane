@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -489,5 +490,37 @@ func TestStaticServesTheSPA(t *testing.T) {
 	}
 	if code, _ := get("/api/nope"); code != 404 {
 		t.Fatal("unknown api")
+	}
+}
+
+func TestDesktopOpensLinksAndRevealsFilesButServeNever(t *testing.T) {
+	var opened []string
+	open := func(target string, reveal bool) error {
+		opened = append(opened, fmt.Sprintf("%v:%s", reveal, target))
+		return nil
+	}
+	serve := newEnv(t, api.Options{Token: "t", Open: open})
+	if code, _ := serve.do("POST", "/api/desktop/open-url", "t", map[string]any{"url": "https://example.com"}); code != 404 {
+		t.Fatal("serve mode must not open anything on the host")
+	}
+	e := newEnv(t, api.Options{Desktop: true, Open: open})
+	if code, _ := e.do("POST", "/api/desktop/open-url", "", map[string]any{"url": "https://example.com/a?b=1"}); code != 200 {
+		t.Fatal("http link")
+	}
+	for _, bad := range []string{"file:///etc/passwd", "javascript:alert(1)", "/relative", "https://"} {
+		if code, _ := e.do("POST", "/api/desktop/open-url", "", map[string]any{"url": bad}); code != 400 {
+			t.Fatalf("%s must be refused", bad)
+		}
+	}
+	item := m(e.k.CreateWorkItem(context.Background(), "x", "test", kernel.CreateWorkItemOpts{}))
+	_ = os.WriteFile(filepath.Join(item.Workspace, "out.txt"), []byte("x"), 0o644)
+	if code, _ := e.do("POST", "/api/work-items/"+item.ID+"/reveal", "", map[string]any{"path": "out.txt"}); code != 200 {
+		t.Fatal("reveal a workspace file")
+	}
+	if code, _ := e.do("POST", "/api/work-items/"+item.ID+"/reveal", "", map[string]any{"path": "../../../etc/passwd"}); code != 403 {
+		t.Fatal("reveal must stay inside the workspace")
+	}
+	if len(opened) != 2 || opened[0] != "false:https://example.com/a?b=1" || !strings.HasSuffix(opened[1], "out.txt") || !strings.HasPrefix(opened[1], "true:") {
+		t.Fatalf("opened: %v", opened)
 	}
 }

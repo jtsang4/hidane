@@ -1,14 +1,17 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
-  import { ChevronDown, ChevronRight, Download, FileText } from "@lucide/svelte";
+  import { ChevronDown, ChevronRight, Download, FileText, FolderOpen } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import { api, authHeaders, type ArtifactEntry } from "../lib/api.js";
+  import { boot } from "../lib/boot.js";
   import Time from "./Time.svelte";
   import Button from "./ui/Button.svelte";
   import Markdown from "./Markdown.svelte";
 
   let { workItemId, file }: { workItemId: string; file: ArtifactEntry } = $props();
   let open = $state(false);
+  // A webview has nowhere to save a download: the desktop app shows the file instead.
+  const desktop = boot().desktop;
   const contentQuery = createQuery(() => ({
     queryKey: ["artifact", workItemId, file.path],
     queryFn: () => api.workItemFile(workItemId, file.path),
@@ -22,6 +25,10 @@
   }
 
   async function download(): Promise<void> {
+    if (desktop) {
+      await api.revealArtifact(workItemId, file.path);
+      return;
+    }
     const res = await fetch(
       `/api/work-items/${workItemId}/file?download&path=${encodeURIComponent(file.path)}`,
       { headers: authHeaders() },
@@ -48,10 +55,10 @@
     <Button
       variant="ghost"
       size="icon"
-      aria-label={`${$t("item.download")} ${file.path}`}
+      aria-label={`${$t(desktop ? "item.reveal" : "item.download")} ${file.path}`}
       onclick={() => void download()}
     >
-      <Download size={16} />
+      {#if desktop}<FolderOpen size={16} />{:else}<Download size={16} />{/if}
     </Button>
   </div>
   {#if open}
