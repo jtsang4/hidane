@@ -57,6 +57,10 @@
 - `pnpm -C frontend check`
 - `pnpm -C frontend test`
 - `pnpm -C frontend build`
+- After a visible change: `make screenshots`, then look at the pages you touched
+  in zh and en, desktop and phone (`bin/screenshots/`).
+- `frontend/e2e/README.md` lists what each Playwright spec guards; extend the one
+  that covers your change (`make e2e`).
 - Before handoff, also run the relevant root checks from the repository
   `AGENTS.md`. A claim that something works must include command output or
   observable runtime evidence.

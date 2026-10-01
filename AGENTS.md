@@ -26,10 +26,12 @@ Rules for AI coding agents working in this repository. Project introduction live
 ## Verification
 
 - `make test` (go vet, also with `-tags nogui`; `go test ./...`; `pnpm -C frontend check`; `pnpm -C frontend test`) must pass before any commit. Unit tests guard kernel invariants; extend them when touching `internal/kernel/`.
-- `make e2e` runs Playwright (chromium + webkit) against the real Go backend (`hidane serve`) with `cmd/fakeagent` standing in for the CLIs. Extend it when UI behavior changes.
+- `make e2e` runs Playwright (chromium + webkit) against the real Go backend (`hidane serve`) with `cmd/fakeagent` standing in for the CLIs. `frontend/e2e/README.md` says what each spec guards: extend the spec that covers what you change, and keep that table current when you add one.
+- After a UI change, run `make screenshots` and look at the affected pages (`bin/screenshots/<page>-<zh|en>-<desktop|phone>.png`) — a diff does not show a broken layout. It fails on any uncaught page error.
 - `make smoke-gui` launches the real Wails window; it must end with `ui ready (live transport: wails)`. Run it after touching `internal/desktop`, `/boot.js`, or the live transport.
 - `make smoke-live` / `make acceptance` spend real tokens on the locally installed CLIs. The **agent-driven acceptance** (`scripts/acceptance.sh` executing `acceptance/scenarios.md`) is the end-to-end source of truth: when behavior changes, update the natural-language scenarios — do not encode acceptance in assertion scripts.
-- The fakes prove protocol handling, not the real CLIs: after changing a driver or the guard, run at least one real round trip per affected CLI (`hidane model --ping --role …`, or a `hidane chat` task in a fresh `HIDANE_HOME`).
+- The fakes prove protocol handling, not the real CLIs: after changing a driver, the guard, a charter or a role's context, follow the `hidane-live-check` skill (real `claude` / `codex` / `pi`, fresh `HIDANE_HOME`, judged against the files on disk — not the reply).
+- Tests are hermetic: a temp `HIDANE_HOME`, fake CLIs by absolute path, `HIDANE_LOGIN_SHELL=0` for any spawned `hidane`. A test must never read the developer's `~/.hidane`, `~/.claude`, `~/.codex`, keychain, or shell startup files, and never start a real agent CLI.
 - Verify claims with evidence: when you say something works, show the command output, file content, or event rows that prove it.
 - Uncommon ports are a deliberate choice (serve **2718**, Vite **2719**, E2E **2797**) — do not switch to 3000/8080-style defaults.
 
@@ -89,7 +91,8 @@ Rules for AI coding agents working in this repository. Project introduction live
 
 - This repository's project-local Codex configuration lives in `.codex/config.toml`; do not modify `~/.codex/config.toml` for repository-specific behavior.
 - The runtime's agent-role skills remain each CLI's own pool described above; that is separate from coding-agent guidance. Shared repository coding-agent skills live in `.agents/skills/` and must remain agent-neutral. Claude Code's `.claude/skills` is only an adapter symlink to that directory.
-- The Svelte MCP server is declared in both `.codex/config.toml` and `.mcp.json` so Codex and Claude Code can use the same project-local documentation and autofixer workflow.
+- Project MCP servers are declared in both `.codex/config.toml` and `.mcp.json` so Codex and Claude Code get the same tools: **svelte** (Svelte docs and autofixer — required for `.svelte` edits) and **gopls** (the Go team's language server: `go_diagnostics`, `go_symbol_references`, `go_rename_symbol`, `go_package_api`, `go_vulncheck`, …). Prefer gopls over grep for "who calls this" and for renames across packages; run `go_diagnostics` on files you edited.
+- Repository skills (`.agents/skills/`): `svelte-code-writer` and `svelte-core-bestpractices` for frontend work, `hidane-live-check` for verifying behavior on the real agent CLIs.
 
 ## Frontend
 

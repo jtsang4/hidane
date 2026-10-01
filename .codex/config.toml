@@ -5,3 +5,12 @@ command = "pnpm"
 args = ["dlx", "@sveltejs/mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
+
+# Go code intelligence (diagnostics, references, rename, package API, vulncheck)
+# from the Go team's language server. Pinned so `go run` starts from the module
+# cache instead of querying the proxy on every launch.
+[mcp_servers.gopls]
+command = "go"
+args = ["run", "golang.org/x/tools/gopls@v0.23.0", "mcp"]
+startup_timeout_sec = 60
+tool_timeout_sec = 120

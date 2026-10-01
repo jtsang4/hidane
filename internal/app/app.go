@@ -66,7 +66,9 @@ func Open(cfg *config.Config, o Options) (*App, error) {
 		}
 	}
 	a := &App{Cfg: cfg, K: k, Settings: st}
-	env := agentcli.BaseEnv(o.LoginShell)
+	// HIDANE_LOGIN_SHELL=0 keeps tests hermetic: never source a developer's
+	// shell startup files to find the CLIs.
+	env := agentcli.BaseEnv(o.LoginShell && os.Getenv("HIDANE_LOGIN_SHELL") != "0")
 	a.Launcher = &agentcli.Launcher{
 		Binary:       a.binary,
 		GuardCommand: self,

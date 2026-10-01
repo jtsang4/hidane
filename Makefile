@@ -10,7 +10,7 @@ export CGO_CFLAGS := -mmacosx-version-min=12.0
 export CGO_LDFLAGS := -mmacosx-version-min=12.0
 endif
 
-.PHONY: all frontend build build-nogui fakeagent test test-go test-frontend e2e smoke-gui smoke-live acceptance app clean
+.PHONY: all frontend build build-nogui fakeagent test test-go test-frontend e2e screenshots smoke-gui smoke-live acceptance app clean
 
 all: build
 
@@ -45,6 +45,11 @@ test-frontend:
 # Playwright against the real Go backend (`hidane serve`) with fake agent CLIs.
 e2e: build-nogui fakeagent
 	pnpm -C frontend e2e
+
+# Every page in zh/en at desktop and phone width → bin/screenshots/, so a UI
+# change can be looked at rather than inferred from the diff.
+screenshots: build-nogui fakeagent
+	node frontend/e2e/screenshots.mjs bin/screenshots
 
 # The real Wails window loads the app and receives pushed frames, then quits.
 smoke-gui: build

@@ -26,7 +26,7 @@ func buildCLI(t *testing.T) string {
 func run(t *testing.T, bin, home string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "HIDANE_HOME="+home)
+	cmd.Env = append(os.Environ(), "HIDANE_HOME="+home, "HIDANE_LOGIN_SHELL=0")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("hidane %v: %v\n%s", args, err, out)

@@ -158,6 +158,7 @@ curl -X POST localhost:2718/webhook/github -d '{"hello":"world"}' \
 ```bash
 make test        # go vet (also -tags nogui) + go test ./... + svelte-check + vitest
 make e2e         # Playwright (chromium + webkit) against the real Go backend with fake CLIs
+make screenshots # every page, zh/en, desktop/phone → bin/screenshots/ (real backend, fake CLIs)
 make smoke-gui   # the real Wails window loads the UI and receives pushed frames, then quits
 make smoke-live  # one real round trip per role on your installed CLIs (spends tokens)
 make acceptance  # a Claude Code tester agent executes acceptance/scenarios.md (spends tokens)
@@ -180,6 +181,7 @@ Settings, not in the environment.
 |---|---|---|
 | `HIDANE_HOME` | `~/.hidane` | database, settings, workspaces, worklogs, memory, traces |
 | `HIDANE_ADDR` | `127.0.0.1:2718` | `hidane serve` listen address |
+| `HIDANE_LOGIN_SHELL` | `1` | `0` stops the desktop app and CLI from asking the login shell for `PATH` (tests set it) |
 | `HIDANE_API_TOKEN` | random per run | bearer token for `/api/*` in serve mode (the desktop webview needs none) |
 | `HIDANE_WEBHOOK_SECRET` | unset | HMAC-SHA256 secret for `/webhook/*`; webhooks are refused (403) until it is set |
 | `HIDANE_HEARTBEAT_SEC` | `300` | heartbeat connector interval |

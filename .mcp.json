@@ -3,7 +3,19 @@
     "svelte": {
       "type": "stdio",
       "command": "pnpm",
-      "args": ["dlx", "@sveltejs/mcp"]
+      "args": [
+        "dlx",
+        "@sveltejs/mcp"
+      ]
+    },
+    "gopls": {
+      "type": "stdio",
+      "command": "go",
+      "args": [
+        "run",
+        "golang.org/x/tools/gopls@v0.23.0",
+        "mcp"
+      ]
     }
   }
 }
