@@ -28,6 +28,10 @@ func (a *App) startFeishu(ctx context.Context) {
 		return
 	}
 	ch := feishu.New(a.K, a.Sys, feishu.NewSDK(id, secret))
+	ch.Allowed = a.Cfg.FeishuAllowedUsers
+	if f := a.Settings.Get().Feishu; len(ch.Allowed) == 0 && f != nil {
+		ch.Allowed = f.AllowedUsers
+	}
 	a.goBackground(func() { ch.RunOutbox(ctx) })
 	a.goBackground(func() {
 		for ctx.Err() == nil {

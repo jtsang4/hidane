@@ -127,6 +127,21 @@ func TestBootTellsTheSPAItsMode(t *testing.T) {
 	}
 }
 
+func TestWebhooksStayClosedWithoutASecret(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	res, err := http.Post(e.srv.URL+"/webhook/x", "text/plain", strings.NewReader(`{"prompt":"run something"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 403 {
+		t.Fatalf("an unsigned webhook must be refused: %d", res.StatusCode)
+	}
+	if n := len(m(e.k.ListEvents(context.Background(), kernel.ListFilter{Kind: "connector.webhook"}))); n != 0 {
+		t.Fatal("nothing recorded")
+	}
+}
+
 func TestWebhookSignature(t *testing.T) {
 	e := newEnv(t, api.Options{WebhookSecret: "hook"})
 	body := `{"hello":"world"}`

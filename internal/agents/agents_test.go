@@ -2,6 +2,7 @@ package agents_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -347,5 +348,91 @@ func TestHopBudgetStopsRunawayChains(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the person is asked once the budget is spent: %v", w.kinds())
+	}
+}
+
+func TestBudgetStopsDispatchButNeverAnOutcome(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	w.k.Cfg.MaxHops = 3
+	item := m(w.k.CreateWorkItem(ctx, "edge", "test", kernel.CreateWorkItemOpts{}))
+	cause := m(w.k.Append(ctx, kernel.EventInput{Source: "t", Kind: "user.message", WorkItemID: item.ID, Hop: 3}))
+	if _, err := w.s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), "do it", "", cause); !errors.Is(err, agents.ErrBudget) {
+		t.Fatalf("a dispatch past the budget must not spend anything: %v", err)
+	}
+	if n := m(w.k.CountExecutions(ctx, item.ID)); n != 0 {
+		t.Fatalf("executions: %d", n)
+	}
+	// An execution started right at the limit still reports to its owner.
+	started := m(w.k.Append(ctx, kernel.EventInput{Source: "t", Kind: "execution.started", WorkItemID: item.ID, ExecutionID: "ex_edge", Hop: 3}))
+	_ = started
+	if err := w.k.CreateExecution(ctx, "ex_edge", item.ID, kernel.ManagerAddress(item.ID)); err != nil {
+		t.Fatal(err)
+	}
+	m(w.s.Pool.Recover(ctx))
+	finished := w.events("execution.finished")
+	if len(finished) != 1 || finished[0].Mailbox != kernel.ManagerAddress(item.ID) {
+		t.Fatalf("the outcome must reach its owner whatever the budget: %+v", finished)
+	}
+}
+
+func TestShutdownReportsRunningWorkersAsLost(t *testing.T) {
+	w := newWorld(t, settings.Claude, "FAKEAGENT_DELAY_MS=30000")
+	item := m(w.k.CreateWorkItem(ctx, "long", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "work", Source: "connector:web", Target: item.ID}))
+	if err := w.rt.Drain(20); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if ex, ok, _ := w.k.ActiveExecutionFor(ctx, item.ID); ok && ex.Status == kernel.ExecRunning {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("execution never started")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	start := time.Now()
+	w.s.Pool.Shutdown(10 * time.Second)
+	if time.Since(start) > 8*time.Second {
+		t.Fatal("shutdown must stop the CLI, not wait it out")
+	}
+	finished := w.events("execution.finished")
+	if len(finished) != 1 || !finished[0].Payload.Bool("lost") {
+		t.Fatalf("the owner hears the execution was lost: %+v", finished)
+	}
+	if active := m(w.k.ActiveExecutions(ctx)); len(active) != 0 {
+		t.Fatal("nothing may stay active")
+	}
+}
+
+func TestAnInterruptedTurnKeepsItsMessages(t *testing.T) {
+	w := newWorld(t, settings.Claude, "FAKEAGENT_DELAY_MS=20000")
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "route me", Source: "connector:web"}))
+	w.rt.Start()
+	time.Sleep(500 * time.Millisecond)
+	w.rt.Stop()
+	if p := m(w.k.PendingMessages(ctx, kernel.Primary, 10)); len(p) != 1 {
+		t.Fatalf("a turn cut short by shutdown must run again after restart: %d pending", len(p))
+	}
+	if errs := w.events("agent.error"); len(errs) != 0 {
+		t.Fatalf("stopping is not a failure: %+v", errs)
+	}
+	if replies := w.events("agent.reply"); len(replies) != 0 {
+		t.Fatalf("no reply from an aborted turn: %+v", replies)
+	}
+}
+
+func TestDistillerReadsPastNoise(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	for i := 0; i < 195; i++ {
+		m(w.k.Append(ctx, kernel.EventInput{Source: "connector:timer", Kind: "connector.heartbeat"}))
+	}
+	for i := 0; i < 30; i++ {
+		m(w.k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "user.message", ThreadID: "main", Payload: kernel.Payload{"text": "请记住我喜欢简洁"}}))
+	}
+	res := m(w.s.RunDistillation(ctx, 10))
+	if res.Skipped || res.Meaningful < 10 || res.Promoted != 1 {
+		t.Fatalf("material beyond the first window must be reached: %+v", res)
 	}
 }

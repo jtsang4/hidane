@@ -72,7 +72,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 ## Security
 
 - The desktop webview reaches the API through the Wails asset server only; it needs no token and nothing listens on a port.
-- In `hidane serve`, `/health` is the only open endpoint. `/api/*` always requires a bearer token (`HIDANE_API_TOKEN`, or a random one generated and printed per run); `/webhook/:name` requires an `x-hidane-signature` HMAC-SHA256 when `HIDANE_WEBHOOK_SECRET` is set — set it whenever serve is reachable by anyone else. Never remove these gates or add unauthenticated write endpoints. Any endpoint that can start an execution is spending money and granting code execution.
+- In `hidane serve`, `/health` is the only open endpoint. `/api/*` always requires a bearer token (`HIDANE_API_TOKEN`, or a random one generated and printed per run); `/webhook/:name` requires an `x-hidane-signature` HMAC-SHA256 and is refused outright while `HIDANE_WEBHOOK_SECRET` is unset (a webhook wakes the Primary; an unsigned one is reachable by any web page's cross-origin POST). Never remove these gates or add unauthenticated write endpoints. Any endpoint that can start an execution is spending money and granting code execution.
 - **Never treat a library option name as a guarantee on a security boundary.** The old Node SDK's `EventDispatcher({ verificationToken })` read like validation but returned `true` outright when no encrypt key was set — `/feishu/events` was open in production as a result. Read the source, or re-check the invariant yourself at the boundary. Preferring official SDKs (above) applies to protocol mechanics, not to trust decisions.
 
 ## Configuration

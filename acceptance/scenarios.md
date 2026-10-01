@@ -40,7 +40,7 @@
 
 ## 场景 2：后台车道与分诊
 
-用 `hidane serve` 启动，向 webhook 端点投递一条事件。期望：
+用 `hidane serve`（设置 `HIDANE_WEBHOOK_SECRET`）启动，向 webhook 端点投递一条带正确签名的事件；未设置 secret 时 webhook 一律 403。期望：
 
 - webhook 立即被接受并落日志（`connector.webhook`），此时不阻塞、不判断
 - 分诊循环在几秒内产出 `triage.decision`，webhook 规则为唤醒 primary；这条决策本身就是投给

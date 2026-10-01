@@ -197,12 +197,17 @@ func (s *server) webhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
 		return
 	}
-	if s.WebhookSecret != "" {
-		sig := r.Header.Get("x-hidane-signature")
-		if sig == "" || !safeEqual(sig, SignWebhook(raw, s.WebhookSecret)) {
-			writeJSON(w, http.StatusUnauthorized, errBody("invalid signature"))
-			return
-		}
+	// A webhook wakes the Primary, which can start workers: an unsigned one
+	// is an open door any web page can knock on with a simple cross-origin
+	// POST. Without a secret the connector stays closed.
+	if s.WebhookSecret == "" {
+		writeJSON(w, http.StatusForbidden, errBody("webhooks are disabled until HIDANE_WEBHOOK_SECRET is set"))
+		return
+	}
+	sig := r.Header.Get("x-hidane-signature")
+	if sig == "" || !safeEqual(sig, SignWebhook(raw, s.WebhookSecret)) {
+		writeJSON(w, http.StatusUnauthorized, errBody("invalid signature"))
+		return
 	}
 	var body any
 	if json.Unmarshal(raw, &body) != nil {

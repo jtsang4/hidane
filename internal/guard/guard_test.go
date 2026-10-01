@@ -111,8 +111,11 @@ func TestHookProtocols(t *testing.T) {
 	if code != 0 || !d.Block {
 		t.Fatalf("pi deny: %d %s", code, out)
 	}
-	if got := guard.ReadBlocks(blocks); len(got) != 3 {
-		t.Fatalf("every refusal is recorded for the execution: %+v", got)
+	if got := guard.ReadBlocks(blocks); len(got) != 3 || strings.Contains(got[0].Reason, "nothing in this tool call ran") {
+		t.Fatalf("every refusal is recorded for the execution, without the hint: %+v", got)
+	}
+	if !strings.Contains(stderr, "nothing in this tool call ran") {
+		t.Fatalf("the model is told nothing ran: %s", stderr)
 	}
 	var stdout, stderrBuf bytes.Buffer
 	if code := guard.RunHook("codex", strings.NewReader("not json"), &stdout, &stderrBuf, env); code != 2 {
@@ -162,6 +165,50 @@ func TestWorkersStayInTheirWorkspace(t *testing.T) {
 	} {
 		if d := guard.Evaluate(c, env); d.Block {
 			t.Errorf("%+v must pass: %s", c, d.Reason)
+		}
+	}
+}
+
+func TestReviewedGuardBypassesAreClosed(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	data := filepath.Join(home, ".hidane-guard-test")
+	ws := filepath.Join(t.TempDir(), "wi_1")
+	_ = os.MkdirAll(filepath.Join(ws, ".hidane"), 0o755)
+	env := guard.Env{Workspace: ws, Protected: data}
+	refused := []guard.Call{
+		{Tool: "write", Subject: "~/.hidane-guard-test/settings.json"},
+		{Tool: "edit", Subject: "@/etc/hosts"},
+		{Tool: "write", Subject: "~root/x"},
+		{Tool: "write", Subject: ".hidane/POLICY.json"},
+		{Tool: "write", Subject: filepath.Join(ws, ".hidane", "pending-input")},
+		{Tool: "bash", Subject: "echo ok\nrm -rf " + data + "/hidane.db"},
+		{Tool: "bash", Subject: "find " + data + " -delete"},
+		{Tool: "bash", Subject: "echo $(rm -rf " + data + ")"},
+		{Tool: "bash", Subject: "rm -rf ~/.hidane-guard-test/hidane.db"},
+		{Tool: "bash", Subject: "rm .hidane/pending-input"},
+		{Tool: "bash", Subject: "cat x > " + filepath.Join(ws, ".hidane", "POLICY.json")},
+		{Tool: "edit", Subject: guard.Normalize("apply_patch", map[string]any{"patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: /tmp/evil.txt\n*** End Patch"}).Subject},
+	}
+	for _, c := range refused {
+		if d := guard.Evaluate(c, env); !d.Block {
+			t.Errorf("%q (%s) must be refused", c.Subject, c.Tool)
+		}
+	}
+	allowed := []guard.Call{
+		{Tool: "write", Subject: "notes/hidane.md"},
+		{Tool: "bash", Subject: "printf hi > " + filepath.Join(ws, "out.txt")},
+		{Tool: "bash", Subject: "ls -la .hidane"},
+		{Tool: "bash", Subject: "git branch -a"},
+		{Tool: "bash", Subject: "find . -name '*.go'"},
+	}
+	for _, c := range allowed {
+		if d := guard.Evaluate(c, env); d.Block {
+			t.Errorf("%q must pass: %s", c.Subject, d.Reason)
+		}
+	}
+	for cmd, ro := range map[string]bool{"git status": true, "git branch -D main": false, "tree -o x.txt": false, "find . -exec rm {} ;": false, "echo hi": true, "echo hi > f": false} {
+		if guard.IsReadOnly(cmd) != ro {
+			t.Errorf("IsReadOnly(%q) != %v", cmd, ro)
 		}
 	}
 }

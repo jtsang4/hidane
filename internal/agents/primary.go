@@ -553,6 +553,9 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 		Role: "primary", Charter: PrimaryCharter, Cwd: roleDir(k, "primary"), SessionDir: k.Cfg.SessionsDir(),
 		Images: imagesOf(batch), LiveThreadID: "main",
 	})
+	if thought.Aborted {
+		return ctx.Err()
+	}
 	var ofIDs []any
 	for _, m := range batch {
 		ofIDs = append(ofIDs, m.ID)

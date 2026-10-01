@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -172,6 +173,9 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			return err
 		}
 		_, err = s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), instructions, Str(e["expect"]), t.cause)
+		if errors.Is(err, ErrBudget) {
+			return nil
+		}
 		return err
 	case "escalate":
 		question := Str(e["question"])
@@ -403,10 +407,13 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		opts.ResumeID = saved.SessionID
 	}
 	thought := s.think(ctx, prompt, opts)
-	if !thought.OK && opts.ResumeID != "" {
+	if !thought.OK && !thought.Aborted && opts.ResumeID != "" {
 		// A session the CLI no longer has must not wedge the work item.
 		opts.ResumeID = ""
 		thought = s.think(ctx, prompt, opts)
+	}
+	if thought.Aborted {
+		return ctx.Err()
 	}
 	if thought.SessionID != "" {
 		_ = os.MkdirAll(filepath.Dir(sessionPath), 0o755)

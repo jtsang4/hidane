@@ -63,6 +63,8 @@ type Settings struct {
 type Feishu struct {
 	AppID     string `json:"appId"`
 	AppSecret string `json:"appSecret"`
+	// AllowedUsers are the open_ids whose messages reach the agents.
+	AllowedUsers []string `json:"allowedUsers,omitempty"`
 }
 
 func Default() Settings {

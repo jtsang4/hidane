@@ -18,10 +18,11 @@ import (
 // proc is one CLI subprocess in its own process group, with stdout read as
 // LF-delimited JSON records and the tail of stderr kept for diagnostics.
 type proc struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr *tailBuffer
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  *bufio.Reader
+	stdoutR *os.File
+	stderr  *tailBuffer
 
 	mu          sync.Mutex
 	stdinClosed bool
@@ -71,20 +72,33 @@ func startProc(bin string, args []string, cwd string, env []string, pipeStdin bo
 		}
 		p.stdin = w
 	}
-	out, err := cmd.StdoutPipe()
+	// Our own pipe rather than StdoutPipe, so Wait can run while stdout is
+	// still being read: a grandchild that left the process group can hold the
+	// write end open, and the run must still end when the CLI does.
+	r, w, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	p.stdout = bufio.NewReaderSize(out, 1<<20)
+	cmd.Stdout = w
+	// Bounds the stderr copy the same way.
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
+		r.Close()
+		w.Close()
 		return nil, err
 	}
+	w.Close()
+	p.stdoutR = r
+	p.stdout = bufio.NewReaderSize(r, 1<<20)
 	return p, nil
 }
 
-// readLines delivers each stdout record, then waits for exit.
+// readLines delivers each stdout record; done closes once the CLI has exited
+// and its output is drained (or abandoned, if something else still holds it).
 func (p *proc) readLines(onLine func([]byte)) {
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		for {
 			line, err := p.stdout.ReadBytes('\n')
 			line = bytes.TrimRight(line, "\r\n")
@@ -92,10 +106,19 @@ func (p *proc) readLines(onLine func([]byte)) {
 				onLine(line)
 			}
 			if err != nil {
-				break
+				return
 			}
 		}
+	}()
+	go func() {
 		p.exitErr = p.cmd.Wait()
+		select {
+		case <-drained:
+		case <-time.After(3 * time.Second):
+			p.stdoutR.Close()
+			<-drained
+		}
+		p.stdoutR.Close()
 		close(p.done)
 	}()
 }

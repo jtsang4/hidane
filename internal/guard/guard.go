@@ -107,7 +107,23 @@ var mutating = map[string]bool{"bash": true, "write": true, "edit": true}
 // Shell commands that only look. Anything else counts as a change, which errs
 // toward pausing: a read that waits one turn costs little, a write made against
 // superseded instructions may not be undoable.
-var readOnlyCommand = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|git\s+(status|log|diff|show|branch))\b[^;&|>]*$`)
+var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|git\s+(status|log|diff|show|branch))\b[^;&|>]*$`)
+
+// Read-only commands that can still change things through a flag.
+var (
+	findActs   = regexp.MustCompile(`^\s*find\b.*\s-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)\b`)
+	branchActs = regexp.MustCompile(`^\s*git\s+branch\b.*\s(-[dDmMcCfu]\b|--(delete|move|copy|force|set-upstream-to|unset-upstream|edit-description)\b)`)
+	treeOut    = regexp.MustCompile(`^\s*tree\b.*\s-o\b`)
+)
+
+// IsReadOnly reports whether a shell command only looks. A second line, a
+// command substitution or an acting flag makes any command a change.
+func IsReadOnly(cmd string) bool {
+	if strings.ContainsAny(cmd, "\n\r`") || strings.Contains(cmd, "$(") || strings.Contains(cmd, "<(") || strings.Contains(cmd, ">(") {
+		return false
+	}
+	return readOnlyHead.MatchString(cmd) && !findActs.MatchString(cmd) && !branchActs.MatchString(cmd) && !treeOut.MatchString(cmd)
+}
 
 // Call is a tool call in canonical form: tool is bash | write | edit | <other>.
 type Call struct {
@@ -193,39 +209,94 @@ func inside(root, path string) bool {
 	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
-// confinement keeps a worker's changes inside its workspace and away from
-// hidane's own data directory. File tools are checked exactly; shell commands
-// can only be checked for naming the protected directory.
+// homeVariants are the spellings of a path a shell command may use.
+func homeVariants(path string) []string {
+	out := []string{path}
+	if r := resolved(path); r != path {
+		out = append(out, r)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		for _, p := range append([]string{}, out...) {
+			if rest, ok := strings.CutPrefix(p, home); ok && (rest == "" || strings.HasPrefix(rest, "/")) {
+				out = append(out, "~"+rest, "$HOME"+rest, "${HOME}"+rest)
+			}
+		}
+	}
+	return out
+}
+
+// fileTarget resolves a file tool's path the way the CLIs do: pi expands a
+// leading `~` and strips a leading `@`; a relative path is relative to the
+// workspace. Returns "" for a path that cannot be resolved (`~otheruser`).
+func fileTarget(target, workspace string) string {
+	t := strings.TrimSpace(strings.ReplaceAll(target, "\u00a0", " "))
+	t = strings.TrimPrefix(t, "@")
+	if t == "~" || strings.HasPrefix(t, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		t = filepath.Join(home, strings.TrimPrefix(t, "~"))
+	} else if strings.HasPrefix(t, "~") {
+		return ""
+	}
+	if !filepath.IsAbs(t) {
+		t = filepath.Join(workspace, t)
+	}
+	return t
+}
+
+var controlDir = regexp.MustCompile(`(^|[\s'"=:(])(\./)?\.hidane(/|[\s'"]|$)`)
+
+// confinement keeps a worker's changes inside its workspace, out of the
+// workspace's own control directory (.hidane: its policy, its traces), and
+// away from hidane's data directory. File tools are checked exactly; shell
+// commands can only be checked for naming those places.
 func confinement(call Call, env Env) string {
 	if env.Workspace == "" {
 		return ""
 	}
 	ws := resolved(env.Workspace)
+	control := filepath.Join(ws, ".hidane")
 	switch call.Tool {
 	case "write", "edit":
-		for _, target := range strings.Split(call.Subject, "\n") {
-			target = strings.TrimSpace(target)
-			if target == "" {
+		for _, raw := range strings.Split(call.Subject, "\n") {
+			if strings.TrimSpace(raw) == "" {
 				continue
 			}
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(env.Workspace, target)
+			target := fileTarget(raw, env.Workspace)
+			if target == "" {
+				return fmt.Sprintf("blocked by hidane guard: cannot resolve %s; use a path inside this work item's workspace (%s)", strings.TrimSpace(raw), env.Workspace)
 			}
-			if !inside(ws, resolved(target)) {
+			r := resolved(target)
+			if !inside(ws, r) {
 				return fmt.Sprintf("blocked by hidane guard: %s is outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+			}
+			if inside(control, r) {
+				return "blocked by hidane guard: .hidane holds this workspace's policy and traces; it is not for work products"
 			}
 		}
 	case "bash":
-		if env.Protected == "" || readOnlyCommand.MatchString(call.Subject) {
+		if IsReadOnly(call.Subject) {
 			return ""
 		}
 		subject := call.Subject
-		for _, ws := range []string{env.Workspace, resolved(env.Workspace)} {
-			subject = strings.ReplaceAll(subject, ws, "")
+		for _, v := range homeVariants(filepath.Join(env.Workspace, ".hidane")) {
+			if strings.Contains(subject, v) {
+				return "blocked by hidane guard: commands may not change .hidane, which holds this workspace's policy and traces"
+			}
 		}
-		for _, p := range []string{env.Protected, resolved(env.Protected)} {
-			if strings.Contains(subject, p) {
-				return fmt.Sprintf("blocked by hidane guard: commands may not change hidane's data directory (%s); work inside this work item's workspace (%s)", env.Protected, env.Workspace)
+		for _, v := range homeVariants(env.Workspace) {
+			subject = strings.ReplaceAll(subject, v, "")
+		}
+		if controlDir.MatchString(subject) {
+			return "blocked by hidane guard: commands may not change .hidane, which holds this workspace's policy and traces"
+		}
+		if env.Protected != "" {
+			for _, v := range homeVariants(env.Protected) {
+				if strings.Contains(subject, v) {
+					return fmt.Sprintf("blocked by hidane guard: commands may not change hidane's data directory (%s); work inside this work item's workspace (%s)", env.Protected, env.Workspace)
+				}
 			}
 		}
 	}
@@ -249,7 +320,7 @@ func Evaluate(call Call, env Env) Decision {
 	if reason := confinement(call, env); reason != "" {
 		return Decision{Block: true, Policy: true, Reason: reason}
 	}
-	isMutating := mutating[call.Tool] && !(call.Tool == "bash" && readOnlyCommand.MatchString(call.Subject))
+	isMutating := mutating[call.Tool] && !(call.Tool == "bash" && IsReadOnly(call.Subject))
 	for _, path := range env.PolicyFiles {
 		file, err := Load(path)
 		if err != nil && mutating[call.Tool] {
@@ -323,7 +394,7 @@ func Normalize(toolName string, input map[string]any) Call {
 	return Call{Tool: name, Subject: s("file_path", "path", "command", "pattern", "url")}
 }
 
-var patchFile = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$`)
+var patchFile = regexp.MustCompile(`(?m)^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$`)
 
 func patchPaths(patch string) string {
 	var out []string
@@ -398,6 +469,11 @@ func RunHook(format string, stdin io.Reader, stdout, stderr io.Writer, env Env) 
 	d := Evaluate(call, env)
 	if d.Block {
 		RecordBlock(env, call, d)
+		if d.Policy {
+			// Said to the model only: a refused compound command was once
+			// reported as half done, when none of it had run.
+			d.Reason += " — nothing in this tool call ran; do the parts that are allowed as separate calls."
+		}
 	}
 	switch format {
 	case "pi":

@@ -77,7 +77,7 @@ func text(s string) string { return fmt.Sprintf(`{"text":%q}`, s) }
 
 func TestInboundP2PReachesThePrimaryOnce(t *testing.T) {
 	k, ch, _ := setup(t)
-	in := feishu.Inbound{EventID: "e1", SenderType: "user", MessageID: "om_in1", ChatID: "oc_1", ChatType: "p2p", MessageType: "text", Content: text("@_user_1 帮我查一下")}
+	in := feishu.Inbound{EventID: "e1", SenderType: "user", SenderOpenID: "ou_owner", MessageID: "om_in1", ChatID: "oc_1", ChatType: "p2p", MessageType: "text", Content: text("@_user_1 帮我查一下")}
 	if err := ch.HandleMessage(ctx, in); err != nil {
 		t.Fatal(err)
 	}
@@ -119,14 +119,14 @@ func TestBotsAndStickersDoNotWakeAModel(t *testing.T) {
 
 func TestImagesAreDownloadedOrHonestlyReported(t *testing.T) {
 	k, ch, _ := setup(t)
-	if err := ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", MessageID: "om_i", ChatID: "oc_1", MessageType: "image", Content: `{"image_key":"img_ok"}`}); err != nil {
+	if err := ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", MessageID: "om_i", ChatID: "oc_1", ChatType: "p2p", MessageType: "image", Content: `{"image_key":"img_ok"}`}); err != nil {
 		t.Fatal(err)
 	}
 	msg := m(k.PendingMessages(ctx, kernel.Primary, 10))[0]
 	if msg.Payload.Str("text") != feishu.ImageOnlyText || len(agents.StoredImages(msg.Payload)) != 1 || agents.StoredImages(msg.Payload)[0].MimeType != "image/png" {
 		t.Fatalf("image message: %+v", msg.Payload)
 	}
-	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", MessageID: "om_j", ChatID: "oc_1", MessageType: "image", Content: `{"image_key":"img_gone"}`})
+	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", MessageID: "om_j", ChatID: "oc_1", ChatType: "p2p", MessageType: "image", Content: `{"image_key":"img_gone"}`})
 	errs := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "agent.error"}))
 	if len(errs) != 1 || !strings.Contains(fmt.Sprint(errs[0].Payload["detail"]), "File not in msg") {
 		t.Fatalf("the failure reason is kept: %+v", errs)
@@ -228,5 +228,24 @@ func TestFormatting(t *testing.T) {
 	esc := feishu.OutboundText(kernel.Event{Kind: "escalation", Payload: kernel.Payload{"question": "哪台服务器？", "path": []any{map[string]any{"title": "部署", "tried": "查了配置"}}}})
 	if esc != "❓ 哪台服务器？\n\n已经尝试过：\n- 部署：查了配置" {
 		t.Fatalf("%q", esc)
+	}
+}
+
+func TestOnlyTheOwnerDrivesTheAgents(t *testing.T) {
+	k, ch, _ := setup(t)
+	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", SenderOpenID: "ou_owner", MessageID: "om_1", ChatID: "oc_owner", ChatType: "p2p", MessageType: "text", Content: text("我是主人")})
+	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", SenderOpenID: "ou_other", MessageID: "om_2", ChatID: "oc_other", ChatType: "p2p", MessageType: "text", Content: text("帮我跑个命令")})
+	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", SenderOpenID: "ou_owner", MessageID: "om_3", ChatID: "oc_group", ChatType: "group", MessageType: "text", Content: text("@bot 群里的话")})
+	pending := m(k.PendingMessages(ctx, kernel.Primary, 10))
+	if len(pending) != 1 || pending[0].Payload.Str("text") != "我是主人" {
+		t.Fatalf("with no allowlist only the first private chat is heard: %+v", pending)
+	}
+	if ignored := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "connector.feishu_ignored"})); len(ignored) != 2 {
+		t.Fatalf("other senders are recorded, not obeyed: %+v", ignored)
+	}
+	ch.Allowed = []string{"ou_other"}
+	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", SenderOpenID: "ou_other", MessageID: "om_4", ChatID: "oc_group", ChatType: "group", MessageType: "text", Content: text("允许的人")})
+	if pending := m(k.PendingMessages(ctx, kernel.Primary, 10)); len(pending) != 2 {
+		t.Fatalf("an allowlisted sender is heard anywhere: %d", len(pending))
 	}
 }

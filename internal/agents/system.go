@@ -41,6 +41,8 @@ type Thought struct {
 	Error      string
 	DurationMs int64
 	SessionID  string
+	// Aborted: the runtime is stopping; the turn must not act on this.
+	Aborted bool
 }
 
 type thinkOpts struct {
@@ -84,6 +86,9 @@ func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought 
 	}
 	res := agentcli.Call(ctx, s.Agents, r.Agent, req)
 	live.End()
+	if ctx.Err() != nil {
+		return Thought{Error: ctx.Err().Error(), Aborted: true, DurationMs: res.DurationMs}
+	}
 	if !res.OK {
 		return Thought{Error: res.Error, DurationMs: res.DurationMs, SessionID: res.SessionID}
 	}

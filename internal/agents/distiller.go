@@ -96,17 +96,43 @@ func (s *System) reconcileMemoryLog(ctx context.Context, entries []kernel.Memory
 // sparse material accumulates instead of getting lost.
 func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillResult, error) {
 	k := s.K
-	batch, err := k.NextBatch(ctx, distillerConsumer, 200)
-	if err != nil || len(batch) == 0 {
+	// Read forward until there is enough material, the head of the log, or the
+	// cap: re-reading one fixed window that holds a few messages among
+	// heartbeats would never advance, and distillation would stop for good.
+	const page, scanCap = 200, 2000
+	cursor, err := k.GetCursor(ctx, distillerConsumer)
+	if err != nil {
 		return DistillResult{Skipped: true}, err
 	}
-	meaningful := MeaningfulEvents(batch)
+	var batch, meaningful []kernel.Event
+	atHead := false
+	for after := cursor; len(batch) < scanCap; {
+		next, err := k.ListEvents(ctx, kernel.ListFilter{AfterSeq: &after, Limit: page})
+		if err != nil {
+			return DistillResult{Skipped: true}, err
+		}
+		batch = append(batch, next...)
+		meaningful = append(meaningful, MeaningfulEvents(next)...)
+		if len(next) < page {
+			atHead = true
+			break
+		}
+		after = next[len(next)-1].Seq
+		if len(meaningful) >= minEvents {
+			break
+		}
+	}
+	if len(batch) == 0 {
+		return DistillResult{Skipped: true}, nil
+	}
 	last := batch[len(batch)-1].Seq
 	res := DistillResult{Scanned: len(batch), Meaningful: len(meaningful), Skipped: true}
 	if len(meaningful) == 0 {
 		return res, k.CommitCursor(ctx, distillerConsumer, last)
 	}
-	if len(meaningful) < minEvents {
+	// Sparse material waits for more — unless the cap was hit, which means it
+	// is all there will be for a while.
+	if len(meaningful) < minEvents && atHead {
 		return res, nil
 	}
 	existing := kernel.ParseMemories(kernel.ReadTextFile(k.GlobalMemoryPath()))

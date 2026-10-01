@@ -320,3 +320,28 @@ func TestDetect(t *testing.T) {
 		t.Fatalf("%+v", missing)
 	}
 }
+
+func TestAnEscapedGrandchildCannotHangTheRun(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "claude")
+	// Answers, then leaves a detached child holding stdout open for a minute.
+	body := `#!/bin/sh
+read line
+echo '{"type":"system","subtype":"init","session_id":"s1"}'
+echo '{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"s1","queued_turn_count":0}'
+(trap '' HUP TERM; sleep 60) &
+exit 0
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := &agentcli.Launcher{Binary: func(string) (string, error) { return script, nil }, RuntimeDir: dir, Env: os.Environ()}
+	start := time.Now()
+	res := agentcli.Call(context.Background(), l, "claude", agentcli.Request{Prompt: "x", Cwd: dir, Timeout: 30 * time.Second})
+	if !res.OK || res.Text != "OK" {
+		t.Fatalf("%+v", res)
+	}
+	if time.Since(start) > 15*time.Second {
+		t.Fatalf("the run must end when the CLI does, not when its leftovers do: %v", time.Since(start))
+	}
+}

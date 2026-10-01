@@ -117,6 +117,9 @@ func (c *Channel) Listen(ctx context.Context, appID, appSecret string) error {
 		}
 		if ev.Event.Sender != nil {
 			in.SenderType = deref(ev.Event.Sender.SenderType)
+			if ev.Event.Sender.SenderId != nil {
+				in.SenderOpenID = deref(ev.Event.Sender.SenderId.OpenId)
+			}
 		}
 		go func() {
 			if err := c.HandleMessage(ctx, in); err != nil && ctx.Err() == nil {

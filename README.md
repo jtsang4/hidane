@@ -181,7 +181,7 @@ Settings, not in the environment.
 | `HIDANE_HOME` | `~/.hidane` | database, settings, workspaces, worklogs, memory, traces |
 | `HIDANE_ADDR` | `127.0.0.1:2718` | `hidane serve` listen address |
 | `HIDANE_API_TOKEN` | random per run | bearer token for `/api/*` in serve mode (the desktop webview needs none) |
-| `HIDANE_WEBHOOK_SECRET` | unset | HMAC-SHA256 secret for `/webhook/*` — set it whenever serve is reachable by others |
+| `HIDANE_WEBHOOK_SECRET` | unset | HMAC-SHA256 secret for `/webhook/*`; webhooks are refused (403) until it is set |
 | `HIDANE_HEARTBEAT_SEC` | `300` | heartbeat connector interval |
 | `HIDANE_DISTILL_SEC` | `600` | memory distiller interval (runs when idle; forced after 3×) |
 | `HIDANE_ROUTE_TIMEOUT_SEC` | `180` | per reasoning call timeout |
@@ -192,6 +192,7 @@ Settings, not in the environment.
 | `HIDANE_MAX_EXECUTIONS_PER_ITEM` | `12` | executions one work item may start before it asks to continue |
 | `HIDANE_ATTRIBUTION_THRESHOLD` | `0.6` | below this routing confidence the Primary asks instead of guessing |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | unset | Feishu channel (also settable as `feishu` in `settings.json`) |
+| `FEISHU_ALLOWED_USERS` | first private chat | open_ids whose Feishu messages reach the agents (also `feishu.allowedUsers`) |
 
 ## Schedules (active connectors)
 
@@ -219,6 +220,13 @@ connection", subscribe to `im.message.receive_v1`, and grant
 `im:message:send_as_bot`, `im:message.p2p_msg:readonly`,
 `im:message.group_at_msg:readonly`, `im:chat:readonly` and `im:resource`
 (without the last one, image messages arrive but their bytes cannot be read).
+
+**Who can drive the agents.** Everyone who can message the bot is not someone
+the agents should run code for. List the allowed senders' open_ids in
+`FEISHU_ALLOWED_USERS` (comma-separated) or `feishu.allowedUsers`. With no
+list, the first private chat with the bot becomes the owner's and is the only
+one heard; other chats and group mentions are recorded
+(`connector.feishu_ignored`) but never handed to an agent.
 
 A p2p message maps to the main thread; the reply thread under a bot-posted
 `📋 wi_x` root is addressed to that work item directly. Answers are delivered by

@@ -23,6 +23,9 @@ type PostInput struct {
 	EventInput
 	// CausedBy drives the causal hop budget.
 	CausedBy *Event
+	// AlwaysDeliver exempts the message from the budget: an outcome of work
+	// already done must reach its owner, whose next decision is then budgeted.
+	AlwaysDeliver bool
 }
 
 // Post delivers a message by appending it. It returns ok=false when the causal
@@ -38,21 +41,8 @@ func (k *Kernel) Post(ctx context.Context, in PostInput) (Event, bool, error) {
 		hop = in.CausedBy.Hop + 1
 		causedBy = in.CausedBy.ID
 	}
-	if hop > k.Cfg.MaxHops {
-		payload := Payload{
-			"reason":      "budget",
-			"question":    fmt.Sprintf("这条因果链已经连续触发 %d 次，已自动暂停。需要继续的话，直接回复这个任务。", hop),
-			"blockedKind": in.Kind,
-			"mailbox":     in.Mailbox,
-		}
-		if in.CausedBy != nil {
-			payload["root"] = RootOf(*in.CausedBy)
-		}
-		_, err := k.Append(ctx, EventInput{
-			Source: "kernel:runtime", Kind: "escalation", ThreadID: "main",
-			WorkItemID: in.WorkItemID, CausedBy: causedBy, Hop: hop, Payload: payload,
-		})
-		return Event{}, false, err
+	if hop > k.Cfg.MaxHops && !in.AlwaysDeliver {
+		return Event{}, false, k.BudgetEscalation(ctx, in.CausedBy, in.Kind, in.Mailbox, in.WorkItemID)
 	}
 	ev := in.EventInput
 	ev.CausedBy = causedBy
@@ -80,6 +70,34 @@ func (k *Kernel) Post(ctx context.Context, in PostInput) (Event, bool, error) {
 	}
 	k.Hub.Publish(appended.Seq)
 	return appended, true, nil
+}
+
+// OverBudget reports whether something caused by `cause` would exceed the hop budget.
+func (k *Kernel) OverBudget(cause *Event) bool {
+	return cause != nil && cause.Hop+1 > k.Cfg.MaxHops
+}
+
+// BudgetEscalation stops a chain and tells a person instead.
+func (k *Kernel) BudgetEscalation(ctx context.Context, cause *Event, kind, mailbox, workItemID string) error {
+	hop := 0
+	causedBy := ""
+	if cause != nil {
+		hop, causedBy = cause.Hop+1, cause.ID
+	}
+	payload := Payload{
+		"reason":      "budget",
+		"question":    fmt.Sprintf("这条因果链已经连续触发 %d 次，已自动暂停。需要继续的话，直接回复这个任务。", hop),
+		"blockedKind": kind,
+		"mailbox":     mailbox,
+	}
+	if cause != nil {
+		payload["root"] = RootOf(*cause)
+	}
+	_, err := k.Append(ctx, EventInput{
+		Source: "kernel:runtime", Kind: "escalation", ThreadID: "main",
+		WorkItemID: workItemID, CausedBy: causedBy, Hop: hop, Payload: payload,
+	})
+	return err
 }
 
 // PendingMessages are a mailbox's undelivered messages, oldest first.

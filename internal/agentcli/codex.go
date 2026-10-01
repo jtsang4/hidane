@@ -23,9 +23,12 @@ type codexRun struct {
 	started time.Time
 	done    chan struct{}
 
-	mu        sync.Mutex
-	cur       *proc
-	queue     []string
+	mu    sync.Mutex
+	cur   *proc
+	queue []string
+	// finishing is set, under mu, once no further turn will run: steering
+	// accepted after that point would be acknowledged and then dropped.
+	finishing bool
 	cancelled bool
 	timedOut  bool
 	threadID  string
@@ -133,8 +136,13 @@ func (r *codexRun) turn(prompt, resumeID string, first bool) error {
 	r.mu.Lock()
 	r.cur = p
 	r.turnDone = false
+	cancelled := r.cancelled
 	r.mu.Unlock()
 	p.readLines(r.onLine)
+	if cancelled {
+		// Cancel landed between turns: it killed the finished process, not this one.
+		go p.kill()
+	}
 	if err := p.writeRaw(prompt); err != nil {
 		p.kill()
 		return err
@@ -169,6 +177,9 @@ func (r *codexRun) loop() {
 			r.queue = nil
 		}
 		thread := r.threadID
+		if next == "" {
+			r.finishing = true
+		}
 		r.mu.Unlock()
 		if next == "" {
 			r.finish(p)
@@ -205,6 +216,9 @@ func (r *codexRun) finish(last *proc) {
 		if len(r.warnings) > 0 {
 			res.Error += "\n" + strings.Join(r.warnings, "\n")
 		}
+	}
+	if len(r.queue) > 0 {
+		res.Error += "\nthe person's later input was not delivered: " + strings.Join(r.queue, " / ")
 	}
 	r.result = res
 }
@@ -308,13 +322,8 @@ func (r *codexRun) onLine(line []byte) {
 func (r *codexRun) Steer(text string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.cancelled {
+	if r.cancelled || r.finishing {
 		return false
-	}
-	select {
-	case <-r.done:
-		return false
-	default:
 	}
 	r.queue = append(r.queue, text)
 	return true

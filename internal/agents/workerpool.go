@@ -2,11 +2,13 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/guard"
@@ -20,6 +22,9 @@ import (
 // writer).
 type WorkerPool struct {
 	s *System
+	// ctx ends every CLI the pool started when the runtime stops.
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu      sync.Mutex
 	jobs    map[string]*job
@@ -45,12 +50,40 @@ type job struct {
 }
 
 func newWorkerPool(s *System) *WorkerPool {
-	return &WorkerPool{s: s, jobs: map[string]*job{}, running: map[string]*job{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &WorkerPool{s: s, ctx: ctx, cancel: cancel, jobs: map[string]*job{}, running: map[string]*job{}}
 }
+
+// Shutdown stops every running CLI and waits (bounded) for their outcomes to
+// be reported as lost — a worker must not outlive the runtime that owns it,
+// or the next start would dispatch a second writer into the same workspace.
+func (p *WorkerPool) Shutdown(timeout time.Duration) {
+	p.cancel()
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+}
+
+// ErrBudget means the causal hop budget refused the dispatch; a person was asked instead.
+var ErrBudget = errors.New("hop budget spent")
 
 // Dispatch records an execution and queues it; the caller's turn returns.
 func (p *WorkerPool) Dispatch(ctx context.Context, item kernel.WorkItem, owner, instructions, expect string, causedBy kernel.Event) (kernel.Event, error) {
 	k := p.s.K
+	// Checked before anything is spent: the outcome of a dispatched execution
+	// is always delivered, so this is the last point a chain can stop cheaply.
+	if k.OverBudget(&causedBy) {
+		if err := k.BudgetEscalation(ctx, &causedBy, "execution.started", owner, item.ID); err != nil {
+			return kernel.Event{}, err
+		}
+		return kernel.Event{}, ErrBudget
+	}
 	id := kernel.GenID("ex", 6)
 	if err := k.CreateExecution(ctx, id, item.ID, owner); err != nil {
 		return kernel.Event{}, err
@@ -203,11 +236,13 @@ func (p *WorkerPool) runJob(j *job) {
 		}
 		hidaneDir := filepath.Join(it.Workspace, ".hidane")
 		_ = os.MkdirAll(hidaneDir, 0o755)
-		pending := filepath.Join(hidaneDir, "pending-input")
-		blocks := filepath.Join(hidaneDir, "policy-blocks-"+j.executionID+".jsonl")
-		_ = os.Remove(pending)
-		defer os.Remove(pending)
-		defer os.Remove(blocks)
+		// The guard's own signals live outside the workspace, where the worker
+		// it governs cannot delete or forge them.
+		control := filepath.Join(k.Cfg.RuntimeDir(), "executions", j.executionID)
+		_ = os.MkdirAll(control, 0o755)
+		defer os.RemoveAll(control)
+		pending := filepath.Join(control, "pending-input")
+		blocks := filepath.Join(control, "policy-blocks.jsonl")
 		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks,
 			Workspace: it.Workspace, Protected: k.Cfg.Home}
 		r := p.s.Settings.Get().Resolve("worker")
@@ -237,7 +272,7 @@ func (p *WorkerPool) runJob(j *job) {
 			outcome.Cancelled, outcome.Error = true, "cancelled"
 			return
 		}
-		run, err := p.s.Agents.Start(ctx, r.Agent, req)
+		run, err := p.s.Agents.Start(p.ctx, r.Agent, req)
 		if err != nil {
 			outcome.Error = err.Error()
 			return
@@ -257,6 +292,10 @@ func (p *WorkerPool) runJob(j *job) {
 		outcome.Result = run.Wait()
 		outcome.PolicyBlocks = guard.ReadBlocks(blocks)
 		j.mu.Lock()
+		if p.ctx.Err() != nil && !j.cancelled {
+			outcome.OK, outcome.Lost = false, true
+			outcome.Error = "lost: the runtime stopped while this execution was active"
+		}
 		if j.cancelled {
 			// The outcome follows the person's intent, not which signal won.
 			outcome.OK, outcome.Cancelled, outcome.Error = false, true, "cancelled"
@@ -351,7 +390,7 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 	}
 	_, _, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{Source: source, Kind: "execution.finished",
 		Mailbox: owner, Lane: kernel.LaneNormal, ThreadID: threadID, WorkItemID: workItemID, ExecutionID: executionID, Payload: payload},
-		CausedBy: started})
+		CausedBy: started, AlwaysDeliver: true})
 	return err
 }
 

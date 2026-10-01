@@ -32,20 +32,24 @@ type Messenger interface {
 
 // Inbound is a received message, normalized.
 type Inbound struct {
-	EventID     string
-	SenderType  string
-	MessageID   string
-	ChatID      string
-	ChatType    string
-	MessageType string
-	RootID      string
-	Content     string
+	EventID      string
+	SenderType   string
+	SenderOpenID string
+	MessageID    string
+	ChatID       string
+	ChatType     string
+	MessageType  string
+	RootID       string
+	Content      string
 }
 
 type Channel struct {
 	K   *kernel.Kernel
 	Sys *agents.System
 	M   Messenger
+	// Allowed are the open_ids whose messages reach the agents. Empty means
+	// trust on first use: the first private chat becomes the owner's.
+	Allowed []string
 
 	mu   sync.Mutex
 	seen map[string]bool
@@ -258,6 +262,28 @@ func (c *Channel) duplicate(id string) bool {
 	return false
 }
 
+// allowed decides who may drive the agents. Everyone who can message the bot
+// is not someone the agents should run code for: with no allowlist, only the
+// first private chat (the owner's) is heard, and group chats are not.
+func (c *Channel) allowed(ctx context.Context, in Inbound) (bool, error) {
+	if len(c.Allowed) > 0 {
+		for _, id := range c.Allowed {
+			if id == in.SenderOpenID {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	main, ok, err := c.K.FindMainBinding(ctx, "feishu")
+	if err != nil {
+		return false, err
+	}
+	if ok {
+		return in.ChatID == main.ChatID, nil
+	}
+	return in.ChatType == "p2p", nil
+}
+
 // HandleMessage records an inbound message and hands it to the one message door.
 func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 	if in.SenderType != "user" || in.ChatID == "" { // bot echoes never re-enter
@@ -277,11 +303,16 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 			return nil
 		}
 	}
+	allowed, err := c.allowed(ctx, in)
+	if err != nil {
+		return err
+	}
 	keys := ImageKeys(in.MessageType, in.Content)
 	var images []agents.InboundImage
 	var failures []string
 	for i, key := range keys {
-		if i == 4 {
+		// Nothing is fetched for a sender the agents will not act for.
+		if i == 4 || !allowed {
 			break
 		}
 		b, header, err := c.M.FetchImage(ctx, in.MessageID, key)
@@ -317,9 +348,16 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 		_, _ = k.Append(ctx, kernel.EventInput{Source: "connector:feishu", Kind: "agent.error",
 			Payload: kernel.Payload{"error": fmt.Sprintf("failed to download %d image(s) from Feishu", len(failures)), "detail": failures, "messageId": nilIfEmpty(in.MessageID)}})
 	}
-	// The log takes everything; a model wakes only for input it can act on.
+	// The log takes everything; a model wakes only for input it can act on,
+	// from someone allowed to ask.
 	if words == "" && len(keys) == 0 {
 		return nil
+	}
+	if !allowed {
+		_, err := k.Append(ctx, kernel.EventInput{Source: "connector:feishu", Kind: "connector.feishu_ignored",
+			Payload: kernel.Payload{"chatId": in.ChatID, "chatType": in.ChatType, "messageId": nilIfEmpty(in.MessageID),
+				"reason": "sender is not allowed to drive the agents (set feishu.allowedUsers)"}})
+		return err
 	}
 	// The p2p chat is the main-thread binding: a scheduled reminder cannot
 	// reach a chat nobody recorded.
@@ -336,7 +374,7 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 			target = b.WorkItemID
 		}
 	}
-	_, err := c.Sys.SubmitMessage(ctx, agents.InboundMessage{
+	_, err = c.Sys.SubmitMessage(ctx, agents.InboundMessage{
 		Text: text, Images: images, Source: "connector:feishu", Target: target,
 		Channel: map[string]any{"feishu": map[string]any{"chatId": in.ChatID, "rootId": nilIfEmpty(in.RootID), "messageId": nilIfEmpty(in.MessageID)}},
 	})

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type Config struct {
 	FeishuAppSecret         string
 	FeishuVerificationToken string
 	FeishuEncryptKey        string
+	FeishuAllowedUsers      []string
 }
 
 func env(name string) string { return os.Getenv(name) }
@@ -55,6 +57,16 @@ func envFloat(name string, def float64) float64 {
 		}
 	}
 	return def
+}
+
+func list(v string) []string {
+	var out []string
+	for _, x := range strings.Split(v, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func envSec(name string, def int) time.Duration {
@@ -93,6 +105,7 @@ func Load() *Config {
 		FeishuAppSecret:         env("FEISHU_APP_SECRET"),
 		FeishuVerificationToken: env("FEISHU_VERIFICATION_TOKEN"),
 		FeishuEncryptKey:        env("FEISHU_ENCRYPT_KEY"),
+		FeishuAllowedUsers:      list(env("FEISHU_ALLOWED_USERS")),
 	}
 }
 

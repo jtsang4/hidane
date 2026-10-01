@@ -183,6 +183,7 @@ func (a *App) Stop() {
 	if a.cancel != nil {
 		a.cancel()
 	}
+	a.Sys.Pool.Shutdown(15 * time.Second)
 	if a.Runtime != nil {
 		a.Runtime.Stop()
 	}

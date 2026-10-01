@@ -355,6 +355,11 @@ func (r *Runtime) runTurn(address string, h TurnHandler) {
 		}()
 		return h(ctx, address, messages)
 	}()
+	if ctx.Err() != nil {
+		// Interrupted by shutdown, not failed: the messages stay pending and
+		// the turn runs again after the restart.
+		return
+	}
 	if err != nil {
 		// At-least-once delivery, not at-least-forever: a turn that fails is
 		// recorded and its messages are consumed, or one poison message would
