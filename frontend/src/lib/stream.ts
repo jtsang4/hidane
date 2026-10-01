@@ -32,6 +32,8 @@ export interface LiveStreamOptions {
   importRuntime?: () => Promise<unknown>;
   /** Called when the desktop channel could not be opened and SSE is used instead. */
   onFallback?: (error: unknown) => void;
+  /** Asks the desktop shell for the greeting once subscribed; defaults to POST /api/live/hello. */
+  greet?: () => Promise<void> | void;
 }
 
 const isFrameKind = (value: unknown): value is FrameKind =>
@@ -96,6 +98,28 @@ const defaultImportRuntime = (): Promise<unknown> => import(/* @vite-ignore */ W
  * Liveness and reconnects are the caller's concern (see `live.ts`): both
  * transports deliver the same `ping` every 15s.
  */
+export type LiveTransport = "none" | "sse" | "wails";
+
+let activeTransport: LiveTransport = "none";
+
+/** Which transport the most recently opened stream ended up on. */
+export function liveTransport(): LiveTransport {
+  return activeTransport;
+}
+
+/**
+ * Desktop frames are pushed, not requested: the shell cannot know when a page
+ * subscribed, so the page asks for its greeting (and any reply already in
+ * flight) once it is listening.
+ */
+async function defaultGreet(): Promise<void> {
+  try {
+    await fetch("/api/live/hello", { method: "POST" });
+  } catch {
+    // The next ping still proves liveness; a missed greeting only delays it.
+  }
+}
+
 export function openLiveStream(handlers: FrameHandlers, options: LiveStreamOptions = {}): () => void {
   let closed = false;
   let stop: (() => void) | null = null;
@@ -112,6 +136,7 @@ export function openLiveStream(handlers: FrameHandlers, options: LiveStreamOptio
       });
     }
     stop = () => source.close();
+    activeTransport = "sse";
   };
 
   if (!(options.desktop ?? boot().desktop)) {
@@ -127,6 +152,8 @@ export function openLiveStream(handlers: FrameHandlers, options: LiveStreamOptio
           if (frame) dispatch(frame.kind, frame.data);
         });
         stop = typeof off === "function" ? (off as () => void) : () => events.Off?.(WAILS_FRAME_EVENT);
+        activeTransport = "wails";
+        void (options.greet ?? defaultGreet)();
       })
       .catch((error: unknown) => {
         if (closed) return;

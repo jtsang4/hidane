@@ -135,15 +135,15 @@ func startClaude(ctx context.Context, l *Launcher, bin string, req Request) (Run
 }
 
 type claudeLine struct {
-	Type          string          `json:"type"`
-	Subtype       string          `json:"subtype"`
-	SessionID     string          `json:"session_id"`
-	Event         json.RawMessage `json:"event"`
-	Message       json.RawMessage `json:"message"`
-	Result        *string         `json:"result"`
-	IsError       bool            `json:"is_error"`
-	IsReplay      bool            `json:"isReplay"`
-	QueuedTurns   *int            `json:"queued_turn_count"`
+	Type        string          `json:"type"`
+	Subtype     string          `json:"subtype"`
+	SessionID   string          `json:"session_id"`
+	Event       json.RawMessage `json:"event"`
+	Message     json.RawMessage `json:"message"`
+	Result      *string         `json:"result"`
+	IsError     bool            `json:"is_error"`
+	IsReplay    bool            `json:"isReplay"`
+	QueuedTurns *int            `json:"queued_turn_count"`
 }
 
 type claudeBlock struct {

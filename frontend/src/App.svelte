@@ -17,6 +17,7 @@
   import { onMount } from "svelte";
   import i18n, { t, language, switchLanguage } from "./i18n/index.js";
   import {
+    api,
     ApiError,
     clearToken,
     getToken,
@@ -24,6 +25,7 @@
     setToken,
   } from "./lib/api.js";
   import { boot } from "./lib/boot.js";
+  import { liveTransport } from "./lib/stream.js";
   import { resetLiveText } from "./lib/liveText.js";
   import { badgeTitle, completionFrom, notifyPermission } from "./lib/notify.js";
   import { clearToasts, pushToast } from "./lib/toast.js";
@@ -77,6 +79,16 @@
   let authed = $state(!needsToken || getToken().length > 0);
   let tokenDraft = $state("");
   let live = $state<LiveState>("connecting");
+  let readyReported = false;
+
+  // The desktop shell learns the page loaded and its live channel works.
+  function onLiveState(state: LiveState) {
+    live = state;
+    if (state === "live" && boot().desktop && !readyReported) {
+      readyReported = true;
+      void api.uiReady(liveTransport()).catch(() => undefined);
+    }
+  }
   let unseen = $state(0);
   let route = $derived(routeFor(routerState.path));
   let nextLang = $derived<"zh" | "en">($language === "en" ? "zh" : "en");
@@ -155,7 +167,7 @@
 </script>
 
 <QueryClientProvider client={queryClient}>
-  <LiveLane enabled={authed} onstatechange={(state) => (live = state)} />
+  <LiveLane enabled={authed} onstatechange={onLiveState} />
   {#if !authed}
     <div class="flex h-full items-center justify-center p-6">
       <Card class="w-full max-w-sm space-y-3">

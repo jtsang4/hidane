@@ -131,10 +131,10 @@ func LooksTextual(path string) bool {
 }
 
 type ArtifactContent struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
+	Path   string  `json:"path"`
+	Size   int64   `json:"size"`
 	Text   *string `json:"text,omitempty"`
-	Reason string `json:"reason,omitempty"`
+	Reason string  `json:"reason,omitempty"`
 }
 
 // ReadArtifact returns a file's content, or nil when it is not a readable file inside the workspace.

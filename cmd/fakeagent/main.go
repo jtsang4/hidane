@@ -453,7 +453,7 @@ func runCodex(args []string) {
 			id := fmt.Sprintf("item_%d", i)
 			detail, _ := json.Marshal(call.input)
 			emit(map[string]any{"type": "item.started", "item": map[string]any{"id": id, "type": "command_execution", "command": string(detail), "status": "in_progress"}})
-			reason := runHook(hook, "codex", "Bash", call.input)
+			reason := runHook(hook, "codex", "Bash", map[string]any{"command": shellCommand(call)})
 			exit := 0
 			if reason != "" {
 				blocked = append(blocked, reason)
@@ -482,6 +482,16 @@ func runCodex(args []string) {
 		return
 	}
 	emit(map[string]any{"type": "turn.completed", "usage": map[string]any{"input_tokens": 1, "output_tokens": 1}})
+}
+
+// shellCommand is how codex expresses a call: everything is a shell command.
+func shellCommand(call toolCall) string {
+	if cmd, ok := call.input["command"].(string); ok {
+		return cmd
+	}
+	content, _ := call.input["content"].(string)
+	path, _ := call.input["file_path"].(string)
+	return fmt.Sprintf("printf '%%s\\n' '%s' > '%s'", strings.ReplaceAll(content, "'", `'\''`), path)
 }
 
 func readAll() ([]byte, error) {

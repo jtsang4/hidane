@@ -259,10 +259,10 @@ type ListFilter struct {
 	Kind       string
 	// Kinds are OR'd. Paging a chat needs this: filtering after the fetch gives
 	// pages with an unpredictable number of renderable rows.
-	Kinds         []string
-	ExecutionID   string
-	AfterSeq      *int64
-	BeforeSeq     *int64
+	Kinds       []string
+	ExecutionID string
+	AfterSeq    *int64
+	BeforeSeq   *int64
 	// Day is `YYYY-MM-DD` in the local timezone.
 	Day string
 	// PayloadEquals matches a top-level payload key: some things are identified
@@ -444,3 +444,6 @@ func (k *Kernel) NextBatch(ctx context.Context, consumer string, limit int) ([]E
 	}
 	return k.ListEvents(ctx, ListFilter{AfterSeq: &after, Limit: limit})
 }
+
+// ScanEvent reads one row selected with SelectCols.
+func ScanEvent(s interface{ Scan(dest ...any) error }) (Event, error) { return scanEvent(s) }

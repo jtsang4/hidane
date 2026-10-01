@@ -303,6 +303,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 }
 
 export const api = {
+  /** Tells the desktop shell the page loaded and reached the backend. */
+  uiReady: (transport: string) =>
+    apiFetch<{ ok: boolean }>(`/api/ui-ready`, { method: "POST", body: JSON.stringify({ transport }) }),
   events: (params: Record<string, string | number | undefined>) => {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {

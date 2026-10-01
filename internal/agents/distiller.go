@@ -1,0 +1,267 @@
+package agents
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"strings"
+	"time"
+
+	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/projections"
+)
+
+const (
+	distillerConsumer = "distiller"
+	promoteThreshold  = 0.8
+	recallCap         = 4000
+)
+
+var meaningfulKinds = map[string]bool{
+	"user.message": true, "agent.reply": true, "escalation": true, "execution.finished": true,
+	"work_item.created": true, "work_item.status_changed": true,
+}
+
+// MeaningfulEvents are kinds that can carry durable material. A message the
+// person hid must not come back as a memory.
+func MeaningfulEvents(events []kernel.Event) []kernel.Event {
+	var out []kernel.Event
+	for _, e := range events {
+		if meaningfulKinds[e.Kind] && !e.Payload.Bool("redacted") {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func eventLine(e kernel.Event) string {
+	text := e.Payload.Str("text")
+	if text == "" {
+		text = e.Payload.Str("summary")
+	}
+	if text == "" {
+		text = e.Payload.Str("note")
+	}
+	body := clipRunes(text, 500)
+	if text == "" {
+		b, _ := json.Marshal(e.Payload)
+		body = clipRunes(string(b), 200)
+	}
+	tag := e.Kind
+	if e.WorkItemID != "" {
+		tag += " " + e.WorkItemID
+	}
+	return fmt.Sprintf("[%s] %s", tag, body)
+}
+
+type DistillResult struct {
+	Scanned    int  `json:"scanned"`
+	Meaningful int  `json:"meaningful"`
+	Extracted  int  `json:"extracted"`
+	Promoted   int  `json:"promoted"`
+	Skipped    bool `json:"skipped"`
+}
+
+// reconcileMemoryLog records entries edited into MEMORY.md by hand: a memory
+// whose provenance the log cannot account for is exactly the kind of thing
+// that later steers work with nobody able to say why.
+func (s *System) reconcileMemoryLog(ctx context.Context, entries []kernel.MemoryEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	promoted, err := s.K.ListEvents(ctx, kernel.ListFilter{Kind: "memory.promoted"})
+	if err != nil {
+		return err
+	}
+	recorded := map[string]bool{}
+	for _, e := range promoted {
+		recorded[e.Payload.Str("memoryId")] = true
+	}
+	for _, entry := range entries {
+		if entry.ID == "" || recorded[entry.ID] {
+			continue
+		}
+		if _, err := s.K.Append(ctx, kernel.EventInput{Source: "agent:distiller", Kind: "memory.promoted",
+			Payload: kernel.Payload{"memoryId": entry.ID, "kind": entry.Kind, "content": entry.Content, "scope": "global", "observedInFile": true}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunDistillation consumes the log with its own cursor: batch → candidate
+// memories → high-confidence ones land in the layered memory files. The cursor
+// advances only when the batch was processed (or held nothing meaningful), so
+// sparse material accumulates instead of getting lost.
+func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillResult, error) {
+	k := s.K
+	batch, err := k.NextBatch(ctx, distillerConsumer, 200)
+	if err != nil || len(batch) == 0 {
+		return DistillResult{Skipped: true}, err
+	}
+	meaningful := MeaningfulEvents(batch)
+	last := batch[len(batch)-1].Seq
+	res := DistillResult{Scanned: len(batch), Meaningful: len(meaningful), Skipped: true}
+	if len(meaningful) == 0 {
+		return res, k.CommitCursor(ctx, distillerConsumer, last)
+	}
+	if len(meaningful) < minEvents {
+		return res, nil
+	}
+	existing := kernel.ParseMemories(kernel.ReadTextFile(k.GlobalMemoryPath()))
+	if err := s.reconcileMemoryLog(ctx, existing); err != nil {
+		return res, err
+	}
+	existingText := ""
+	if len(existing) > 0 {
+		var lines []string
+		for _, m := range existing {
+			lines = append(lines, "- "+m.Content)
+		}
+		existingText = "Existing memories (do not duplicate):\n" + strings.Join(lines, "\n")
+	}
+	var lines []string
+	for _, e := range meaningful {
+		lines = append(lines, eventLine(e))
+	}
+	thought := s.think(ctx, joinNonEmpty([]string{existingText, "Recent events:\n" + strings.Join(lines, "\n")}, "\n\n"),
+		thinkOpts{Role: "distiller", Charter: DistillerCharter, Cwd: k.Cfg.Home, SessionDir: k.Cfg.SessionsDir()})
+	if !thought.OK {
+		_, err := k.Append(ctx, kernel.EventInput{Source: "agent:distiller", Kind: "distill.run",
+			Payload: kernel.Payload{"ok": false, "error": thought.Error, "scanned": len(batch)}})
+		// The cursor stays: the same material is retried next round.
+		return res, err
+	}
+	var parsed struct {
+		Memories []struct {
+			Kind       string  `json:"kind"`
+			Scope      string  `json:"scope"`
+			WorkItemID *string `json:"work_item_id"`
+			Content    string  `json:"content"`
+			Confidence float64 `json:"confidence"`
+		} `json:"memories"`
+	}
+	ExtractJSON(thought.Raw, &parsed)
+	for _, m := range parsed.Memories {
+		content := strings.TrimSpace(m.Content)
+		if content == "" {
+			continue
+		}
+		kind := m.Kind
+		if !kernel.ValidMemoryKind(kind) {
+			kind = "fact"
+		}
+		scope := "global"
+		if m.Scope == "work_item" {
+			scope = "work_item"
+		}
+		workItemID := ""
+		if m.WorkItemID != nil {
+			workItemID = *m.WorkItemID
+		}
+		confidence := math.Max(0, math.Min(1, m.Confidence))
+		cand := kernel.EventInput{Source: "agent:distiller", Kind: "memory.candidate",
+			Payload: kernel.Payload{"kind": kind, "scope": scope, "content": content, "confidence": confidence}}
+		if scope == "work_item" {
+			cand.WorkItemID = workItemID
+		}
+		if _, err := k.Append(ctx, cand); err != nil {
+			return res, err
+		}
+		if confidence < promoteThreshold {
+			continue
+		}
+		workspace := ""
+		if scope == "work_item" && workItemID != "" {
+			if it, err := k.GetWorkItem(ctx, workItemID); err == nil {
+				workspace = it.Workspace
+			}
+		}
+		target := "global"
+		if workspace != "" {
+			target = "work_item"
+		}
+		if _, err := k.PromoteToFile(ctx, kind, content, target, workspace, workItemID, "agent:distiller"); err != nil {
+			return res, err
+		}
+		res.Promoted++
+	}
+	res.Extracted = len(parsed.Memories)
+	res.Skipped = false
+	if err := k.CommitCursor(ctx, distillerConsumer, last); err != nil {
+		return res, err
+	}
+	_, err = k.Append(ctx, kernel.EventInput{Source: "agent:distiller", Kind: "distill.run", Payload: kernel.Payload{
+		"ok": true, "scanned": len(batch), "meaningful": len(meaningful), "extracted": res.Extracted, "promoted": res.Promoted,
+		"durationMs": thought.DurationMs}})
+	return res, err
+}
+
+// RecallForPrimary is the global memory file: cheap cross-day recall.
+func (s *System) RecallForPrimary() string {
+	return clipRunes(strings.TrimSpace(kernel.ReadTextFile(s.K.GlobalMemoryPath())), recallCap)
+}
+
+// RecallForManager is the work item's memory plus the global memory.
+func (s *System) RecallForManager(item kernel.WorkItem) string {
+	scoped := strings.TrimSpace(kernel.ReadTextFile(kernel.WorkItemMemoryPath(item.Workspace)))
+	global := strings.TrimSpace(kernel.ReadTextFile(s.K.GlobalMemoryPath()))
+	return clipRunes(joinNonEmpty([]string{scoped, global}, "\n\n"), recallCap)
+}
+
+// EnforceDeadlines: a deadline is one of the three cancel sources. An overdue
+// item is stopped with everything under it, and the person is told.
+func (s *System) EnforceDeadlines(ctx context.Context) error {
+	k := s.K
+	overdue, err := k.OverdueWorkItems(ctx, k.Now())
+	if err != nil {
+		return err
+	}
+	for _, item := range overdue {
+		if _, err := k.SetWorkItemDeadline(ctx, item.ID, "", "kernel:runtime"); err != nil {
+			return err
+		}
+		stopped, err := s.Pool.CancelTree(ctx, item.ID, "deadline passed", "kernel:runtime")
+		if err != nil {
+			return err
+		}
+		note := ""
+		if len(stopped) > 0 {
+			note = "，正在进行的执行已停止"
+		}
+		if _, err := k.Append(ctx, kernel.EventInput{Source: "kernel:runtime", Kind: "escalation", ThreadID: "main", WorkItemID: item.ID,
+			Payload: kernel.Payload{"reason": "deadline", "question": fmt.Sprintf("「%s」已到截止时间%s。需要继续的话，直接回复这个任务。", item.Title, note)}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// NewRuntime is the event loop with every role and housekeeping task wired in.
+func (s *System) NewRuntime() *kernel.Runtime {
+	k := s.K
+	rt := kernel.NewRuntime(k, k.Cfg.MaxConcurrentTurns)
+	rt.Register(kernel.Primary, s.PrimaryTurn)
+	rt.Register(kernel.ManagerPrefix, s.ManagerTurn)
+	rt.RegisterTimer("worker-pump", func(context.Context) error { s.Pool.Pump(); return nil }, 2*time.Second)
+	rt.RegisterTimer("deadlines", s.EnforceDeadlines, 30*time.Second)
+	rt.RegisterIdle("distill", func(ctx context.Context) error {
+		_, err := s.RunDistillation(ctx, 10)
+		return err
+	}, k.Cfg.DistillInterval, 3*k.Cfg.DistillInterval)
+	rt.RegisterIdle("archive", func(ctx context.Context) error {
+		_, _, err := projections.ArchiveDay(ctx, k, k.Today())
+		return err
+	}, time.Hour, 2*time.Hour)
+	s.Runtime = rt
+	return rt
+}
+
+// ActiveTurns is empty when no runtime runs in this process.
+func (s *System) ActiveTurns() []string {
+	if s.Runtime == nil {
+		return []string{}
+	}
+	return s.Runtime.ActiveTurns()
+}

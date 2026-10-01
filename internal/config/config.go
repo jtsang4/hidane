@@ -21,13 +21,13 @@ type Config struct {
 	// WebhookSecret enables HMAC verification of /webhook/:name.
 	WebhookSecret string
 
-	HeartbeatInterval   time.Duration
-	DistillInterval     time.Duration
-	RouteTimeout        time.Duration
-	WorkerTimeout       time.Duration
-	MaxHops             int
-	MaxWorkers          int
-	MaxConcurrentTurns  int
+	HeartbeatInterval    time.Duration
+	DistillInterval      time.Duration
+	RouteTimeout         time.Duration
+	WorkerTimeout        time.Duration
+	MaxHops              int
+	MaxWorkers           int
+	MaxConcurrentTurns   int
 	MaxExecutionsPerItem int
 	AttributionThreshold float64
 

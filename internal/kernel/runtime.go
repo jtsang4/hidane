@@ -41,8 +41,8 @@ type handlerEntry struct {
 // completion, and priority is: interrupt-lane mailboxes, then normal, then idle
 // tasks only once nothing is pending or running.
 type Runtime struct {
-	k        *Kernel
-	maxTurns int
+	k         *Kernel
+	maxTurns  int
 	pollEvery time.Duration
 
 	mu        sync.Mutex

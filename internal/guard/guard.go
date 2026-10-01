@@ -105,7 +105,7 @@ type Call struct {
 }
 
 type Decision struct {
-	Block bool   `json:"block"`
+	Block  bool   `json:"block"`
 	Reason string `json:"reason,omitempty"`
 	// Policy marks a refusal by a rule (built-in or policy file), as opposed to
 	// a pause for pending input; only those are reported as policy.blocked.

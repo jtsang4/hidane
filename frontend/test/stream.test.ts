@@ -4,6 +4,7 @@ import {
   FRAME_KINDS,
   WAILS_FRAME_EVENT,
   frameFromWails,
+  liveTransport,
   openLiveStream,
   type EventSourceLike,
   type FrameHandlers,
@@ -185,6 +186,31 @@ describe("openLiveStream in desktop mode", () => {
     await flush();
     runtime.fire({ data: { event: "hello", data: { seq: 1 } } });
     expect(seen).toEqual([["hello", '{"seq":1}']]);
+  });
+});
+
+describe("transport and greeting", () => {
+  it("reports sse in browser mode", () => {
+    openLiveStream({}, { desktop: false, createEventSource })();
+    expect(liveTransport()).toBe("sse");
+  });
+
+  it("reports wails and asks the shell for its greeting once subscribed", async () => {
+    const { module } = fakeRuntime();
+    const greet = vi.fn();
+    const close = openLiveStream({}, { desktop: true, importRuntime: () => Promise.resolve(module), greet, createEventSource });
+    await vi.waitFor(() => expect(greet).toHaveBeenCalledTimes(1));
+    expect(liveTransport()).toBe("wails");
+    close();
+  });
+
+  it("does not greet when the runtime cannot be loaded", async () => {
+    const greet = vi.fn();
+    const onFallback = vi.fn();
+    openLiveStream({}, { desktop: true, importRuntime: () => Promise.reject(new Error("no runtime")), greet, onFallback, createEventSource });
+    await vi.waitFor(() => expect(onFallback).toHaveBeenCalled());
+    expect(greet).not.toHaveBeenCalled();
+    expect(liveTransport()).toBe("sse");
   });
 });
 

@@ -135,5 +135,5 @@ const (
 )
 
 func ManagerAddress(workItemID string) string { return ManagerPrefix + workItemID }
-func IsManagerAddress(address string) bool   { return strings.HasPrefix(address, ManagerPrefix) }
-func WorkItemIDOf(address string) string     { return strings.TrimPrefix(address, ManagerPrefix) }
+func IsManagerAddress(address string) bool    { return strings.HasPrefix(address, ManagerPrefix) }
+func WorkItemIDOf(address string) string      { return strings.TrimPrefix(address, ManagerPrefix) }
