@@ -1,6 +1,6 @@
 # hidane → Go + Wails v3 桌面客户端改造方案
 
-> 状态：执行中（本文件既是计划，也是改造完成后的架构说明）。
+> 状态：已完成（本文件既是当初的计划，也是改造后的架构说明；第 8 节记录实施中与计划不同的决定）。
 > 目标版本：Wails `v3.0.0-beta.27`（2026-10 时最新），Go 1.26，Svelte 5 + Vite。
 
 ## 1. 为什么改、改成什么
@@ -185,3 +185,31 @@ Distiller 只推理不用工具，Worker 用工具）、模型/effort、已解�
 9. 飞书连接器（官方 Go SDK，长连接模式，桌面端无需公网回调）
 10. 删除 Node 服务端与部署文件，更新 README / AGENTS.md / CLAUDE.md / 验收场景
 11. 循环：全部检查 → 修复 → 再检查，直到全绿
+
+## 8. 实施记录：与计划不同、由实测逼出来的决定
+
+计划之外的改动都有来由——大多来自用本机真实 `claude` / `codex` / `pi` 跑任务，或来自一次独立的代码评审：
+
+| 现象（证据） | 决定 |
+|---|---|
+| 真实 claude haiku 当 Primary 时，被告知自己是带文件工具的 Claude Code，直接回复「两个文件都创建成功了」，实际没有任何工作项、没有任何文件 | 推理角色（Primary / Manager / 蒸馏）用 charter **替换** CLI 的系统提示（claude/pi `--system-prompt`），只有 worker 追加；Primary charter 明确「你没有工具，凡是要做的事都建工作项，绝不声称做了没做的事」 |
+| Primary 的 cwd 是 `HIDANE_HOME`，模型把它写进 brief，真实 pi worker 于是 `cd ~/.hidane && echo hi > hello.txt`——写进了存放 POLICY.json / settings.json（含 key）/ 数据库的目录 | 推理角色在 `runtime/roles/<role>/` 空目录里运行；闸门新增**工作区禁锢**：文件工具只能写本工作项工作区，shell 命令不得改动 hidane 数据目录，也不得改动工作区里的 `.hidane`（工作区自己的策略与轨迹） |
+| 一个手写坏了的 POLICY.json（`\.` 非法转义）让全部规则静默失效 | 存在但读不懂的策略文件 → 拒绝一切修改性调用（fail closed）；缺失的文件仍等于「无规则」 |
+| 真实 claude worker 把三步写成一条 shell 命令，整条被拒，Manager 却转述成「前两步已完成」 | 闸门拒绝时只对模型追加「这次调用里什么都没执行，请把允许的部分拆成单独调用」；日志里的 `policy.blocked` 原因保持干净。复测：worker 拆开执行，结论如实 |
+| 评审：pi 会展开 `~`、去掉前导 `@`；「只读命令」白名单放过多行命令、`$(…)`、`find -delete`；codex 补丁的 `Move to:` 未检查 | 闸门按 CLI 的方式解析路径；多行 / 命令替换 / 带动作参数的命令一律视为修改；补丁的移动目标同样检查 |
+| 评审：闸门自己的控制文件（待读输入标记、拦截记录）在 worker 可写的工作区里 | 移到 `runtime/executions/<id>/`，worker 删不掉也伪造不了 |
+| 评审：退出应用时 worker CLI 仍在后台运行；下次启动又判它 lost 并派第二个 writer 进同一工作区 | 退出时停止所有 worker 并以 `lost` 报告给 owner；被关停打断的 turn 不提交游标，重启后重跑 |
+| 评审：worker 结果可能被跳数预算吞掉（违反「每个执行的结果必达 owner」） | 预算在派发前检查（花钱之前）；`execution.finished` 永远投递 |
+| 评审：蒸馏读窗口固定 200 条，安静期里会永远停住 | 向前扫描直到素材足够、到达日志头或上限 |
+| 评审：serve 模式下未设 secret 的 webhook 任何网页都能跨域 POST 触发；任何能私聊机器人的飞书用户都能驱动 agent | 未设 `HIDANE_WEBHOOK_SECRET` 时 webhook 一律 403；飞书增加发送者白名单，未配置时只认第一个私聊（主人），其余只记录 `connector.feishu_ignored` |
+| WKWebView 里点回复中的外链会把整个应用窗口导航走；下载没有落盘的地方 | 桌面模式拦截外链交给系统浏览器、产物「下载」改为在访达中显示（仅桌面端点，serve 不暴露） |
+| 桌面端 Wails 事件是推送的，页面订阅前的 `hello` 会丢 | 页面订阅后请求一次问候（`POST /api/live/hello`），GUI 冒烟要求实时帧确实经 Wails 事件到达 |
+
+## 9. 验证现状
+
+- Go：`go test -race ./...`（GUI 与 nogui 两种构建）——内核不变量、三个 CLI 驱动对假 CLI 的协议、闸门、设置、Primary/Manager/worker 全链路、API、飞书、调度、投影、CLI 子命令
+- 前端：svelte-check 0 错误；vitest 23 个文件 / 151 个用例
+- E2E：Playwright 15 个场景 × chromium + webkit = 30 个用例，对真实 Go 后端 + 假 CLI；`--repeat-each=3` 90/90 无抖动
+- 桌面：`make smoke-gui` 打开真实 Wails 窗口，输出 `ui ready (live transport: wails)` 后退出 0；`make app` 产出带图标的 `.app`
+- 真实 CLI：三个 CLI 各自 `model --ping` 通过；所有角色都在 codex、都在 pi、以及 claude 推理 + 三种 worker 的真实任务各跑通，策略拦截在三个真实 CLI 中都生效
+- 验收：`make acceptance`（Claude Code 作为验收 Agent 执行 `acceptance/scenarios.md`）
