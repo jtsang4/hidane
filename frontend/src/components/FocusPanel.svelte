@@ -69,14 +69,15 @@
    *  words (main-thread originals are the conversation's, not repeated here). */
   let thread = $derived(events.filter((e) => (e.kind === "user.message" && e.threadId !== "main") || THREAD_KINDS.has(e.kind)));
   let executions = $derived(executionGroups(events));
-  let live = $derived(liveRepliesFor(data?.item.threadId ?? "", maxSeq(thread)));
+  let liveThreadId = $derived(data?.item.threadId ?? "");
+  let live = $derived(liveRepliesFor(liveThreadId, maxSeq(thread)));
 
   $effect(() => {
-    if (data?.item.threadId) return watchLiveReplies(data.item.threadId);
+    if (liveThreadId) return watchLiveReplies(liveThreadId);
   });
 
   $effect(() => {
-    if (data?.item.threadId) acknowledgeLiveReplies(data.item.threadId, maxSeq(thread));
+    if (liveThreadId) acknowledgeLiveReplies(liveThreadId, maxSeq(thread));
   });
   let hasOlder = $derived((data?.hasMore ?? false) && !exhausted);
   let parent = $derived(data?.item.parentId ? cards.get(data.item.parentId) : undefined);
