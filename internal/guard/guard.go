@@ -107,7 +107,9 @@ var mutating = map[string]bool{"bash": true, "write": true, "edit": true}
 // Shell commands that only look. Anything else counts as a change, which errs
 // toward pausing: a read that waits one turn costs little, a write made against
 // superseded instructions may not be undoable.
-var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|git\s+(status|log|diff|show|branch))\b[^;&|>]*$`)
+// Not here, though they mostly look: sort (-o), uniq (an output file argument)
+// and sed (its w command) can write.
+var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|printf|true|false|test|\[|basename|dirname|realpath|readlink|diff|cmp|cut|tr|jq|shasum|sha256sum|md5|md5sum|git\s+(status|log|diff|show|branch))(\s|$)[^;&|>]*$`)
 
 // Read-only commands that can still change things through a flag.
 var (
@@ -127,6 +129,7 @@ func IsReadOnly(cmd string) bool {
 	if masked == "" {
 		return false
 	}
+	cmd, masked = dropHarmlessRedirections(cmd, masked)
 	for _, span := range splitSpans(masked, readOnlySep) {
 		seg, mseg := cmd[span[0]:span[1]], masked[span[0]:span[1]]
 		if !readOnlyHead.MatchString(mseg) || findActs.MatchString(seg) || branchActs.MatchString(seg) || treeOut.MatchString(seg) {
@@ -137,6 +140,26 @@ func IsReadOnly(cmd string) bool {
 }
 
 var readOnlySep = regexp.MustCompile(`&&|\|\||;|\||&`)
+
+// A redirection into a device or onto another descriptor (2>&1, 2>/dev/null)
+// writes no file. Agents append them to plain looks; read as writes, they got
+// `ls .hidane 2>&1` refused as a change to .hidane.
+var harmlessRedirection = regexp.MustCompile(`(?:[0-9]?>>?|&>>?)\s*(?:&[0-9]+-?|&-|/dev/(?:null|stdout|stderr|tty))`)
+
+// dropHarmlessRedirections blanks those redirections in both the command and
+// its masked form, keeping every offset.
+func dropHarmlessRedirections(cmd, masked string) (string, string) {
+	c, m := []byte(cmd), []byte(masked)
+	for _, loc := range harmlessRedirection.FindAllStringIndex(masked, -1) {
+		if end := loc[1]; end < len(m) && !strings.ContainsRune(" \t;&|)", rune(m[end])) {
+			continue // `2>/dev/nullx` names a file
+		}
+		for i := loc[0]; i < loc[1]; i++ {
+			c[i], m[i] = ' ', ' '
+		}
+	}
+	return string(c), string(m)
+}
 
 // maskQuoted blanks what is inside quotes, keeping every offset, so a `>` or
 // `;` in quoted text is not read as shell syntax. "" means the quotes do not
@@ -432,8 +455,41 @@ func shellWrites(cmd string) []string {
 				}
 			}
 		case "cp", "mv", "install", "ln", "rsync":
-			if len(args) > 1 {
+			// GNU -t / --target-directory names the destination up front.
+			target := ""
+			for i, f := range fields[1:] {
+				switch {
+				case f == "-t" || f == "--target-directory":
+					if i+2 < len(fields) {
+						target = fields[i+2]
+					}
+				case strings.HasPrefix(f, "--target-directory="):
+					target = strings.TrimPrefix(f, "--target-directory=")
+				case strings.HasPrefix(f, "-t") && len(f) > 2 && !strings.HasPrefix(f, "--"):
+					target = f[2:]
+				}
+			}
+			if target != "" {
+				add(target)
+			} else if len(args) > 1 {
 				add(args[len(args)-1])
+			}
+		case "sort":
+			for i, f := range fields[1:] {
+				switch {
+				case f == "-o" || f == "--output":
+					if i+2 < len(fields) {
+						add(fields[i+2])
+					}
+				case strings.HasPrefix(f, "--output="):
+					add(strings.TrimPrefix(f, "--output="))
+				case strings.HasPrefix(f, "-o") && len(f) > 2:
+					add(f[2:])
+				}
+			}
+		case "uniq":
+			if len(args) > 1 {
+				add(args[1])
 			}
 		case "cd", "pushd":
 			if len(args) > 0 && !IsReadOnly(cmd) {

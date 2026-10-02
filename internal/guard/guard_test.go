@@ -57,8 +57,10 @@ func TestPolicyFilesApplyOutermostFirstAndToMutatingToolsByDefault(t *testing.T)
 	}
 	// A shell command that only looks is a read, like the read tool.
 	_ = guard.WriteFile(global, guard.File{Rules: []guard.Rule{{ID: "pol_g", Pattern: `forbidden\.txt`, Reason: "not that file"}}})
-	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "ls -la forbidden.txt"}, env); d.Block {
-		t.Fatalf("a read-only command is not a change: %s", d.Reason)
+	for _, cmd := range []string{"ls -la forbidden.txt", "cat forbidden.txt 2>/dev/null", "grep keep forbidden.txt 2>&1 | wc -l"} {
+		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); d.Block {
+			t.Fatalf("%q is a read, not a change: %s", cmd, d.Reason)
+		}
 	}
 	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "echo x > forbidden.txt"}, env); !d.Block {
 		t.Fatal("writing the file is refused")
@@ -183,6 +185,8 @@ func TestWorkersStayInTheirWorkspace(t *testing.T) {
 		{Tool: "write", Subject: filepath.Join(ws, "b.txt")},
 		{Tool: "bash", Subject: "cd " + ws + " && echo hi > hello.txt"},
 		{Tool: "bash", Subject: "cat " + filepath.Join(home, "memory", "MEMORY.md")},
+		{Tool: "bash", Subject: "find " + home + " -name x 2>/dev/null"},
+		{Tool: "bash", Subject: "cat " + filepath.Join(home, "POLICY.json") + " 2>&1"},
 		{Tool: "edit", Subject: "*** Begin Patch"},
 	} {
 		if d := guard.Evaluate(c, env); d.Block {
@@ -283,6 +287,13 @@ func TestQuotesAndChainsAreReadAsTheShellReadsThem(t *testing.T) {
 		`grep -n "a;b > c" notes.md`,
 		`cat a.txt; ls -R .hidane`,
 		`ls && git status | head -3`,
+		`ls .hidane 2>&1`,
+		`find . -name x 2>/dev/null`,
+		`grep keep notes.md 2>&1 | wc -l`,
+		`cat notes.md >/dev/null 2>&1`,
+		`ls victim.txt 2>&1 || true`,
+		`test -f notes.md && echo yes || echo no`,
+		`[ -d src ] && ls src`,
 	} {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); d.Block {
 			t.Errorf("%q must pass: %s", cmd, d.Reason)
@@ -294,6 +305,15 @@ func TestQuotesAndChainsAreReadAsTheShellReadsThem(t *testing.T) {
 		`ls; echo x > /tmp/y`,
 		`cat a.txt; rm -rf .hidane`,
 		`echo 'unclosed > /etc/x`,
+		`cat a.txt 2>/dev/nullx`,
+		`ls 2>&1 > /tmp/out`,
+		`cp -t /tmp a.txt`,
+		`cp --target-directory=/tmp a.txt`,
+		`mv -t/tmp a.txt`,
+		`true && echo x > /tmp/y`,
+		`sort -o /tmp/y notes.md`,
+		`sort --output=/tmp/y notes.md`,
+		`uniq notes.md /tmp/y`,
 	} {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); !d.Block {
 			t.Errorf("%q must be refused", cmd)

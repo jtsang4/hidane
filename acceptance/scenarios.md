@@ -449,7 +449,9 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
   `cp`/`mv` 的目标、`cd` 到工作区外再写），并禁止改动 hidane 自己的数据目录与工作区里的 `.hidane`。
   可直接用 `hidane guard --format claude` 喂入 `{"tool_name":"Bash","tool_input":{"command":"echo x > /tmp/y"}}` 验证
 - 只读的命令不被误拦：引号里的 `>`、`;` 是文字不是语法（`sed 's/=.*/=<set>/' f`、`echo 'a > /etc/x'` 放行），
-  用 `;`/`&&`/`|` 串起来的只读命令仍算只读（`cat a; ls -R .hidane` 放行，`cat a; rm -rf .hidane` 被拒）
+  用 `;`/`&&`/`|` 串起来的只读命令仍算只读（`cat a; ls -R .hidane` 放行，`cat a; rm -rf .hidane` 被拒）；
+  只把输出丢进设备或别的描述符（`2>&1`、`2>/dev/null`、`>/dev/null`）不算写（`ls .hidane 2>&1`、
+  `find <HIDANE_HOME> -name x 2>/dev/null` 放行），`cp -t /tmp a` / `--target-directory=` 的目标照样检查（被拒）
 - 把 `POLICY.json` 改成非法 JSON 后再派一次写操作：被拒（「policy file … is unreadable」），而不是规则静默失效
 - 最终回复如实说明哪个成功、哪个被策略阻止
 
