@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { AgentCatalog } from "../src/lib/api.js";
-import { effortOptions, loadDraftRunAs, normalizeRunAs, runAsSummary, sameRunAs, saveDraftRunAs, withAgent } from "../src/lib/runAs.js";
+import {
+  effortOptions,
+  favoriteLabel,
+  loadDraftRunAs,
+  loadFavorites,
+  MAX_FAVORITES,
+  normalizeRunAs,
+  runAsSummary,
+  sameRunAs,
+  saveDraftRunAs,
+  saveFavorites,
+  toggleFavorite,
+  withAgent,
+} from "../src/lib/runAs.js";
 
 function memoryStorage(): Storage {
   const data = new Map<string, string>();
@@ -57,5 +70,41 @@ describe("run-as choice", () => {
     expect(runAsSummary({ agent: "claude", provider: "", model: "", effort: "" }, label, "默认模型")).toBe("Claude Code · 默认模型");
     expect(sameRunAs(null, undefined)).toBe(true);
     expect(sameRunAs({ agent: "pi", provider: "", model: "", effort: "" }, { agent: "pi", provider: "", model: "", effort: "off" })).toBe(false);
+  });
+
+  it("keeps favorites as whole combinations: newest first, toggled off by the same click", () => {
+    const storage = memoryStorage();
+    const codex = { agent: "codex", provider: "", model: "gpt-fake-mini", effort: "medium" } as const;
+    const pi = { agent: "pi", provider: "deepseek", model: "deepseek-v4", effort: "high" } as const;
+    let list = toggleFavorite([], codex);
+    list = toggleFavorite(list, pi);
+    expect(list).toEqual([pi, codex]);
+    saveFavorites(list, storage);
+    expect(loadFavorites(storage)).toEqual([pi, codex]);
+    // The effort is part of the combination: a different one is a different favorite.
+    expect(toggleFavorite(list, { ...codex, effort: "low" })).toHaveLength(3);
+    expect(toggleFavorite(list, codex)).toEqual([pi]);
+  });
+
+  it("reads back only favorites the CLIs can take, once each, and never more than the cap", () => {
+    const storage = memoryStorage();
+    const many = Array.from({ length: MAX_FAVORITES + 3 }, (_, n) => ({ agent: "claude", provider: "", model: `m${n}`, effort: "" }));
+    storage.setItem(
+      "hidane.runAsFavorites",
+      JSON.stringify([{ agent: "gpt" }, { agent: "claude", model: "m0", effort: "ultra" }, { agent: "claude", model: "m0" }, ...many]),
+    );
+    const list = loadFavorites(storage);
+    expect(list[0]).toEqual({ agent: "claude", provider: "", model: "m0", effort: "" });
+    expect(list.filter((entry) => entry.model === "m0")).toHaveLength(1);
+    expect(list).toHaveLength(MAX_FAVORITES);
+    expect(loadFavorites({ getItem: () => "{}" })).toEqual([]);
+    expect(loadFavorites({ getItem: () => "not json" })).toEqual([]);
+  });
+
+  it("names a favorite's provider, unlike the one-line summary", () => {
+    const label = (effort: string) => ({ high: "高" })[effort] ?? effort;
+    const provider = (id: string) => ({ deepseek: "DeepSeek" })[id] ?? id;
+    expect(favoriteLabel({ agent: "pi", provider: "deepseek", model: "deepseek-v4", effort: "high" }, provider, label, "默认模型")).toBe("pi · DeepSeek · deepseek-v4 · 高");
+    expect(favoriteLabel({ agent: "codex", provider: "", model: "", effort: "" }, provider, label, "默认模型")).toBe("Codex · 默认模型");
   });
 });

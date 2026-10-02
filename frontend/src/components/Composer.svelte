@@ -6,7 +6,7 @@
   import i18n from "../i18n/index.js";
   import { api, type Effort, type RunAs } from "../lib/api.js";
   import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
-  import { loadDraftRunAs, runAsSummary, saveDraftRunAs, sameRunAs } from "../lib/runAs.js";
+  import { loadDraftRunAs, runAsSummary, saveDraftRunAs } from "../lib/runAs.js";
   import { errorText } from "../lib/settings.js";
   import { pushToast } from "../lib/toast.js";
   import RunAsBar from "./RunAsBar.svelte";
@@ -96,27 +96,64 @@
     send.mutate({ body, images, target, runAs: draftRunAs });
   }
 
+  /**
+   * Choices are saved one after another, in the order they were made, so a
+   * slow save can never land after — and undo — a later one.
+   */
+  let saves: Promise<void> = Promise.resolve();
+  const latestSave = { conversation: 0, task: 0 };
+
+  /**
+   * Settles once the change is saved and the queries the pickers read show
+   * it — or, when it failed, once they show what the server has instead.
+   */
+  function queueSave(kind: keyof typeof latestSave, save: (latest: () => boolean) => Promise<void>, rollback: () => Promise<unknown>): Promise<void> {
+    const seq = ++latestSave[kind];
+    const done = saves.then(() =>
+      save(() => seq === latestSave[kind]).catch(async (error: unknown) => {
+        pushToast(errorText(error));
+        await rollback();
+      }),
+    );
+    saves = done;
+    return done;
+  }
+
+  const effortLabel = (effort: Effort): string => i18n.t(`settings.effort.${effort || "default"}`);
+  const summary = (value: RunAs): string => runAsSummary(value, effortLabel, i18n.t("runAs.defaultModel"));
+
+  /** Who answers in the conversation is the Primary role's setting: saved at once, from the next message on. */
+  function chooseConversation(next: RunAs): Promise<void> {
+    return queueSave(
+      "conversation",
+      async (latest) => {
+        const saved = await api.saveRoles({ primary: next });
+        if (!latest()) return;
+        queryClient.setQueryData(["settings"], saved.settings);
+        void queryClient.invalidateQueries({ queryKey: ["status"] });
+        pushToast(i18n.t("runAs.conversationChanged", { summary: summary(next) }), "default");
+      },
+      () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    );
+  }
+
   /** A new task's choice is remembered; an addressed task's is changed on the task, now. */
-  async function chooseRunAs(next: RunAs | null): Promise<void> {
+  function chooseRunAs(next: RunAs | null): Promise<void> | undefined {
     if (!target) {
       draftRunAs = next;
       saveDraftRunAs(next);
-      return;
+      return undefined;
     }
-    if (sameRunAs(next, targetRunAs)) return;
-    const title = target.title;
-    try {
-      await api.setWorkItemRunAs(target.id, next);
-      void queryClient.invalidateQueries({ queryKey: ["board"] });
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
-      const effortLabel = (effort: Effort): string => i18n.t(`settings.effort.${effort || "default"}`);
-      pushToast(
-        next ? i18n.t("runAs.changed", { title, summary: runAsSummary(next, effortLabel, i18n.t("runAs.defaultModel")) }) : i18n.t("runAs.released", { title }),
-        "default",
-      );
-    } catch (error) {
-      pushToast(errorText(error));
-    }
+    // No comparison with `targetRunAs`: it may still be the value before a save in flight.
+    const { id, title } = target;
+    const refresh = (): Promise<unknown> =>
+      Promise.all([queryClient.invalidateQueries({ queryKey: ["board"] }), queryClient.invalidateQueries({ queryKey: ["items"] })]);
+    return queueSave("task", async (latest) => {
+      await api.setWorkItemRunAs(id, next);
+      if (!latest()) return;
+      await refresh();
+      pushToast(next ? i18n.t("runAs.changed", { title, summary: summary(next) }) : i18n.t("runAs.released", { title }), "default");
+    }, refresh);
   }
 
   onDestroy(() => {
@@ -160,7 +197,15 @@
     <Button onclick={submit} disabled={send.isPending || (text.trim().length === 0 && attached.length === 0)} aria-label={$t("common.send")}><SendHorizontal size={16} /></Button>
   </div>
   <div class="pt-2 pl-11">
-    <RunAsBar value={target ? targetRunAs : draftRunAs} scope={target ? "task" : "new"} onchange={(next) => void chooseRunAs(next)} />
+    <!-- A choice still being saved belongs to the task it was made for, not the next one addressed. -->
+    {#key target?.id}
+      <RunAsBar
+        value={target ? targetRunAs : draftRunAs}
+        scope={target ? "task" : "new"}
+        onchange={chooseRunAs}
+        onconversation={target ? undefined : chooseConversation}
+      />
+    {/key}
   </div>
   </div>
 </div>

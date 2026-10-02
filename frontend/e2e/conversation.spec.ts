@@ -147,11 +147,16 @@ test("small talk gets a reply and creates no work item", async ({ page, api }) =
 test("the composer picks what a task runs on: agent, model and effort, like Paseo", async ({ page, api }) => {
   await api.setAllRoles("claude");
   await page.goto("/");
-  const picker = page.getByRole("group", { name: "运行方式" });
+  const bar = page.getByRole("group", { name: "运行方式" });
+  const taskTrigger = bar.getByRole("button", { name: /^任务：/ });
   // By default a task follows the role settings.
-  const agent = picker.getByRole("combobox", { name: "Agent" });
-  await expect(agent).toHaveText(/^跟随设置/);
-  await choose(agent, "Codex");
+  await expect(taskTrigger).toHaveAccessibleName("任务：跟随设置 · Claude Code");
+  await taskTrigger.click();
+  const picker = page.getByRole("dialog", { name: "新任务的运行方式" });
+  await expect(picker).toContainText("用于新任务");
+  await expect(picker.getByRole("button", { name: "跟随设置", pressed: true })).toBeFocused();
+  await picker.getByRole("button", { name: "Codex" }).click();
+  await expect(picker.getByRole("button", { name: "Codex", pressed: true })).toBeVisible();
   // The model list comes from the CLI itself (`codex debug models`, the fake's catalog here).
   await picker.getByRole("button", { name: "显示选项" }).click();
   await expect(page.getByRole("listbox").getByRole("option", { name: /gpt-fake-1/ })).toBeVisible();
@@ -166,7 +171,14 @@ test("the composer picks what a task runs on: agent, model and effort, like Pase
   await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["默认", "低", "中"]);
   await page.getByRole("listbox").getByRole("option", { name: "中" }).click();
   await expect(effort).toHaveText("中");
-  await expect(picker).toContainText("用于新任务");
+  // The whole combination becomes a favorite.
+  await picker.getByRole("button", { name: "收藏当前组合" }).click();
+  await expect(picker.getByRole("button", { name: "收藏当前组合", pressed: true })).toBeVisible();
+  await expect(picker.getByRole("button", { name: "Codex · gpt-fake-mini · 中", exact: true })).toHaveAttribute("aria-current", "true");
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  await expect(taskTrigger).toBeFocused();
+  await expect(taskTrigger).toHaveAccessibleName("任务：Codex · gpt-fake-mini · 中");
 
   const text = `创建一个文件写上 ${unique("e2e-runas")}`;
   const messageId = await say(page, text);
@@ -180,21 +192,110 @@ test("the composer picks what a task runs on: agent, model and effort, like Pase
   const chain = await api.eventsFrom(await api.event(messageId));
   const intent = chain.find((e) => e.kind === "side_effect.intent" && e.workItemId === item?.id);
   expect(intent?.payload["tool"], "the worker ran on codex").toBe("bash");
+  // The task's choice left the role settings alone.
+  expect((await api.settings()).roles.worker.agent).toBe("claude");
 
-  // Addressing the task, the picker shows and changes what that task runs on, at once.
+  // Addressing the task, the picker shows and changes what that task runs on, at once;
+  // the conversation picker steps aside, since the task's own Manager answers.
   await card.getByRole("button", { name: "展开" }).click();
-  await expect(picker).toContainText("用于这个任务，立即生效");
-  await expect(agent).toHaveText("Codex");
-  await choose(agent, "pi");
+  await expect(bar.getByRole("button", { name: /^对话：/ })).toHaveCount(0);
+  await expect(taskTrigger).toHaveAccessibleName("任务：Codex · gpt-fake-mini · 中");
+  await taskTrigger.click();
+  const own = page.getByRole("dialog", { name: "这个任务的运行方式" });
+  await expect(own).toContainText("用于这个任务，立即生效");
+  await own.getByRole("button", { name: "pi" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "改为使用 pi" })).toBeVisible();
   await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs?.agent).toBe("pi");
-  await choose(agent, /^跟随设置/);
+  await own.getByRole("button", { name: "跟随设置" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "改回跟随设置" })).toBeVisible();
   await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs ?? null).toBeNull();
+  // One click on a favorite puts the whole combination back, and closes the picker.
+  await own.getByRole("button", { name: "Codex · gpt-fake-mini · 中", exact: true }).click();
+  await expect(own).toBeHidden();
+  await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs ?? null).toEqual({
+    agent: "codex",
+    provider: "",
+    model: "gpt-fake-mini",
+    effort: "medium",
+  });
+  // Quick changes, each saved before the task has been read back — and each echoed by the live
+  // stream — still end on the last whole combination, and a refetch never wipes what is being typed.
+  await taskTrigger.click();
+  const ownModel = own.getByRole("combobox", { name: "模型" });
+  const ownEffort = own.getByRole("combobox", { name: "推理强度" });
+  await ownModel.fill("gpt-fake-1");
+  await ownModel.press("Enter");
+  await choose(ownEffort, "高");
+  await ownModel.fill("gpt-fake-mini");
+  await ownModel.press("Enter");
+  await choose(ownEffort, "低");
+  await expect(ownModel).toHaveValue("gpt-fake-mini");
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs ?? null).toEqual({
+    agent: "codex",
+    provider: "",
+    model: "gpt-fake-mini",
+    effort: "low",
+  });
+  await expect(taskTrigger).toHaveAccessibleName("任务：Codex · gpt-fake-mini · 低");
 
-  // The choice for new tasks is remembered on this machine.
+  // The choice for new tasks, and the favorites, are remembered on this machine.
   await page.goto("/");
-  await expect(page.getByRole("group", { name: "运行方式" }).getByRole("combobox", { name: "Agent" })).toHaveText("Codex");
+  await expect(taskTrigger).toHaveAccessibleName("任务：Codex · gpt-fake-mini · 中");
+  await taskTrigger.click();
+  await expect(page.getByRole("dialog", { name: "新任务的运行方式" }).getByRole("button", { name: "Codex · gpt-fake-mini · 中", exact: true })).toBeVisible();
+});
+
+test("the composer switches who replies in the conversation, a favorite switching the whole combination", async ({ page, api }) => {
+  await api.setAllRoles("claude");
+  await page.goto("/");
+  const bar = page.getByRole("group", { name: "运行方式" });
+  const chat = bar.getByRole("button", { name: /^对话：/ });
+  // It shows the Primary role's setting, not a per-message choice.
+  await expect(chat).toHaveAccessibleName("对话：Claude Code · 默认模型 · 低");
+  await chat.click();
+  const picker = page.getByRole("dialog", { name: "对话由谁回复" });
+  await expect(picker).toContainText("所有渠道的对话都由它回复");
+  await expect(picker).toContainText("还没有收藏");
+  // Nothing to follow: it is the setting.
+  await expect(picker.getByRole("button", { name: "跟随设置" })).toHaveCount(0);
+
+  await picker.getByRole("button", { name: "Codex" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "之后的对话由 Codex · 默认模型 回复" })).toBeVisible();
+  await expect.poll(async () => (await api.settings()).roles.primary).toEqual({ agent: "codex", provider: "", model: "", effort: "" });
+  const model = picker.getByRole("combobox", { name: "模型" });
+  await model.fill("gpt-fake-1");
+  await model.press("Enter");
+  await choose(picker.getByRole("combobox", { name: "推理强度" }), "高");
+  await expect.poll(async () => (await api.settings()).roles.primary).toEqual({ agent: "codex", provider: "", model: "gpt-fake-1", effort: "high" });
+  await picker.getByRole("button", { name: "收藏当前组合" }).click();
+
+  // Switching again is saved at once; the other roles stay as they were.
+  await picker.getByRole("button", { name: "pi" }).click();
+  await expect.poll(async () => (await api.settings()).roles.primary.agent).toBe("pi");
+  const roles = (await api.settings()).roles;
+  expect([roles.manager.agent, roles.worker.agent, roles.distiller.agent]).toEqual(["claude", "claude", "claude"]);
+  await expect(chat).toHaveAccessibleName("对话：pi · 默认模型");
+
+  // The conversation goes on, now answered by pi.
+  await page.keyboard.press("Escape");
+  const text = `你好，${unique("e2e-primary")}`;
+  const messageId = await say(page, text);
+  await expect(turn(page, messageId)).toContainText("你好！我是 hidane 的主代理。");
+
+  // A favorite puts back agent, model and effort in one click.
+  await chat.click();
+  await picker.getByRole("button", { name: "Codex · gpt-fake-1 · 高", exact: true }).click();
+  await expect(picker).toBeHidden();
+  await expect.poll(async () => (await api.settings()).roles.primary).toEqual({ agent: "codex", provider: "", model: "gpt-fake-1", effort: "high" });
+  await expect(chat).toHaveAccessibleName("对话：Codex · gpt-fake-1 · 高");
+
+  // Every role is one click further, in Settings.
+  await chat.click();
+  await picker.getByRole("button", { name: "全部角色设置" }).click();
+  await expect(page).toHaveURL(/\/settings\/roles$/);
+  await expect(page.locator("#role-primary-agent")).toHaveText("Codex");
+  await api.setAllRoles("claude");
 });
 
 test("hiding a message through its menu leaves the view following the newest replies", async ({ page, api }) => {

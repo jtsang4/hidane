@@ -44,6 +44,7 @@ scenarios_for() {
     internal/settings/*) echo "6A 6E" ;;
     internal/desktop/* | gui_on.go | gui_off.go | build/*) echo "6C" ;;
     internal/app/* | main.go) echo "1 6A 6C" ;;
+    frontend/src/components/RunPicker.svelte | frontend/src/components/RunAsBar.svelte | frontend/src/components/Composer.svelte | frontend/src/lib/runAs.ts | frontend/src/lib/favorites.svelte.ts) echo "5I 6E" ;;
     frontend/*) echo "5I" ;;
     cmd/fakeagent/* | Makefile | .github/*) echo "6D" ;;
   esac

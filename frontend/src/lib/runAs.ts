@@ -66,3 +66,53 @@ export function sameRunAs(a: RunAs | null | undefined, b: RunAs | null | undefin
   if (!a || !b) return !a && !b;
   return a.agent === b.agent && a.provider === b.provider && a.model === b.model && a.effort === b.effort;
 }
+
+/**
+ * Favorites are whole combinations — agent, provider, model and effort — so
+ * one click switches all four, for the conversation or for a task alike.
+ */
+const FAVORITES_KEY = "hidane.runAsFavorites";
+export const MAX_FAVORITES = 12;
+
+export function loadFavorites(storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): RunAs[] {
+  try {
+    const raw = JSON.parse(storage?.getItem(FAVORITES_KEY) ?? "[]") as unknown;
+    if (!Array.isArray(raw)) return [];
+    const list: RunAs[] = [];
+    for (const entry of raw) {
+      const value = normalizeRunAs(entry as Partial<RunAs>);
+      if (value && !list.some((other) => sameRunAs(other, value))) list.push(value);
+    }
+    return list.slice(0, MAX_FAVORITES);
+  } catch {
+    return [];
+  }
+}
+
+export function saveFavorites(list: readonly RunAs[], storage: Pick<Storage, "setItem"> | undefined = globalThis.localStorage): void {
+  try {
+    storage?.setItem(FAVORITES_KEY, JSON.stringify(list));
+  } catch {
+    // Favorites are a convenience; the choice itself still applies.
+  }
+}
+
+/** Adds the combination, newest first, or removes it when it is already there. */
+export function toggleFavorite(list: readonly RunAs[], value: RunAs): RunAs[] {
+  if (list.some((other) => sameRunAs(other, value))) return list.filter((other) => !sameRunAs(other, value));
+  return [{ ...value, model: value.model.trim() }, ...list].slice(0, MAX_FAVORITES);
+}
+
+/** "Codex · DeepSeek · deepseek-v4 · 高": a favorite names its provider, which the trigger leaves to its tooltip. */
+export function favoriteLabel(
+  value: RunAs,
+  providerLabel: (id: string) => string,
+  effortLabel: (effort: Effort) => string,
+  defaultModel: string,
+): string {
+  const parts = [AGENT_LABELS[value.agent]];
+  if (value.provider) parts.push(providerLabel(value.provider));
+  parts.push(value.model || defaultModel);
+  if (value.effort) parts.push(effortLabel(value.effort));
+  return parts.join(" · ");
+}
