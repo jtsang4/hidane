@@ -78,7 +78,7 @@ func Run(cfg *config.Config) error {
 	})
 	wapp = application.New(application.Options{
 		Name:        "hidane",
-		Description: "hidane (火種) — a persistent personal agent runtime",
+		Description: "hidane (火种) — a persistent personal agent runtime",
 		Assets:      application.AssetOptions{Handler: handler, DisableLogging: true},
 		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 		SingleInstance: &application.SingleInstanceOptions{

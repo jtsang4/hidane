@@ -1,4 +1,4 @@
-// Command hidane (火種) is a persistent personal agent runtime. Without
+// Command hidane (火种) is a persistent personal agent runtime. Without
 // arguments it opens the desktop app; subcommands run it headless or inspect it.
 package main
 
@@ -28,7 +28,7 @@ import (
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
-const usage = `hidane (火種) — persistent personal agent runtime
+const usage = `hidane (火种) — persistent personal agent runtime
 
 Usage:
   hidane                      open the desktop app

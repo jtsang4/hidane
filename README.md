@@ -1,4 +1,4 @@
-# hidane（火種）
+# hidane（火种）
 
 > Banked embers: the flame may die, the seed fire never does.
 
