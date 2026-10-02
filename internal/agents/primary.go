@@ -89,9 +89,10 @@ type primaryTurn struct {
 	all     []kernel.WorkItem
 	busy    []string
 	covered map[string]bool
-	// confirmed: a status change or cancel already told the person what
-	// happened; the model's own reply would say it a second time.
-	confirmed map[string]bool
+	// confirmed: what status changes and cancels actually did, per message.
+	// They answer together, once: the model's own reply would say it a
+	// second time, and a stop-and-close request got two confirmations.
+	confirmed map[string][]string
 }
 
 func (t *primaryTurn) message(of any) (kernel.Event, bool) {
@@ -136,12 +137,24 @@ func (t *primaryTurn) find(list []kernel.WorkItem, id string) (kernel.WorkItem, 
 
 // confirm reports what a status change or cancel actually did — the model's
 // reply was written before it happened.
-func (t *primaryTurn) confirm(ctx context.Context, m kernel.Event, text string) error {
+func (t *primaryTurn) confirm(_ context.Context, m kernel.Event, text string) error {
 	if t.confirmed == nil {
-		t.confirmed = map[string]bool{}
+		t.confirmed = map[string][]string{}
 	}
-	t.confirmed[m.ID] = true
-	return t.reply(ctx, m, text)
+	t.confirmed[m.ID] = append(t.confirmed[m.ID], text)
+	return nil
+}
+
+// flushConfirmations posts each message's confirmations as one reply.
+func (t *primaryTurn) flushConfirmations(ctx context.Context) error {
+	for _, m := range t.batch {
+		if texts := t.confirmed[m.ID]; len(texts) > 0 {
+			if err := t.reply(ctx, m, strings.Join(texts, "\n")); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (t *primaryTurn) reply(ctx context.Context, m kernel.Event, text string) error {
@@ -227,7 +240,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 
 	case "reply":
 		t.cover(m, e["also_of"])
-		if t.confirmed[m.ID] {
+		if len(t.confirmed[m.ID]) > 0 {
 			return nil
 		}
 		return t.reply(ctx, m, Str(e["reply"]))
@@ -624,6 +637,11 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	}
 	// Replies last, so a confirmation of what really happened can stand in for them.
 	for _, last := range []bool{false, true} {
+		if last {
+			if err := t.flushConfirmations(ctx); err != nil {
+				return err
+			}
+		}
 		for _, e := range thought.Effects {
 			if (Str(e["type"]) == "reply") != last {
 				continue

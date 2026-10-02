@@ -280,6 +280,40 @@ func TestPrimaryRetriesOutputThatIsNotTheEffectList(t *testing.T) {
 	}
 }
 
+// Stop and close in one message: one answer saying both.
+func TestStopAndCloseIsConfirmedOnce(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	m(w.k.CreateWorkItem(ctx, "a", "test", kernel.CreateWorkItemOpts{}))
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "停止并全部关闭", Source: "connector:web"}))
+	w.settle()
+	var replies []string
+	for _, r := range w.events("agent.reply") {
+		if r.Payload.Str("root") == msg.ID {
+			replies = append(replies, r.Payload.Str("text"))
+		}
+	}
+	if len(replies) != 1 || !strings.Contains(replies[0], "执行") || !strings.Contains(replies[0], "已将 1 个工作项的状态设为 closed") {
+		t.Fatalf("one confirmation covering both: %q", replies)
+	}
+}
+
+// A child the model left without a title is reported by position and brief.
+func TestSkippedChildIsNamed(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "BAD_CHILDREN", Source: "connector:web", Target: item.ID}))
+	if err := w.rt.Drain(5); err != nil {
+		t.Fatal(err)
+	}
+	errs := w.events("agent.error")
+	if len(errs) != 1 || !strings.Contains(errs[0].Payload.Str("error"), `child #1 of 2 ("调研 A 的价格") was not created: it has no title`) {
+		t.Fatalf("errors: %+v", errs)
+	}
+	if children := m(w.k.ListChildren(ctx, item.ID)); len(children) != 1 || children[0].Title != "调研 B" {
+		t.Fatalf("the valid child is created: %+v", children)
+	}
+}
+
 func TestExplicitTargetSkipsThePrimary(t *testing.T) {
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "notes", "test", kernel.CreateWorkItemOpts{}))

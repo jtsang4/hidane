@@ -122,7 +122,8 @@
   批量状态变更，不再回复“没有相应能力”；当时所有 open 工作项均变为 closed，
   每个变更都有 `work_item.status_changed`（source 为 `agent:primary`），主线程收到
   **一条**包含变更数量的确认回复（系统按实际结果写的确认，不再加上模型自己的那句）。
-  该操作不是删除，也不应启动 Manager/Worker。用主会话让 Primary 停止一个运行中的任务同理：只有一条确认。
+  该操作不是删除，也不应启动 Manager/Worker。用主会话让 Primary 停止一个运行中的任务同理：只有一条确认；
+  同一句话里既停止又关闭（「停掉正在跑的并把所有任务关掉」）也只有一条确认，内容同时说明两件事。
 - 通过主会话请求将一个已完成或已归档的工作项重新打开时，Primary 应使用其真实 ID
   将状态改回 open；请求“所有已有工作项”时可用批量状态操作，不能凭空编造 ID。
 
@@ -363,7 +364,8 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 - Manager 用子工作项扇出（`work_items.parent_id` 指向父项），每个子项有自己的工作区与 Manager
 - 子项完成后 `done`；全部结束时父项收到一条 `children.settled`（含每个子项的结果），随后给出汇总
-- 模型给出缺标题或缺说明的子项时不会静默丢弃：落一条 `agent.error` 说明跳过了哪一项
+- 模型给出缺标题或缺说明的子项时不会静默丢弃：落一条 `agent.error`，写明是第几个子项、它的说明摘要和缺了什么；
+  这条错误会出现在该 Manager 之后每个 turn 的历史里
 - `children.settled` 在子项的最终回复**之后**落日志，结果就是那条最终回复；超长时注明截断，
   并指出完整内容所在的工作项与目录
 - 子项的回复带 `payload.child = true`，不在主对话里出现；父项的汇总以最初的消息为 root
@@ -459,6 +461,8 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
   用 `;`/`&&`/`|` 串起来的只读命令仍算只读（`cat a; ls -R .hidane` 放行，`cat a; rm -rf .hidane` 被拒）；
   只把输出丢进设备或别的描述符（`2>&1`、`2>/dev/null`、`>/dev/null`）不算写（`ls .hidane 2>&1`、
   `find <HIDANE_HOME> -name x 2>/dev/null` 放行），`cp -t /tmp a` / `--target-directory=` 的目标照样检查（被拒）
+- worker 读不到 `HIDANE_HOME/settings.json`（里面有模型服务的 API key）：读文件工具、`cat` 绝对路径或
+  `../../settings.json` 都被闸门拒绝；工作区里自己的 `settings.json` 不受影响
 - 把 `POLICY.json` 改成非法 JSON 后再派一次写操作：被拒（「policy file … is unreadable」），而不是规则静默失效
 - 最终回复如实说明哪个成功、哪个被策略阻止
 

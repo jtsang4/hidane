@@ -320,6 +320,37 @@ func fileTarget(target, workspace string) string {
 	return t
 }
 
+// secrets keeps every tool — reads included — away from settings.json, which
+// holds the provider API keys: a worker refused a write once went on to cat
+// it, and what a worker reads goes to the model. Commands are judged by the
+// paths they name, like everything else here.
+func secrets(call Call, env Env) string {
+	if env.Protected == "" {
+		return ""
+	}
+	settingsFile := filepath.Join(env.Protected, "settings.json")
+	const reason = "blocked by hidane guard: hidane's settings.json holds provider API keys; no tool may read or change it"
+	for _, v := range homeVariants(settingsFile) {
+		if strings.Contains(call.Subject, v) {
+			return reason
+		}
+	}
+	if !strings.Contains(call.Subject, "settings.json") || env.Workspace == "" {
+		return ""
+	}
+	target := resolved(settingsFile)
+	for _, field := range strings.FieldsFunc(call.Subject, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '"' || r == '\'' || r == '=' || r == ';' || r == '|' || r == '&' || r == '<' || r == '>'
+	}) {
+		if strings.Contains(field, "settings.json") {
+			if t := fileTarget(field, env.Workspace); t != "" && resolved(t) == target {
+				return reason
+			}
+		}
+	}
+	return ""
+}
+
 var controlDir = regexp.MustCompile(`(^|[\s'"=:(])(\./)?\.hidane(/|[\s'"]|$)`)
 
 // confinement keeps a worker's changes inside its workspace, out of the
@@ -513,6 +544,9 @@ func Evaluate(call Call, env Env) Decision {
 				return Decision{Block: true, Policy: true, Reason: "blocked by hidane guard: " + lit}
 			}
 		}
+	}
+	if reason := secrets(call, env); reason != "" {
+		return Decision{Block: true, Policy: true, Reason: reason}
 	}
 	if reason := confinement(call, env); reason != "" {
 		return Decision{Block: true, Policy: true, Reason: reason}

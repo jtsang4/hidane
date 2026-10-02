@@ -224,14 +224,25 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 		if len(list) > 8 {
 			list = list[:8]
 		}
-		for _, raw := range list {
+		for i, raw := range list {
 			c, _ := raw.(map[string]any)
 			title, brief := Str(c["title"]), Str(c["brief"])
 			if strings.TrimSpace(title) == "" || strings.TrimSpace(brief) == "" {
-				// A part that is dropped must not vanish without a trace.
+				// A part that is dropped must not vanish without a trace — and
+				// the note must say which one, for the person and for this
+				// Manager's next turn (it reads these back in its history).
+				missing := "title"
+				if strings.TrimSpace(title) != "" {
+					missing = "brief"
+				}
+				name := clipRunes(title, 60)
+				if name == "" {
+					name = clipRunes(brief, 60)
+				}
 				if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "agent.error", ThreadID: item.ThreadID,
 					WorkItemID: item.ID, CausedBy: t.cause.ID, Payload: kernel.Payload{
-						"error": "a child work item was skipped: it needs both a title and a brief", "title": title, "root": kernel.RootOf(t.cause)}}); err != nil {
+						"error": fmt.Sprintf("child #%d of %d (%q) was not created: it has no %s", i+1, len(list), name, missing),
+						"index": i + 1, "title": title, "brief": clipRunes(brief, 200), "root": kernel.RootOf(t.cause)}}); err != nil {
 					return err
 				}
 				continue
@@ -381,6 +392,9 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		}
 		if (e.Kind == "user.message" && e.ThreadID != "main") || e.Kind == "agent.reply" || e.Kind == "work_item.understanding" {
 			hist = append(hist, fmt.Sprintf("[%s] %s", e.Kind, clipRunes(e.Payload.Str("text"), 600)))
+		}
+		if e.Kind == "agent.error" && e.Source == "agent:manager" {
+			hist = append(hist, fmt.Sprintf("[agent.error] %s", clipRunes(e.Payload.Str("error"), 600)))
 		}
 	}
 	if len(hist) > 14 {

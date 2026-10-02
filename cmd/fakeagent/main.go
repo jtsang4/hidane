@@ -149,6 +149,10 @@ func brain(system, prompt string) string {
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "你好！我是 hidane 的主代理。"})
 			case kind == "recall":
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "查到了之前的记录。"})
+			case strings.Contains(text, "停止并全部关闭"):
+				list = append(list, map[string]any{"type": "cancel", "of": id, "all_running": true},
+					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"},
+					map[string]any{"type": "reply", "of": id, "reply": "好的，已停止并关闭。"})
 			case strings.Contains(text, "全部关闭"):
 				// A model announces the change before it is made.
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就全部关闭。"},
@@ -193,6 +197,12 @@ func brain(system, prompt string) string {
 		}
 		if os.Getenv("FAKEAGENT_MANAGER_PLAIN") == "1" {
 			return "我直接回答：这是纯文本。"
+		}
+		if strings.Contains(turn, "BAD_CHILDREN") {
+			return effects(map[string]any{"type": "create_children", "children": []any{
+				map[string]any{"title": "", "brief": "调研 A 的价格"},
+				map[string]any{"title": "调研 B", "brief": "调研 B 的价格"},
+			}}, map[string]any{"type": "reply", "reply": "已拆分"})
 		}
 		if strings.Contains(turn, "LONG_REPLY") {
 			return effects(map[string]any{"type": "reply", "reply": "开头" + strings.Repeat("长", 11000) + "结尾"})

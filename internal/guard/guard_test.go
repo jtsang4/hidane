@@ -320,3 +320,32 @@ func TestQuotesAndChainsAreReadAsTheShellReadsThem(t *testing.T) {
 		}
 	}
 }
+
+// settings.json holds the provider keys: not even a read, by any route.
+func TestSettingsFileIsOffLimits(t *testing.T) {
+	home := t.TempDir()
+	ws := filepath.Join(home, "workspaces", "wi_1")
+	_ = os.MkdirAll(ws, 0o755)
+	env := guard.Env{Workspace: ws, Protected: home}
+	settingsFile := filepath.Join(home, "settings.json")
+	for _, c := range []guard.Call{
+		{Tool: "read", Subject: settingsFile},
+		{Tool: "read", Subject: "../../settings.json"},
+		{Tool: "bash", Subject: "cat " + settingsFile},
+		{Tool: "bash", Subject: "cat ../../settings.json 2>/dev/null"},
+		{Tool: "grep", Subject: "apiKey " + settingsFile},
+	} {
+		if d := guard.Evaluate(c, env); !d.Block || !strings.Contains(d.Reason, "API keys") {
+			t.Errorf("%+v must be refused: %+v", c, d)
+		}
+	}
+	for _, c := range []guard.Call{
+		{Tool: "read", Subject: "settings.json"},
+		{Tool: "bash", Subject: "cat config/settings.json"},
+		{Tool: "bash", Subject: "cat " + filepath.Join(home, "memory", "MEMORY.md")},
+	} {
+		if d := guard.Evaluate(c, env); d.Block {
+			t.Errorf("%+v is the workspace's own file: %s", c, d.Reason)
+		}
+	}
+}
