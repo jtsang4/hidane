@@ -45,6 +45,8 @@ type Options struct {
 	Settings *settings.Store
 	// Detect reports which agent CLIs can run.
 	Detect func(ctx context.Context) []agentcli.Detection
+	// Catalog lists what one agent CLI can run (models, efforts).
+	Catalog func(ctx context.Context, agent string) agentcli.Catalog
 	// Assets is the built SPA (frontend/dist); nil serves no UI.
 	Assets fs.FS
 	// Desktop: the only client is the app's own webview, so no token is asked.
@@ -183,6 +185,7 @@ func (s *server) routes() {
 	m.HandleFunc("DELETE /api/providers/{id}", s.deleteProvider)
 	m.HandleFunc("GET /api/provider-presets", s.presets)
 	m.HandleFunc("GET /api/agents", s.agentsList)
+	m.HandleFunc("GET /api/agents/{agent}/models", s.agentModels)
 	m.HandleFunc("POST /api/agents/test", s.testAgent)
 	m.HandleFunc("POST /api/ui-ready", s.uiReady)
 	m.HandleFunc("POST /api/live/hello", s.liveHello)

@@ -47,7 +47,9 @@ type Thought struct {
 }
 
 type thinkOpts struct {
-	Role         string
+	Role string
+	// Own is a work item's own choice of agent, in place of the role's.
+	Own          *settings.RoleConfig
 	Charter      string
 	Cwd          string
 	SessionDir   string
@@ -60,7 +62,7 @@ type thinkOpts struct {
 // turn's context, streamed to a thread as it is written, parsed into effects.
 // Roles differ in the context they build and the effects they may emit.
 func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought {
-	r := s.Settings.Get().Resolve(o.Role)
+	r := s.Settings.Get().ResolveWith(o.Role, o.Own)
 	// The provisional bubble closes when the model stops, not when effects are
 	// applied: the durable reply takes over from it.
 	var live *LiveHandle

@@ -151,6 +151,11 @@ try {
         await shot("confirm");
         await page.keyboard.press("Escape");
       }
+      // The composer's run-as picker with an agent chosen.
+      await page.evaluate(() => localStorage.setItem("hidane.runAs", JSON.stringify({ agent: "codex", provider: "", model: "gpt-fake-1", effort: "high" })));
+      await settle("/");
+      await shot("run-as");
+      await page.evaluate(() => localStorage.removeItem("hidane.runAs"));
       if (flavour !== "phone") {
         await page.evaluate(() => {
           sessionStorage.setItem("keep-sidebar", "1");

@@ -332,6 +332,11 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		if err != nil {
 			return err
 		}
+		if r := runAsOf(subject); r != nil {
+			if item, err = k.SetWorkItemRunAs(ctx, item.ID, r, "agent:primary"); err != nil {
+				return err
+			}
+		}
 		brief := Str(e["brief"])
 		if brief == "" {
 			brief = subject.Payload.Str("text")

@@ -589,3 +589,46 @@ func TestDesktopHostIsReachableFromTheWebviewButNeverFromServe(t *testing.T) {
 		}
 	}
 }
+
+// What a task runs on: chosen with a message, changed or released on the
+// task, refused when the CLI cannot run that way.
+func TestRunAsOnChatAndWorkItems(t *testing.T) {
+	e := newEnv(t, api.Options{Catalog: func(_ context.Context, agent string) agentcli.Catalog {
+		return agentcli.Catalog{Agent: agent, Efforts: []string{"low"}, Models: []agentcli.Model{{ID: "m1"}}, Source: "builtin"}
+	}})
+	for _, bad := range []map[string]any{
+		{"agent": "gpt"},
+		{"agent": "claude", "effort": "ultra"},
+		{"agent": "pi", "provider": "ghost"},
+		{"agent": "codex", "model": "two words"},
+	} {
+		if code, body := e.do("POST", "/api/chat", "", map[string]any{"text": "x", "runAs": bad}); code != 400 {
+			t.Fatalf("runAs %v: %d %v", bad, code, body)
+		}
+	}
+	item := m(e.k.CreateWorkItem(context.Background(), "pinned", "test", kernel.CreateWorkItemOpts{}))
+	code, body := e.do("POST", "/api/chat", "", map[string]any{"text": "go", "target": item.ID,
+		"runAs": map[string]any{"agent": "codex", "model": " gpt-fake-1 ", "effort": "xhigh"}})
+	if code != 202 {
+		t.Fatalf("chat: %d %v", code, body)
+	}
+	got := m(e.k.GetWorkItem(context.Background(), item.ID))
+	if got.RunAs == nil || *got.RunAs != (kernel.RunAs{Agent: "codex", Model: "gpt-fake-1", Effort: "xhigh"}) {
+		t.Fatalf("pinned by the message: %+v", got.RunAs)
+	}
+	if code, _ := e.do("PATCH", "/api/work-items/"+item.ID, "", map[string]any{"runAs": map[string]any{"agent": "pi", "effort": "max"}}); code != 200 {
+		t.Fatalf("patch: %d", code)
+	}
+	if code, body := e.do("PATCH", "/api/work-items/"+item.ID, "", map[string]any{"runAs": nil}); code != 200 || body["item"].(map[string]any)["runAs"] != nil {
+		t.Fatalf("release: %d %v", code, body)
+	}
+	if n := len(m(e.k.ListEvents(context.Background(), kernel.ListFilter{Kind: "work_item.run_as_changed"}))); n != 3 {
+		t.Fatalf("every change is recorded: %d", n)
+	}
+	if code, body := e.do("GET", "/api/agents/codex/models", "", nil); code != 200 || body["agent"] != "codex" {
+		t.Fatalf("models: %d %v", code, body)
+	}
+	if code, _ := e.do("GET", "/api/agents/gpt/models", "", nil); code != 404 {
+		t.Fatalf("unknown agent: %d", code)
+	}
+}

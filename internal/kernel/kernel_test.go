@@ -2,6 +2,7 @@ package kernel_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtsang4/hidane/internal/config"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
 )
@@ -478,5 +480,37 @@ func TestRunNowDoesNotPostponeTheSchedule(t *testing.T) {
 	after := m(k.GetSchedule(ctx, sc.ID))
 	if *after.NextRunAt != *sc.NextRunAt {
 		t.Fatalf("a manual run moved the next run from %s to %s", *sc.NextRunAt, *after.NextRunAt)
+	}
+}
+
+// A database from before work items could pin an agent opens with the column
+// added and its items intact.
+func TestOpenAddsColumnsToAnOlderDatabase(t *testing.T) {
+	cfg := config.ForTest(t.TempDir())
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(cfg.DBPath()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',
+			workspace TEXT NOT NULL, thread_id TEXT NOT NULL, parent_id TEXT, deadline_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO work_items (id, title, workspace, thread_id, created_at, updated_at) VALUES ('wi_old', 'old', '/tmp/x', 'th_old', 'now', 'now')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	k, err := kernel.Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	item := m(k.GetWorkItem(ctx, "wi_old"))
+	if item.Title != "old" || item.RunAs != nil {
+		t.Fatalf("old item: %+v", item)
+	}
+	if got := m(k.SetWorkItemRunAs(ctx, "wi_old", &kernel.RunAs{Agent: "pi"}, "test")); got.RunAs == nil || got.RunAs.Agent != "pi" {
+		t.Fatalf("pinned: %+v", got.RunAs)
 	}
 }

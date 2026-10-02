@@ -312,6 +312,53 @@ func TestSkippedChildIsNamed(t *testing.T) {
 	if children := m(w.k.ListChildren(ctx, item.ID)); len(children) != 1 || children[0].Title != "调研 B" {
 		t.Fatalf("the valid child is created: %+v", children)
 	}
+	w.settle()
+}
+
+// A person's choice of agent pins the task their message creates: its Manager
+// and workers run on that CLI, whatever the role settings say — and the
+// parts it fans out into run on it too.
+func TestRunAsPinsTheTaskToTheChosenAgent(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "创建一个文件写上 pinned", Source: "connector:web",
+		RunAs: &kernel.RunAs{Agent: settings.Codex, Effort: "high"}}))
+	w.settle()
+	items := m(w.k.ListWorkItems(ctx, ""))
+	if len(items) != 1 || items[0].RunAs == nil || items[0].RunAs.Agent != settings.Codex || items[0].RunAs.Effort != "high" {
+		t.Fatalf("the created item carries the choice: %+v", items)
+	}
+	item := items[0]
+	if stored, _, _ := w.k.GetEvent(ctx, msg.ID); stored.Payload["runAs"] == nil {
+		t.Fatal("the message records what the person chose")
+	}
+	b, err := os.ReadFile(filepath.Join(item.Workspace, ".hidane", "sessions", "manager", "session.json"))
+	if err != nil || !strings.Contains(string(b), `"agent":"codex"`) {
+		t.Fatalf("the Manager ran on codex: %s %v", b, err)
+	}
+	intents := w.events("side_effect.intent")
+	if len(intents) == 0 || intents[0].Payload.Str("tool") != "bash" {
+		t.Fatalf("the worker ran on codex (its file writes are shell commands): %+v", intents)
+	}
+	changed := w.events("work_item.run_as_changed")
+	if len(changed) != 1 || changed[0].WorkItemID != item.ID {
+		t.Fatalf("the pin is a fact in the log: %+v", changed)
+	}
+
+	// Addressing a task with a choice changes what it runs on; its children inherit.
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "BAD_CHILDREN", Source: "connector:web", Target: item.ID,
+		RunAs: &kernel.RunAs{Agent: settings.Pi, Effort: "off"}}))
+	if err := w.rt.Drain(5); err != nil {
+		t.Fatal(err)
+	}
+	if got := m(w.k.GetWorkItem(ctx, item.ID)); got.RunAs == nil || got.RunAs.Agent != settings.Pi {
+		t.Fatalf("retargeted: %+v", got.RunAs)
+	}
+	children := m(w.k.ListChildren(ctx, item.ID))
+	if len(children) != 1 || children[0].RunAs == nil || children[0].RunAs.Agent != settings.Pi {
+		t.Fatalf("children run on what the task runs on: %+v", children)
+	}
+	// The child's own work must end before its workspace is removed.
+	w.settle()
 }
 
 func TestExplicitTargetSkipsThePrimary(t *testing.T) {

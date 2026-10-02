@@ -13,7 +13,17 @@ import type {
 
 export const ROLES: readonly Role[] = ["primary", "manager", "worker", "distiller"];
 export const AGENT_KINDS: readonly AgentKind[] = ["claude", "codex", "pi"];
-export const EFFORTS: readonly Effort[] = ["", "low", "medium", "high"];
+/** Reasoning efforts each CLI accepts (`""` = its default); mirrors settings.EffortsFor. */
+export function effortsFor(agent: AgentKind): readonly Effort[] {
+  switch (agent) {
+    case "claude":
+      return ["", "low", "medium", "high", "xhigh", "max"];
+    case "codex":
+      return ["", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+    case "pi":
+      return ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+  }
+}
 
 /** The endpoint fields that decide which CLIs a provider can drive. */
 export type ProviderEndpoints = Pick<ProviderView, "anthropicBaseUrl" | "openaiBaseUrl" | "piProvider">;

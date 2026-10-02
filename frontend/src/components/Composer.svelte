@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { createMutation } from "@tanstack/svelte-query";
+  import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { ImagePlus, SendHorizontal, X } from "@lucide/svelte";
   import { onDestroy } from "svelte";
   import { t } from "../i18n/index.js";
-  import { api } from "../lib/api.js";
+  import i18n from "../i18n/index.js";
+  import { api, type Effort, type RunAs } from "../lib/api.js";
   import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
+  import { loadDraftRunAs, runAsSummary, saveDraftRunAs, sameRunAs } from "../lib/runAs.js";
+  import { errorText } from "../lib/settings.js";
   import { pushToast } from "../lib/toast.js";
+  import RunAsBar from "./RunAsBar.svelte";
   import Button from "./ui/Button.svelte";
   import Textarea from "./ui/Textarea.svelte";
 
@@ -17,22 +21,28 @@
     replyTo?: string | undefined;
   }
 
-  type SendVariables = { body: string; images: AttachedImage[]; target: ComposerTarget | null };
+  type SendVariables = { body: string; images: AttachedImage[]; target: ComposerTarget | null; runAs: RunAs | null };
 
   let {
     target,
+    targetRunAs = null,
     onclear,
     onsending,
     onsent,
     onfailed,
   }: {
     target: ComposerTarget | null;
+    /** What the addressed task runs on (`null`: the settings). */
+    targetRunAs?: RunAs | null;
     onclear: () => void;
     onsending: (text: string) => void;
     onsent: (messageId: string, target: ComposerTarget | null) => void;
     onfailed: () => void;
   } = $props();
 
+  const queryClient = useQueryClient();
+  /** What new tasks from this composer run on; remembered on this machine. */
+  let draftRunAs = $state<RunAs | null>(loadDraftRunAs());
   let text = $state("");
   let attached = $state<AttachedImage[]>([]);
   let fileRef: HTMLInputElement;
@@ -48,11 +58,11 @@
   }
 
   const send = createMutation<{ ok: boolean; messageId: string }, unknown, SendVariables>(() => ({
-    mutationFn: ({ body, images, target: to }) =>
+    mutationFn: ({ body, images, target: to, runAs }) =>
       api.chat(
         body,
         images.map(({ data, mimeType }) => ({ data, mimeType })),
-        to ? { target: to.id, focus: to.mode === "focus", ...(to.replyTo ? { replyTo: to.replyTo } : {}) } : {},
+        to ? { target: to.id, focus: to.mode === "focus", ...(to.replyTo ? { replyTo: to.replyTo } : {}) } : runAs ? { runAs } : {},
       ),
     onSuccess: (result, variables) => onsent(result.messageId, variables.target),
     onError: (error, variables) => {
@@ -83,7 +93,30 @@
     text = "";
     const images = attached;
     attached = [];
-    send.mutate({ body, images, target });
+    send.mutate({ body, images, target, runAs: draftRunAs });
+  }
+
+  /** A new task's choice is remembered; an addressed task's is changed on the task, now. */
+  async function chooseRunAs(next: RunAs | null): Promise<void> {
+    if (!target) {
+      draftRunAs = next;
+      saveDraftRunAs(next);
+      return;
+    }
+    if (sameRunAs(next, targetRunAs)) return;
+    const title = target.title;
+    try {
+      await api.setWorkItemRunAs(target.id, next);
+      void queryClient.invalidateQueries({ queryKey: ["board"] });
+      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      const effortLabel = (effort: Effort): string => i18n.t(`settings.effort.${effort || "default"}`);
+      pushToast(
+        next ? i18n.t("runAs.changed", { title, summary: runAsSummary(next, effortLabel, i18n.t("runAs.defaultModel")) }) : i18n.t("runAs.released", { title }),
+        "default",
+      );
+    } catch (error) {
+      pushToast(errorText(error));
+    }
   }
 
   onDestroy(() => {
@@ -125,6 +158,9 @@
       onkeydown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } }}
     />
     <Button onclick={submit} disabled={send.isPending || (text.trim().length === 0 && attached.length === 0)} aria-label={$t("common.send")}><SendHorizontal size={16} /></Button>
+  </div>
+  <div class="pt-2 pl-11">
+    <RunAsBar value={target ? targetRunAs : draftRunAs} scope={target ? "task" : "new"} onchange={(next) => void chooseRunAs(next)} />
   </div>
   </div>
 </div>

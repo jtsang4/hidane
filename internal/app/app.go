@@ -41,6 +41,7 @@ type App struct {
 	detectMu   sync.Mutex
 	detectedAt time.Time
 	detected   []agentcli.Detection
+	catalogs   map[string]cachedCatalog
 }
 
 type Options struct {
@@ -138,7 +139,38 @@ func (a *App) Detect(ctx context.Context) []agentcli.Detection {
 func (a *App) forgetDetection() {
 	a.detectMu.Lock()
 	a.detected = nil
+	a.catalogs = nil
 	a.detectMu.Unlock()
+}
+
+// Catalog is what an agent CLI can run, asked of the CLI at most every few
+// minutes (codex and pi answer in about a second; a picker opens often).
+func (a *App) Catalog(ctx context.Context, agent string) agentcli.Catalog {
+	a.detectMu.Lock()
+	if c, ok := a.catalogs[agent]; ok && time.Since(c.at) < 5*time.Minute {
+		a.detectMu.Unlock()
+		return c.catalog
+	}
+	a.detectMu.Unlock()
+	c := agentcli.Catalog{Agent: agent}
+	if bin, err := a.Launcher.Binary(agent); err != nil {
+		c = agentcli.ListModels(ctx, agent, "", a.Launcher.Env)
+		c.Error = err.Error()
+	} else {
+		c = agentcli.ListModels(ctx, agent, bin, a.Launcher.Env)
+	}
+	a.detectMu.Lock()
+	if a.catalogs == nil {
+		a.catalogs = map[string]cachedCatalog{}
+	}
+	a.catalogs[agent] = cachedCatalog{catalog: c, at: time.Now()}
+	a.detectMu.Unlock()
+	return c
+}
+
+type cachedCatalog struct {
+	catalog agentcli.Catalog
+	at      time.Time
 }
 
 // ErrLocked means another runtime already serves this home.
@@ -221,6 +253,7 @@ func (a *App) Handler(o HandlerOptions) http.Handler {
 		Detect: func(ctx context.Context) []agentcli.Detection {
 			return a.Detect(ctx)
 		},
+		Catalog: a.Catalog,
 		Desktop: o.Desktop, Token: o.Token, WebhookSecret: a.Cfg.WebhookSecret, Version: Version,
 		OnUIReady: o.OnUIReady, OnLiveHello: o.OnLiveHello, Host: o.Host,
 		FireSchedule: func(ctx context.Context, sc kernel.Schedule) (string, error) {

@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { Ban, CircleHelp, Maximize2, Square } from "@lucide/svelte";
+  import { Ban, Bot, CircleHelp, Maximize2, Square } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import type { BoardCard } from "../lib/api.js";
   import { stateTone } from "../lib/board.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { escalationText } from "../lib/escalation.js";
   import { liveRepliesFor } from "../lib/liveText.js";
+  import { runAsSummary } from "../lib/runAs.js";
   import { cn } from "../lib/utils.js";
   import Markdown from "./Markdown.svelte";
   import MoreButton from "./MoreButton.svelte";
@@ -81,6 +82,11 @@
       <div class="flex flex-wrap items-center gap-2">
         <span class="font-medium break-words">{card.item.title}</span>
         <Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>
+        {#if card.item.runAs}
+          <span class="flex items-center gap-1 text-xs text-muted" title={$t("runAs.label")}>
+            <Bot size={12} aria-hidden="true" />{runAsSummary(card.item.runAs, (effort) => $t(`settings.effort.${effort || "default"}`), $t("runAs.defaultModel"))}
+          </span>
+        {/if}
       </div>
       {#if card.understanding}
         <p class="mt-1 text-xs text-muted"><span class="mr-1 rounded bg-surface-2 px-1 py-px text-[10px] text-foreground/80">{$t("task.understanding")}</span>{card.understanding}</p>

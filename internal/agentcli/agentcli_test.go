@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -378,5 +379,29 @@ exit 0
 	}
 	if time.Since(start) > 15*time.Second {
 		t.Fatalf("the run must end when the CLI does, not when its leftovers do: %v", time.Since(start))
+	}
+}
+
+// What each CLI can run comes from the CLI when it can say (codex, pi), and
+// from a built-in list when it cannot (claude).
+func TestModelCatalogs(t *testing.T) {
+	dir := fakecli.Dir(t)
+	env := os.Environ()
+	codex := agentcli.ListModels(context.Background(), "codex", filepath.Join(dir, "codex"), env)
+	if codex.Source != "cli" || len(codex.Models) != 2 || codex.Models[0].ID != "gpt-fake-1" ||
+		strings.Join(codex.Models[0].Efforts, ",") != "low,medium,high,xhigh" || codex.Models[0].DefaultEffort != "medium" {
+		t.Fatalf("codex: %+v", codex)
+	}
+	pi := agentcli.ListModels(context.Background(), "pi", filepath.Join(dir, "pi"), env)
+	if pi.Source != "cli" || len(pi.Models) != 2 || pi.Models[1].ID != "fakeprov/fake-model-b" || !slices.Contains(pi.Efforts, "off") {
+		t.Fatalf("pi: %+v", pi)
+	}
+	claude := agentcli.ListModels(context.Background(), "claude", "", env)
+	if claude.Source != "builtin" || len(claude.Models) == 0 || !slices.Contains(claude.Efforts, "max") {
+		t.Fatalf("claude: %+v", claude)
+	}
+	broken := agentcli.ListModels(context.Background(), "codex", filepath.Join(t.TempDir(), "missing"), env)
+	if broken.Error == "" || len(broken.Efforts) == 0 {
+		t.Fatalf("a CLI that cannot answer still offers its efforts, and says why: %+v", broken)
 	}
 }

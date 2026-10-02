@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -303,9 +304,19 @@ func (s *server) patchWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	status, hasStatus := body["status"]
 	deadline, hasDeadline := body["deadlineAt"]
-	if !hasStatus && !hasDeadline {
-		writeJSON(w, http.StatusBadRequest, errBody("status or deadlineAt required"))
+	rawRunAs, hasRunAs := body["runAs"]
+	if !hasStatus && !hasDeadline && !hasRunAs {
+		writeJSON(w, http.StatusBadRequest, errBody("status, deadlineAt or runAs required"))
 		return
+	}
+	var runAs *kernel.RunAs
+	if hasRunAs {
+		b, _ := json.Marshal(rawRunAs)
+		var err error
+		if runAs, err = s.runAsFrom(b); err != nil {
+			writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+			return
+		}
 	}
 	st, _ := status.(string)
 	if hasStatus && !kernel.ValidStatus(st) {
@@ -337,6 +348,12 @@ func (s *server) patchWorkItem(w http.ResponseWriter, r *http.Request) {
 	if hasDeadline {
 		if item, err = s.K.SetWorkItemDeadline(ctx, id, dl, "connector:web"); err != nil {
 			writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+			return
+		}
+	}
+	if hasRunAs {
+		if item, err = s.K.SetWorkItemRunAs(ctx, id, runAs, "connector:web"); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 			return
 		}
 	}
@@ -379,6 +396,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		Target  string                `json:"target"`
 		ReplyTo string                `json:"replyTo"`
 		Focus   bool                  `json:"focus"`
+		RunAs   json.RawMessage       `json:"runAs"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("invalid json"))
@@ -399,6 +417,11 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("text or images required"))
 		return
 	}
+	runAs, err := s.runAsFrom(body.RunAs)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+		return
+	}
 	ctx := r.Context()
 	if body.Target != "" {
 		if _, err := s.K.GetWorkItem(ctx, body.Target); err != nil {
@@ -410,7 +433,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		text = ImageOnlyText
 	}
 	msg, err := s.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Images: images, Source: "connector:web",
-		Target: body.Target, Focus: body.Target != "" && body.Focus, ReplyTo: body.ReplyTo})
+		Target: body.Target, Focus: body.Target != "" && body.Focus, ReplyTo: body.ReplyTo, RunAs: runAs})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
@@ -920,6 +943,36 @@ func (s *server) presets(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) agentsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"agents": s.Detect(r.Context())})
+}
+
+func (s *server) agentModels(w http.ResponseWriter, r *http.Request) {
+	agent := r.PathValue("agent")
+	known := false
+	for _, a := range settings.Agents {
+		known = known || a == agent
+	}
+	if !known || s.Catalog == nil {
+		writeJSON(w, http.StatusNotFound, errBody("unknown agent"))
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Catalog(r.Context(), agent))
+}
+
+// runAsFrom reads a choice of agent from a request body: absent or null is
+// nil (follow the settings); anything else must be a valid way to run.
+func (s *server) runAsFrom(raw json.RawMessage) (*kernel.RunAs, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var r kernel.RunAs
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, fmt.Errorf("runAs must be an object")
+	}
+	if err := s.Settings.Get().ValidateRun(settings.RoleConfig{Agent: r.Agent, Provider: r.Provider, Model: strings.TrimSpace(r.Model), Effort: r.Effort}); err != nil {
+		return nil, fmt.Errorf("runAs: %v", err)
+	}
+	r.Model = strings.TrimSpace(r.Model)
+	return &r, nil
 }
 
 // testAgent makes one real round trip for a role.

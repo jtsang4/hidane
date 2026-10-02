@@ -144,10 +144,27 @@ var schema = []string{
 	`CREATE INDEX IF NOT EXISTS schedules_due_idx ON schedules (enabled, next_run_at)`,
 }
 
+// columns added after a table first shipped: created on databases that
+// predate them (CREATE TABLE IF NOT EXISTS leaves an existing table as is).
+var columns = []struct{ table, name, decl string }{
+	{"work_items", "run_as", "TEXT"},
+}
+
 func (k *Kernel) migrate(ctx context.Context) error {
 	for _, stmt := range schema {
 		if _, err := k.DB.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("%w\n%s", err, stmt)
+		}
+	}
+	for _, c := range columns {
+		var n int
+		if err := k.DB.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.name).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := k.DB.ExecContext(ctx, `ALTER TABLE `+c.table+` ADD COLUMN `+c.name+` `+c.decl); err != nil {
+				return err
+			}
 		}
 	}
 	_, err := k.DB.ExecContext(ctx,

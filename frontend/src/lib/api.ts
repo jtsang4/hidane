@@ -65,6 +65,8 @@ export interface WorkItem {
   deadlineAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Pinned agent for this task; `null` follows the role settings. */
+  runAs?: RunAs | null;
 }
 
 export type CardState = "waiting" | "running" | "queued" | "thinking" | "delegated" | "idle" | "done" | "closed";
@@ -178,7 +180,27 @@ export interface StatusInfo {
 
 export type Role = "primary" | "manager" | "worker" | "distiller";
 export type AgentKind = "claude" | "codex" | "pi";
-export type Effort = "" | "low" | "medium" | "high";
+export type Effort = "" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+
+/** What a task runs on, when the person chose: it overrides the Manager and Worker roles. */
+export interface RunAs {
+  agent: AgentKind;
+  /** `""` = the CLI's own login. */
+  provider: string;
+  /** `""` = the CLI's default model. */
+  model: string;
+  effort: Effort;
+}
+
+/** What one agent CLI can run on its own login (`GET /api/agents/:agent/models`). */
+export interface AgentCatalog {
+  agent: AgentKind;
+  models: { id: string; label: string; efforts: Effort[] | null; defaultEffort: string }[];
+  efforts: Effort[];
+  /** `cli`: asked of the CLI; `builtin`: hidane's own list stood in. */
+  source: "cli" | "builtin";
+  error?: string;
+}
 
 export interface RoleConfig {
   agent: AgentKind;
@@ -412,7 +434,7 @@ export const api = {
   chat: (
     text: string,
     images: OutboundImage[] = [],
-    opts: { target?: string; replyTo?: string; focus?: boolean } = {},
+    opts: { target?: string; replyTo?: string; focus?: boolean; runAs?: RunAs } = {},
   ) =>
     apiFetch<{ ok: boolean; messageId: string }>(`/api/chat`, {
       method: "POST",
@@ -511,6 +533,9 @@ export const api = {
     apiFetch<{ ok: boolean }>(`/api/providers/${encodeURIComponent(id)}`, { method: "DELETE" }),
   providerPresets: () => apiFetch<{ presets: ProviderPreset[] }>(`/api/provider-presets`),
   agents: () => apiFetch<{ agents: AgentInfo[] }>(`/api/agents`),
+  agentModels: (agent: AgentKind) => apiFetch<AgentCatalog>(`/api/agents/${agent}/models`),
+  setWorkItemRunAs: (id: string, runAs: RunAs | null) =>
+    apiFetch<{ ok: boolean; item: WorkItem }>(`/api/work-items/${id}`, { method: "PATCH", body: JSON.stringify({ runAs }) }),
   /** One real model round trip for a role's saved configuration — can take minutes. */
   testAgent: (role: Role) =>
     apiFetch<AgentTestResult>(`/api/agents/test`, {

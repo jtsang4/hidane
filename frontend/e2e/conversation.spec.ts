@@ -128,6 +128,53 @@ test("small talk gets a reply and creates no work item", async ({ page, api }) =
   expect((await api.workItems()).length).toBe(itemsBefore);
 });
 
+test("the composer picks what a task runs on: agent, model and effort, like Paseo", async ({ page, api }) => {
+  await api.setAllRoles("claude");
+  await page.goto("/");
+  const picker = page.getByRole("group", { name: "运行方式" });
+  // By default a task follows the role settings.
+  await expect(picker.getByRole("combobox", { name: "Agent" })).toHaveValue("");
+  await picker.getByRole("combobox", { name: "Agent" }).selectOption("codex");
+  // The model list comes from the CLI itself (`codex debug models`, the fake's catalog here).
+  await expect(page.locator("datalist option[value='gpt-fake-1']")).toHaveCount(1);
+  const model = picker.getByRole("combobox", { name: "模型" });
+  await model.fill("gpt-fake-mini");
+  await model.press("Enter");
+  // That model takes only low and medium; the effort list follows it.
+  const effort = picker.getByRole("combobox", { name: "推理强度" });
+  await expect(effort.locator("option")).toHaveText(["默认", "低", "中"]);
+  await effort.selectOption("medium");
+  await expect(picker).toContainText("用于新任务");
+
+  const text = `创建一个文件写上 ${unique("e2e-runas")}`;
+  const messageId = await say(page, text);
+  const question = turn(page, messageId);
+  await expect(question).toContainText("已完成：", { timeout: 45_000 });
+  const card = question.getByRole("article", { name: text });
+  await expect(card).toContainText("Codex · gpt-fake-mini · 中");
+
+  const item = (await api.workItems()).find((candidate) => candidate.title === text);
+  expect(item?.runAs).toEqual({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "medium" });
+  const chain = await api.eventsFrom(await api.event(messageId));
+  const intent = chain.find((e) => e.kind === "side_effect.intent" && e.workItemId === item?.id);
+  expect(intent?.payload["tool"], "the worker ran on codex").toBe("bash");
+
+  // Addressing the task, the picker shows and changes what that task runs on, at once.
+  await card.getByRole("button", { name: "展开" }).click();
+  await expect(picker).toContainText("用于这个任务，立即生效");
+  await expect(picker.getByRole("combobox", { name: "Agent" })).toHaveValue("codex");
+  await picker.getByRole("combobox", { name: "Agent" }).selectOption("pi");
+  await expect(page.getByRole("alert").filter({ hasText: "改为使用 pi" })).toBeVisible();
+  await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs?.agent).toBe("pi");
+  await picker.getByRole("combobox", { name: "Agent" }).selectOption("");
+  await expect(page.getByRole("alert").filter({ hasText: "改回跟随设置" })).toBeVisible();
+  await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs ?? null).toBeNull();
+
+  // The choice for new tasks is remembered on this machine.
+  await page.goto("/");
+  await expect(page.getByRole("group", { name: "运行方式" }).getByRole("combobox", { name: "Agent" })).toHaveValue("codex");
+});
+
 test("a late answer's notice never covers the newest message while the view sits at the bottom", async ({ page, api }) => {
   await api.setAllRoles("claude");
   // Narrow enough that the centred notice overlaps the bubbles' column.

@@ -34,6 +34,7 @@ Usage:
   hidane                      open the desktop app
   hidane serve [--addr A]     run headless: agent loop, connectors, web UI and API over HTTP
   hidane chat <message...>    send a message and follow the answers [--item ID] [--timeout SEC]
+                              [--agent claude|codex|pi [--provider ID] [--model M] [--effort E]]
   hidane items [--all]        list work items
   hidane events [--tail N] [--thread ID] [--item ID]
   hidane log [DAY] [--write]  render the daily worklog projection
@@ -173,6 +174,10 @@ func chatCmd(args []string) error {
 	fs := flag.NewFlagSet("chat", flag.ExitOnError)
 	item := fs.String("item", "", "address the message to a work item")
 	timeout := fs.Int("timeout", 900, "stop following after this many seconds")
+	agent := fs.String("agent", "", "run the task on this CLI (claude | codex | pi) instead of the role settings")
+	provider := fs.String("provider", "", "with --agent: a provider id from settings (default: the CLI's own login)")
+	model := fs.String("model", "", "with --agent: the model (default: the CLI's default)")
+	effort := fs.String("effort", "", "with --agent: the reasoning effort")
 	_ = fs.Parse(args)
 	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if text == "" {
@@ -183,13 +188,22 @@ func chatCmd(args []string) error {
 		return err
 	}
 	defer a.Close()
+	var runAs *kernel.RunAs
+	if *agent != "" {
+		runAs = &kernel.RunAs{Agent: *agent, Provider: *provider, Model: *model, Effort: *effort}
+		if err := a.Settings.Get().ValidateRun(settings.RoleConfig{Agent: *agent, Provider: *provider, Model: *model, Effort: *effort}); err != nil {
+			return err
+		}
+	} else if *provider != "" || *model != "" || *effort != "" {
+		return errors.New("--provider, --model and --effort need --agent")
+	}
 	if _, err := a.Start(); err == nil {
 		defer a.Stop()
 	} else if !errors.Is(err, app.ErrLocked) {
 		return err
 	}
 	ctx := context.Background()
-	msg, err := a.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Source: "connector:cli", Target: *item})
+	msg, err := a.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Source: "connector:cli", Target: *item, RunAs: runAs})
 	if err != nil {
 		return err
 	}

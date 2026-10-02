@@ -73,8 +73,16 @@ func TestValidation(t *testing.T) {
 	if _, err := st.SetRoles(map[string]settings.RoleConfig{"primary": {Agent: "claude", Provider: "ghost"}}); err == nil {
 		t.Error("unknown provider")
 	}
-	if _, err := st.SetRoles(map[string]settings.RoleConfig{"primary": {Agent: "claude", Effort: "max"}}); err == nil {
-		t.Error("unknown effort")
+	// Efforts are per CLI: claude takes max, not pi's "off" or codex's "ultra".
+	for _, bad := range []string{"off", "ultra", "turbo"} {
+		if _, err := st.SetRoles(map[string]settings.RoleConfig{"primary": {Agent: "claude", Effort: bad}}); err == nil {
+			t.Errorf("claude effort %q", bad)
+		}
+	}
+	for agent, ok := range map[string]string{"claude": "max", "codex": "ultra", "pi": "off"} {
+		if _, err := st.SetRoles(map[string]settings.RoleConfig{"primary": {Agent: agent, Effort: ok}}); err != nil {
+			t.Errorf("%s effort %q: %v", agent, ok, err)
+		}
 	}
 	if _, err := st.SetRoles(map[string]settings.RoleConfig{"janitor": {Agent: "claude"}}); err == nil {
 		t.Error("unknown role")

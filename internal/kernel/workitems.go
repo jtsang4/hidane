@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -28,18 +29,36 @@ type WorkItem struct {
 	DeadlineAt *string `json:"deadlineAt"`
 	CreatedAt  string  `json:"createdAt"`
 	UpdatedAt  string  `json:"updatedAt"`
+	// RunAs pins what the item's Manager and workers run on; nil follows the
+	// role settings.
+	RunAs *RunAs `json:"runAs"`
+}
+
+// RunAs names an agent CLI and how to run it: the provider ("" = the CLI's
+// own login), model ("" = its default) and reasoning effort ("" = default).
+type RunAs struct {
+	Agent    string `json:"agent"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Effort   string `json:"effort"`
 }
 
 func (w WorkItem) Parent() string { return deref(w.ParentID) }
 
-const wiCols = `id, title, status, workspace, thread_id, parent_id, deadline_at, created_at, updated_at`
+const wiCols = `id, title, status, workspace, thread_id, parent_id, deadline_at, created_at, updated_at, run_as`
 
 func scanWorkItem(s scanner) (WorkItem, error) {
 	var w WorkItem
-	var parent, deadline sql.NullString
-	err := s.Scan(&w.ID, &w.Title, &w.Status, &w.Workspace, &w.ThreadID, &parent, &deadline, &w.CreatedAt, &w.UpdatedAt)
+	var parent, deadline, runAs sql.NullString
+	err := s.Scan(&w.ID, &w.Title, &w.Status, &w.Workspace, &w.ThreadID, &parent, &deadline, &w.CreatedAt, &w.UpdatedAt, &runAs)
 	w.ParentID = ptr(str(parent))
 	w.DeadlineAt = ptr(str(deadline))
+	if runAs.Valid && runAs.String != "" {
+		var r RunAs
+		if json.Unmarshal([]byte(runAs.String), &r) == nil && r.Agent != "" {
+			w.RunAs = &r
+		}
+	}
 	return w, err
 }
 
@@ -237,6 +256,43 @@ func (k *Kernel) SetWorkItemDeadline(ctx context.Context, id, deadlineAt, source
 		return item, err
 	}
 	return k.GetWorkItem(ctx, id)
+}
+
+// SetWorkItemRunAs pins (or, with nil, releases) what a work item runs on.
+// The change is a fact in the log; the column is what the runtime reads.
+func (k *Kernel) SetWorkItemRunAs(ctx context.Context, id string, runAs *RunAs, source string) (WorkItem, error) {
+	item, err := k.GetWorkItem(ctx, id)
+	if err != nil {
+		return item, err
+	}
+	if runAs != nil && runAs.Agent == "" {
+		runAs = nil
+	}
+	if equalRunAs(item.RunAs, runAs) {
+		return item, nil
+	}
+	var stored any
+	if runAs != nil {
+		b, _ := json.Marshal(runAs)
+		stored = string(b)
+	}
+	if _, err := k.DB.ExecContext(ctx, `UPDATE work_items SET run_as = ?, updated_at = ? WHERE id = ?`, stored, k.stamp(), id); err != nil {
+		return item, err
+	}
+	if _, err := k.Append(ctx, EventInput{
+		Source: source, Kind: "work_item.run_as_changed", ThreadID: item.ThreadID, WorkItemID: id,
+		Payload: Payload{"runAs": runAs, "previous": item.RunAs},
+	}); err != nil {
+		return item, err
+	}
+	return k.GetWorkItem(ctx, id)
+}
+
+func equalRunAs(a, b *RunAs) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // OverdueWorkItems are open items whose deadline has passed.

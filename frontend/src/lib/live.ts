@@ -87,6 +87,6 @@ export function invalidationFor(event: {
   if (event.kind.startsWith("memory.")) throttled.push(["memories"]);
   if (event.kind.startsWith("policy.")) throttled.push(["policies"]);
   // Another client (CLI, a second window) may have changed providers or CLI paths.
-  if (event.kind.startsWith("settings.")) throttled.push(["settings"], ["agents"]);
+  if (event.kind.startsWith("settings.")) throttled.push(["settings"], ["agents"], ["agent-models"]);
   return { now, throttled };
 }

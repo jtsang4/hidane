@@ -25,7 +25,20 @@ var Agents = []string{Claude, Codex, Pi}
 // Roles: one loop at three scopes, plus the memory distiller.
 var Roles = []string{"primary", "manager", "worker", "distiller"}
 
-var Efforts = []string{"", "low", "medium", "high"}
+// EffortsFor are the reasoning efforts an agent CLI accepts ("" = its default):
+// claude --effort, codex model_reasoning_effort (the union over its models;
+// the catalog says which a model takes), pi --thinking.
+func EffortsFor(agent string) []string {
+	switch agent {
+	case Claude:
+		return []string{"", "low", "medium", "high", "xhigh", "max"}
+	case Codex:
+		return []string{"", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+	case Pi:
+		return []string{"", "off", "minimal", "low", "medium", "high", "xhigh", "max"}
+	}
+	return []string{""}
+}
 
 // Provider is an LLM endpoint the CLIs can be pointed at. Each CLI speaks one
 // wire protocol, so a provider says which of them it can serve:
@@ -275,23 +288,8 @@ func Validate(s Settings) error {
 		if !ok {
 			return errf("role %q is not configured", role)
 		}
-		if !contains(Agents, rc.Agent) {
-			return errf("role %s: agent must be one of %s", role, strings.Join(Agents, ", "))
-		}
-		if !contains(Efforts, rc.Effort) {
-			return errf("role %s: effort must be low, medium or high", role)
-		}
-		if rc.Provider != "" {
-			p, ok := s.Provider(rc.Provider)
-			if !ok {
-				return errf("role %s: unknown provider %q", role, rc.Provider)
-			}
-			if msg := Compatibility(rc.Agent, &p); msg != "" {
-				return errf("role %s: %s", role, msg)
-			}
-		}
-		if strings.ContainsAny(rc.Model, " \n\t") {
-			return errf("role %s: model must not contain spaces", role)
+		if err := s.ValidateRun(rc); err != nil {
+			return errf("role %s: %v", role, err)
 		}
 	}
 	for kind, path := range s.Binaries {
@@ -301,6 +299,30 @@ func Validate(s Settings) error {
 		if path != "" && !filepath.IsAbs(path) {
 			return errf("%s path must be absolute", kind)
 		}
+	}
+	return nil
+}
+
+// ValidateRun checks one way of running an agent: a role's, or a work
+// item's own choice.
+func (s Settings) ValidateRun(rc RoleConfig) error {
+	if !contains(Agents, rc.Agent) {
+		return fmt.Errorf("agent must be one of %s", strings.Join(Agents, ", "))
+	}
+	if efforts := EffortsFor(rc.Agent); !contains(efforts, rc.Effort) {
+		return fmt.Errorf("%s effort must be one of %s", rc.Agent, strings.Join(efforts[1:], ", "))
+	}
+	if rc.Provider != "" {
+		p, ok := s.Provider(rc.Provider)
+		if !ok {
+			return fmt.Errorf("unknown provider %q", rc.Provider)
+		}
+		if msg := Compatibility(rc.Agent, &p); msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+	}
+	if strings.ContainsAny(rc.Model, " \n\t") {
+		return fmt.Errorf("model must not contain spaces")
 	}
 	return nil
 }
@@ -315,10 +337,17 @@ type Resolved struct {
 }
 
 // Resolve returns how a role should run now.
-func (s Settings) Resolve(role string) Resolved {
+func (s Settings) Resolve(role string) Resolved { return s.ResolveWith(role, nil) }
+
+// ResolveWith is Resolve with a work item's own choice in place of the
+// role's configuration (nil: the role's).
+func (s Settings) ResolveWith(role string, own *RoleConfig) Resolved {
 	rc, ok := s.Roles[role]
 	if !ok {
 		rc = Default().Roles[role]
+	}
+	if own != nil && own.Agent != "" {
+		rc = *own
 	}
 	r := Resolved{Role: role, Agent: rc.Agent, Model: rc.Model, Effort: rc.Effort}
 	if rc.Provider != "" {

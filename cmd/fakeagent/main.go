@@ -32,6 +32,20 @@ func main() {
 		fmt.Printf("%s fake 1.0.0\n", kind)
 		return
 	}
+	// What the real CLIs print when asked for their models.
+	if kind == "codex" && len(args) >= 2 && args[0] == "debug" && args[1] == "models" {
+		fmt.Println(`{"models":[` +
+			`{"slug":"gpt-fake-1","display_name":"GPT Fake 1","visibility":"list","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]},` +
+			`{"slug":"gpt-fake-mini","display_name":"GPT Fake Mini","visibility":"list","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},` +
+			`{"slug":"gpt-hidden","visibility":"hide","supported_reasoning_levels":[{"effort":"low"}]}]}`)
+		return
+	}
+	if kind == "pi" && has(args, "--list-models") {
+		fmt.Println("provider       model                context  max-out  thinking  images")
+		fmt.Println("fakeprov       fake-model-a         128K     32K      yes       no")
+		fmt.Println("fakeprov       fake-model-b         1M       64K      yes       yes")
+		return
+	}
 	logInvocation(kind, args)
 	switch kind {
 	case "claude":

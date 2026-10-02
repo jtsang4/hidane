@@ -251,6 +251,12 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			if err != nil {
 				return err
 			}
+			// The parts of a task run on what the task runs on.
+			if item.RunAs != nil {
+				if child, err = k.SetWorkItemRunAs(ctx, child.ID, item.RunAs, "agent:manager"); err != nil {
+					return err
+				}
+			}
 			if _, _, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{Source: "agent:manager", Kind: "user.message",
 				Mailbox: kernel.ManagerAddress(child.ID), Lane: kernel.LaneNormal, ThreadID: child.ThreadID, WorkItemID: child.ID,
 				Payload: kernel.Payload{"text": brief, "root": kernel.RootOf(t.cause), "fromParent": item.ID}}, CausedBy: &t.cause}); err != nil {
@@ -450,12 +456,12 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	}, "\n\n")
 
 	sessionPath := managerSessionPath(item)
-	agent := s.Settings.Get().Resolve("manager").Agent
+	agent := s.Settings.Get().ResolveWith("manager", ownRun(item)).Agent
 	var saved managerSession
 	if b, err := os.ReadFile(sessionPath); err == nil {
 		_ = json.Unmarshal(b, &saved)
 	}
-	opts := thinkOpts{Role: "manager", Charter: ManagerCharter, Cwd: item.Workspace,
+	opts := thinkOpts{Role: "manager", Own: ownRun(item), Charter: ManagerCharter, Cwd: item.Workspace,
 		SessionDir: filepath.Dir(sessionPath), Images: imagesOf(messages), LiveThreadID: item.ThreadID}
 	if saved.Agent == agent {
 		opts.ResumeID = saved.SessionID

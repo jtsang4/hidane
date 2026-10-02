@@ -256,7 +256,7 @@ func (p *WorkerPool) runJob(j *job) {
 		blocks := filepath.Join(control, "policy-blocks.jsonl")
 		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks,
 			Workspace: it.Workspace, Protected: k.Cfg.Home}
-		r := p.s.Settings.Get().Resolve("worker")
+		r := p.s.Settings.Get().ResolveWith("worker", ownRun(it))
 		req := agentcli.Request{
 			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: it.Workspace, Tools: true,
 			Model: r.Model, Effort: r.Effort, Provider: r.Provider,

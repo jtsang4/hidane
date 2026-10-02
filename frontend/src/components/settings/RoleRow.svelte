@@ -2,7 +2,7 @@
   import { FlaskConical, LoaderCircle, TriangleAlert } from "@lucide/svelte";
   import { t } from "../../i18n/index.js";
   import type { AgentKind, AgentTestResult, Effort, ProviderView, Role, RoleConfig } from "../../lib/api.js";
-  import { AGENT_KINDS, EFFORTS, errorText, roleCompatibility } from "../../lib/settings.js";
+  import { AGENT_KINDS, effortsFor, errorText, roleCompatibility } from "../../lib/settings.js";
   import Button from "../ui/Button.svelte";
   import Input from "../ui/Input.svelte";
   import Select from "../ui/Select.svelte";
@@ -140,7 +140,7 @@
   </div>
   <div class="divide-y divide-border rounded-lg border border-border bg-surface">
     <SettingsRow label={$t("settings.roles.agent")} for={ids.agent}>
-      <Select id={ids.agent} class="w-56" value={draft.agent} onchange={(event) => change({ agent: event.currentTarget.value as AgentKind })}>
+      <Select id={ids.agent} class="w-56" value={draft.agent} onchange={(event) => { const agent = event.currentTarget.value as AgentKind; change({ agent, ...(effortsFor(agent).includes(draft.effort) ? {} : { effort: "" }) }); }}>
         {#each AGENT_KINDS as kind (kind)}
           <option value={kind}>{$t(`settings.kinds.${kind}`)}</option>
         {/each}
@@ -176,7 +176,7 @@
     </SettingsRow>
     <SettingsRow label={$t("settings.roles.effort")} for={ids.effort}>
       <Select id={ids.effort} class="w-56" value={draft.effort} onchange={(event) => change({ effort: event.currentTarget.value as Effort })}>
-        {#each EFFORTS as effort (effort)}
+        {#each effortsFor(draft.agent) as effort (effort)}
           <option value={effort}>{$t(`settings.effort.${effort || "default"}`)}</option>
         {/each}
       </Select>

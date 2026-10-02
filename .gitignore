@@ -24,3 +24,4 @@ frontend/playwright-report/
 
 # Windows resources generated while packaging
 /*.syso
+/fakeagent

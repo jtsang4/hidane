@@ -447,6 +447,23 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
   环境变量；codex 拿到 `-c model_provider=hidane …` 与 `HIDANE_CODEX_API_KEY` 环境变量；pi 拿到 `--provider`。
   key 不出现在 claude/codex 的命令行参数里
 
+## 场景 6E：对话里选择 agent、模型和推理强度
+
+像 Paseo 一样，对话输入框下方可以选这次任务用哪个 agent CLI、模型服务、模型和推理强度。期望：
+
+- 选项来自 CLI 本身：Codex 的模型和每个模型支持的推理强度来自 `codex debug models`，pi 的模型来自
+  `pi --list-models`，Claude Code 用内置列表；模型可以直接输入列表里没有的名字；推理强度只列出所选
+  CLI/模型接受的档位（claude 低…最高，codex 最低…极致，pi 不思考…最高）
+- 在主会话里选 Codex + 某个模型 + 推理强度后提一个要动手的任务（真实 CLI）：新建的工作项带 `runAs`，
+  落一条 `work_item.run_as_changed`；它的 Manager 与 worker 真的用 codex 跑（会话目录里的 manager
+  session 记的是 codex，worker 的命令参数里有所选模型与 `model_reasoning_effort`），而角色设置仍是原样；
+  任务卡片上显示「Codex · 模型 · 强度」
+- 聚焦这个任务时，选择器显示它自己的设置并注明「用于这个任务，立即生效」；改成 pi 立刻生效
+  （`PATCH` 成功、有提示、再落一条 `work_item.run_as_changed`），改回「跟随设置」后 `runAs` 为 null
+- 子任务继承父任务的选择；刷新页面后，为新任务记住的选择仍在
+- 非法组合被拒（400）：未知 agent、该 CLI 不支持的推理强度、与 CLI 不兼容的模型服务、带空格的模型名
+- `hidane chat --agent codex --effort high "…"` 在命令行做同样的事；`--model`/`--effort` 不带 `--agent` 时报错
+
 ## 场景 6B：闸门在真实 CLI 里生效
 
 对 worker 分别用 claude、codex、pi（真实 CLI）各跑一次：全局 `POLICY.json` 加一条 `forbidden\.txt` 规则，

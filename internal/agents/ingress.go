@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/settings"
 )
 
 // InboundMessage is a person's message from any channel.
@@ -20,6 +21,32 @@ type InboundMessage struct {
 	Focus bool
 	// Channel coordinates the outbox needs to answer on the same surface.
 	Channel map[string]any
+	// RunAs is what the person chose to run the work on: it pins the target
+	// work item, or the one the Primary creates for this message. Nil keeps
+	// what is configured.
+	RunAs *kernel.RunAs
+}
+
+// runAsOf reads the choice a person's message carried.
+func runAsOf(m kernel.Event) *kernel.RunAs {
+	raw, ok := m.Payload["runAs"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	r := &kernel.RunAs{Agent: Str(raw["agent"]), Provider: Str(raw["provider"]), Model: Str(raw["model"]), Effort: Str(raw["effort"])}
+	if r.Agent == "" {
+		return nil
+	}
+	return r
+}
+
+// ownRun is a work item's own choice as a role configuration (nil: none).
+func ownRun(item kernel.WorkItem) *settings.RoleConfig {
+	if item.RunAs == nil {
+		return nil
+	}
+	r := item.RunAs
+	return &settings.RoleConfig{Agent: r.Agent, Provider: r.Provider, Model: r.Model, Effort: r.Effort}
 }
 
 // ErrUndeliverable means the hop budget refused the message.
@@ -69,10 +96,18 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 	if m.Channel != nil {
 		payload["channel"] = m.Channel
 	}
+	if m.RunAs != nil && m.RunAs.Agent != "" {
+		payload["runAs"] = map[string]any{"agent": m.RunAs.Agent, "provider": m.RunAs.Provider, "model": m.RunAs.Model, "effort": m.RunAs.Effort}
+	}
 	if target != "" {
 		item, err := k.GetWorkItem(ctx, target)
 		if err != nil {
 			return kernel.Event{}, err
+		}
+		if m.RunAs != nil && m.RunAs.Agent != "" {
+			if item, err = k.SetWorkItemRunAs(ctx, item.ID, m.RunAs, m.Source); err != nil {
+				return kernel.Event{}, err
+			}
 		}
 		payload["target"] = item.ID
 		ev, err := k.Append(ctx, kernel.EventInput{Source: m.Source, Kind: "user.message", ThreadID: "main", WorkItemID: item.ID, Payload: payload})

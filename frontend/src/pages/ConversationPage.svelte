@@ -164,6 +164,8 @@
   let target = $derived<ComposerTarget | null>(
     replyTarget ?? (focus ? { id: focus, title: titleOf(focus), mode: "focus" } : null),
   );
+  /** What the addressed task runs on, for the composer's picker. */
+  let targetRunAs = $derived(target ? (cardMap.get(target.id)?.item.runAs ?? null) : null);
 
   function titleOf(id: string): string {
     return cardMap.get(id)?.item.title ?? titles.get(id) ?? knownTitles.get(id) ?? id;
@@ -792,6 +794,7 @@
   <Composer
     bind:this={composer}
     {target}
+    {targetRunAs}
     onclear={clearTarget}
     onsending={(text) => {
       // Something new said belongs at the live edge, not inside old history.

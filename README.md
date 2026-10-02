@@ -120,6 +120,17 @@ The API never returns a key — only whether one is set and its last four
 characters — and setting changes are logged without them. **Test** on a role
 makes one real round trip; `hidane model --ping` does the same from a terminal.
 
+**Per task**, the composer picks what the work runs on, as Paseo's does: an
+agent CLI, a provider, a model and a reasoning effort — or "Settings" to follow
+the roles above. The choice pins the task its message creates (and the parts it
+fans out into): its Manager and workers run on that CLI. Addressing a task, the
+picker shows and changes that task's choice at once. The choice for new tasks
+is remembered on the machine; the Primary keeps its own setting. Models come
+from the CLI where it can list them (`codex debug models`, `pi --list-models`;
+Claude Code from a built-in list), and the efforts offered follow the CLI and
+model: `claude` low…max, `codex` minimal…ultra (per model), `pi` off…max.
+From a terminal: `hidane chat --agent codex --model gpt-5.5 --effort high "…"`.
+
 An app opened from Finder does not inherit your shell's `PATH`; hidane asks your
 login shell for it and also looks in the usual places (`~/.local/bin`,
 `~/.bun/bin`, mise/asdf shims, Homebrew). Absolute paths can be set per CLI on
