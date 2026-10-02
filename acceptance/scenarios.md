@@ -2,6 +2,9 @@
 
 > 本文档由验收 Agent 阅读并针对真实系统执行（`make acceptance` 用本机 `claude` CLI 充当验收 Agent）。
 > 场景用自然语言描述意图与期望，具体操作方式由验收 Agent 自行决定；判决必须附带实际观察到的证据。
+> 只有违反写明的期望才判 FAIL；期望之外的观察（措辞、体验、风险、想法）写进 notes，不判 FAIL。
+> hidane 之外的故障（模型网关 5xx、限流、CLI 未登录）不算 FAIL：重试，仍不行就判 BLOCKED 并写明原因。
+> 按改动选择范围：`make acceptance ARGS="--changed origin/main"` 或 `ARGS="--only 4F,6E"`；完整跑一遍留给发版前。
 
 ## 环境速查
 

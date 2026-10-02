@@ -31,6 +31,12 @@ Rules for AI coding agents working in this repository. Project introduction live
 - `make smoke-gui` launches the real Wails window; it must end with `ui ready (live transport: wails)`. Run it after touching `internal/desktop`, `/boot.js`, or the live transport.
 - After touching `scripts/package.sh`, `build/`, `.github/workflows/release.yml` or a platform-specific dependency, run `.agents/skills/hidane-release/scripts/dry-run.sh`: it builds every release artifact locally and opens the macOS and (in Docker) Linux packages. Windows is cross-compiled; `GOOS=windows go vet ./...` must stay clean (its dependencies live in `go.sum` too).
 - `make smoke-live` / `make acceptance` spend real tokens on the locally installed CLIs. The **agent-driven acceptance** (`scripts/acceptance.sh` executing `acceptance/scenarios.md`) is the end-to-end source of truth: when behavior changes, update the natural-language scenarios — do not encode acceptance in assertion scripts.
+- Pay for verification by the size of the change — a full acceptance costs about an hour and real tokens:
+  - every change: `make test` (and `make e2e` for anything a person sees); CI runs them on every push, with the fakes and no tokens;
+  - a driver, the guard, a charter or a role's context: the `hidane-live-check` skill (minutes, a few real calls);
+  - behavior a scenario describes: `make acceptance ARGS="--changed origin/main"` (only the scenarios the changed paths map to) or `ARGS="--only 4F,6E"`;
+  - the full `make acceptance`: before a minor or major release (the `hidane-release` skill), or after a sweeping change.
+- A finding the acceptance makes more than once becomes a Go or Playwright test, so the next run need not rediscover it. Only a violated written expectation is a FAIL; everything else the tester notices is a note for the backlog, and a gateway error is retried, not a FAIL.
 - The fakes prove protocol handling, not the real CLIs: after changing a driver, the guard, a charter or a role's context, follow the `hidane-live-check` skill (real `claude` / `codex` / `pi`, fresh `HIDANE_HOME`, judged against the files on disk — not the reply).
 - Tests are hermetic: a temp `HIDANE_HOME`, fake CLIs by absolute path, `HIDANE_LOGIN_SHELL=0` for any spawned `hidane`. A test must never read the developer's `~/.hidane`, `~/.claude`, `~/.codex`, keychain, or shell startup files, and never start a real agent CLI.
 - Verify claims with evidence: when you say something works, show the command output, file content, or event rows that prove it.

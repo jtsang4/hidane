@@ -60,9 +60,10 @@ smoke-live: build-nogui
 	$(BIN)/hidane-nogui agents
 	$(BIN)/hidane-nogui model --ping
 
-# Agent-driven acceptance of acceptance/scenarios.md (spends tokens).
+# Agent-driven acceptance of acceptance/scenarios.md (spends tokens). Scope it:
+# make acceptance ARGS="--only 4F,6E" or ARGS="--changed origin/main".
 acceptance:
-	scripts/acceptance.sh
+	scripts/acceptance.sh $(ARGS)
 
 # macOS .app bundle.
 app: build

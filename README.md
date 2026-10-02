@@ -174,6 +174,7 @@ make screenshots # every page, zh/en, desktop/phone → bin/screenshots/ (real b
 make smoke-gui   # the real Wails window loads the UI and receives pushed frames, then quits
 make smoke-live  # one real round trip per role on your installed CLIs (spends tokens)
 make acceptance  # a Claude Code tester agent executes acceptance/scenarios.md (spends tokens)
+                 #   ARGS="--changed origin/main" or ARGS="--only 4F,6E" to run just what a change touches
 ```
 
 `cmd/fakeagent` impersonates `claude`, `codex` and `pi` on their real wire

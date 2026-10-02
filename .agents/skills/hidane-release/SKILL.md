@@ -63,8 +63,15 @@ make e2e
 make smoke-gui        # on macOS: the real Wails window
 ```
 
-For a major or minor release, also offer `make acceptance` (it spends real
-tokens and takes about an hour) — run it if the user agrees.
+Acceptance by the size of the release (it spends real tokens):
+
+- patch: `make acceptance ARGS="--changed <last tag>"` — only the scenarios
+  the changes since the last release touch (it says so when none are);
+- minor or major: the full `make acceptance` (about an hour) — offer it, run
+  it if the user agrees.
+
+Only FAIL blocks a release; a BLOCKED for missing credentials or permissions
+does not, but say which.
 
 ## 4. Dry-run the packaging
 
