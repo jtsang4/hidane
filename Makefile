@@ -47,9 +47,10 @@ e2e: build-nogui fakeagent
 	pnpm -C frontend e2e
 
 # Every page in zh/en at desktop and phone width → bin/screenshots/, so a UI
-# change can be looked at rather than inferred from the diff.
+# change can be looked at rather than inferred from the diff. ONLY=run-as,focus
+# takes only the pages and states whose names start with those prefixes.
 screenshots: build-nogui fakeagent
-	node frontend/e2e/screenshots.mjs bin/screenshots
+	ONLY="$(ONLY)" node frontend/e2e/screenshots.mjs bin/screenshots
 
 # The real Wails window loads the app and receives pushed frames, then quits.
 smoke-gui: build

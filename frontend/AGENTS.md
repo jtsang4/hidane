@@ -57,7 +57,7 @@
 - `pnpm -C frontend check`
 - `pnpm -C frontend test`
 - `pnpm -C frontend build`
-- After a visible change: `make screenshots`, then look at the pages you touched
+- After a visible change: `make screenshots` (`ONLY=<prefixes>` while iterating), then look at the pages you touched
   in zh and en, in each flavour (`bin/screenshots/<page>-<zh|en>-<desktop|browser|phone>.png`:
   the desktop app's UI, the browser at window size, the browser at phone width).
 - `boot().desktop` decides the flavour. The desktop window has a hidden-inset

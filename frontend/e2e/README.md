@@ -24,6 +24,7 @@ make build-nogui fakeagent        # the SPA is embedded at build time: rebuild a
 pnpm -C frontend e2e              # everything: four projects
 pnpm -C frontend exec playwright test e2e/settings.spec.ts --project=webkit-desktop
 make screenshots                  # every page and settings section, zh/en, desktop/browser/phone → bin/screenshots/
+make screenshots ONLY=run-as      # only the pages and states whose names start with these prefixes (comma-separated)
 ```
 
 Two servers run: the normal one on 2797, and a slow one on 2798

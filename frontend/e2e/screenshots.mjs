@@ -4,6 +4,11 @@
 // instead of inferred from the diff.
 //
 //   node e2e/screenshots.mjs [outDir]      (make screenshots)
+//   ONLY=run-as,settings-roles node e2e/screenshots.mjs   (make screenshots ONLY=run-as,settings-roles)
+//
+// ONLY takes comma-separated name prefixes and visits only those pages and
+// states, so iterating on one part of the UI does not pay for every page;
+// files of other pages already in outDir are left as they were.
 //
 // Build inputs: `make build-nogui fakeagent`. Writes <page>-<lang>-<flavour>.png:
 //   desktop  the desktop app's UI (boot.js says desktop) at a window size
@@ -28,6 +33,9 @@ const pages = [
   ["log", "/log"],
   ...["general", "shortcuts", "about", "roles", "providers", "cli", "rules", "status", "events"].map((section) => [`settings-${section}`, `/settings/${section}`]),
 ];
+const only = (process.env.ONLY ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+const want = (...names) => only.length === 0 || names.some((name) => only.some((prefix) => name.startsWith(prefix)));
+let taken = 0;
 const flavours = {
   desktop: { viewport: { width: 1280, height: 820 }, desktop: true },
   browser: { viewport: { width: 1280, height: 820 }, desktop: false },
@@ -114,6 +122,8 @@ try {
       const page = await context.newPage();
       page.on("pageerror", (e) => failures.push(`${lang} ${flavour}: ${e.message}`));
       const shot = async (name) => {
+        if (!want(name)) return;
+        taken++;
         await page.waitForTimeout(350);
         await page.screenshot({ path: join(out, `${name}-${lang}-${flavour}.png`) });
       };
@@ -124,27 +134,32 @@ try {
       };
 
       for (const [name, path] of pages) {
+        if (!want(name)) continue;
         await settle(path);
         await shot(name);
       }
 
       // States worth seeing: a task open beside the conversation, the palette,
       // a new task, a message's menu and the confirm it leads to.
-      if (task) {
+      if (task && want("focus")) {
         await settle(`/?focus=${task.id}`);
         await shot("focus");
       }
-      await settle("/");
-      await page.keyboard.press("ControlOrMeta+k");
-      await page.keyboard.type("screenshot");
-      await page.waitForTimeout(600);
-      await shot("palette");
-      await page.keyboard.press("Escape");
-      await page.keyboard.press("ControlOrMeta+n");
-      await shot("new-task");
-      await page.keyboard.press("Escape");
+      if (want("palette", "new-task", "menu", "confirm")) await settle("/");
+      if (want("palette")) {
+        await page.keyboard.press("ControlOrMeta+k");
+        await page.keyboard.type("screenshot");
+        await page.waitForTimeout(600);
+        await shot("palette");
+        await page.keyboard.press("Escape");
+      }
+      if (want("new-task")) {
+        await page.keyboard.press("ControlOrMeta+n");
+        await shot("new-task");
+        await page.keyboard.press("Escape");
+      }
       const said = page.locator("section[data-root] [role=presentation]").first();
-      if (await said.count()) {
+      if (want("menu", "confirm") && (await said.count())) {
         await said.click({ button: "right", position: { x: viewport.width < 600 ? 300 : 700, y: 10 } });
         await shot("menu");
         await page.getByRole("menuitem").filter({ hasText: lang === "zh" ? "隐藏" : "Hide" }).click();
@@ -152,25 +167,27 @@ try {
         await page.keyboard.press("Escape");
       }
       // The composer's pickers: who replies, and what a new task runs on — closed, then each open with a favorite.
-      await page.evaluate(() => {
-        const codex = { agent: "codex", provider: "", model: "gpt-fake-1", effort: "high" };
-        localStorage.setItem("hidane.runAs", JSON.stringify(codex));
-        localStorage.setItem("hidane.runAsFavorites", JSON.stringify([codex, { agent: "pi", provider: "", model: "fake-model-a", effort: "low" }]));
-      });
-      await settle("/");
-      await shot("run-as");
-      const triggers = page.getByRole("group", { name: lang === "zh" ? "运行方式" : "Run on" }).getByRole("button");
-      await triggers.first().click();
-      await shot("run-as-chat");
-      await page.keyboard.press("Escape");
-      await triggers.last().click();
-      await shot("run-as-task");
-      await page.keyboard.press("Escape");
-      await page.evaluate(() => {
-        localStorage.removeItem("hidane.runAs");
-        localStorage.removeItem("hidane.runAsFavorites");
-      });
-      if (flavour !== "phone") {
+      if (want("run-as", "run-as-chat", "run-as-task")) {
+        await page.evaluate(() => {
+          const codex = { agent: "codex", provider: "", model: "gpt-fake-1", effort: "high" };
+          localStorage.setItem("hidane.runAs", JSON.stringify(codex));
+          localStorage.setItem("hidane.runAsFavorites", JSON.stringify([codex, { agent: "pi", provider: "", model: "fake-model-a", effort: "low" }]));
+        });
+        await settle("/");
+        await shot("run-as");
+        const triggers = page.getByRole("group", { name: lang === "zh" ? "运行方式" : "Run on" }).getByRole("button");
+        await triggers.first().click();
+        await shot("run-as-chat");
+        await page.keyboard.press("Escape");
+        await triggers.last().click();
+        await shot("run-as-task");
+        await page.keyboard.press("Escape");
+        await page.evaluate(() => {
+          localStorage.removeItem("hidane.runAs");
+          localStorage.removeItem("hidane.runAsFavorites");
+        });
+      }
+      if (flavour !== "phone" && want("collapsed")) {
         await page.evaluate(() => {
           sessionStorage.setItem("keep-sidebar", "1");
           localStorage.setItem("hidane-sidebar-collapsed", "1");
@@ -186,7 +203,8 @@ try {
     }
   }
   await browser.close();
-  console.log(`screenshots in ${out}`);
+  if (taken === 0) throw new Error(`ONLY=${only.join(",")} matches no screenshot`);
+  console.log(`${taken} screenshots in ${out}`);
   if (failures.length > 0) {
     console.error(failures.join("\n"));
     process.exitCode = 1;
