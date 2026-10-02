@@ -1,14 +1,17 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Archive, ArrowUpLeft, Check, MessageSquareText, RotateCcw, Square, X } from "@lucide/svelte";
+  import { Archive, ArrowUpLeft, Check, FolderOpen, MessageSquareText, RotateCcw, Square, X } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
   import { api, ApiError, type BoardCard, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
   import { stateTone } from "../lib/board.js";
+  import { boot } from "../lib/boot.js";
+  import { steeredKey } from "../lib/conversation.js";
   import { executionGroups } from "../lib/grouping.js";
   import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
   import { nextCursor } from "../lib/pagination.js";
   import { conversationHref, navigate } from "../lib/router.svelte.js";
+  import { revealWorkspace, setTaskStatus } from "../lib/taskActions.js";
   import { pushToast } from "../lib/toast.js";
   import { fmtDateTime } from "../lib/utils.js";
   import Artifacts from "./Artifacts.svelte";
@@ -40,6 +43,7 @@
   const THREAD_KINDS = new Set(["agent.reply", "agent.error", "execution.steered"]);
 
   const queryClient = useQueryClient();
+  const desktop = boot().desktop;
   let olderPages = $state<HidaneEvent[][]>([]);
   let loadingOlder = $state(false);
   let exhausted = $state(false);
@@ -128,7 +132,7 @@
             <h2 class="text-base font-semibold break-words">{item.title}</h2>
             {#if card}<Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>{:else}<Badge tone="muted">{item.status}</Badge>{/if}
           </div>
-          <p class="mt-1 truncate text-xs text-muted" title={item.workspace}>{$t("item.meta", { id: item.id, time: fmtDateTime(item.createdAt), workspace: item.workspace })}</p>
+          <p class="mt-1 truncate text-xs text-muted select-text" title={item.workspace}>{$t("item.meta", { id: item.id, time: fmtDateTime(item.createdAt), workspace: item.workspace })}</p>
           {#if item.parentId}
             <button class="mt-1 flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => item.parentId && onfocus(item.parentId)}>
               <ArrowUpLeft size={12} />{$t("task.parent")} · {parent?.item.title ?? item.parentId}
@@ -146,8 +150,11 @@
             <Button variant="outline" size="sm" aria-label={$t("task.stop")} onclick={() => onstop(id)}><Square size={12} /><span class="hidden sm:inline">{$t("task.stop")}</span></Button>
           {/if}
           <Button variant="outline" size="sm" aria-label={item.status === "open" ? $t("item.markDone") : $t("item.reopen")} disabled={setStatus.isPending} onclick={() => setStatus.mutate(item.status === "open" ? "done" : "open")}>{#if item.status === "open"}<Check size={12} />{:else}<RotateCcw size={12} />{/if}<span class="hidden sm:inline">{item.status === "open" ? $t("item.markDone") : $t("item.reopen")}</span></Button>
+          {#if desktop}
+            <Button variant="ghost" size="icon" aria-label={$t("menu.revealWorkspace")} title={$t("menu.revealWorkspace")} onclick={() => void revealWorkspace(id)}><FolderOpen size={16} /></Button>
+          {/if}
           {#if item.status !== "closed"}
-            <Button variant="ghost" size="icon" aria-label={$t("item.archive")} title={$t("item.archive")} disabled={setStatus.isPending} onclick={() => { if (confirm($t("item.confirmArchive"))) setStatus.mutate("closed"); }}><Archive size={16} /></Button>
+            <Button variant="ghost" size="icon" aria-label={$t("item.archive")} title={$t("item.archive")} disabled={setStatus.isPending} onclick={() => void setTaskStatus(queryClient, id, "closed")}><Archive size={16} /></Button>
           {/if}
           <Button variant="ghost" size="icon" aria-label={$t("task.close")} title={$t("task.close")} onclick={onclose}><X size={16} /></Button>
         </div>
@@ -169,7 +176,7 @@
         {#if thread.length === 0 && live.length === 0}<p class="text-xs text-muted">{$t("task.noThread")}</p>{/if}
         {#each thread as event (event.id)}
           {#if event.kind === "execution.steered"}
-            <p class="text-right text-xs text-muted">↳ {$t("conversation.steered")}</p>
+            <p class="text-right text-xs text-muted">↳ {$t(steeredKey(event))}</p>
           {:else}
             <ChatBubble {event} />
           {/if}

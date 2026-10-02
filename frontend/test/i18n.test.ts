@@ -22,9 +22,19 @@ describe("i18n", () => {
   });
 
   it("interpolates variables in both languages", async () => {
-    expect(i18n.t("item.toolCalls", { n: 3 })).toBe("3 次工具调用");
+    expect(i18n.t("item.toolCalls", { count: 3 })).toBe("3 次工具调用");
     await i18n.changeLanguage("en");
-    expect(i18n.t("item.toolCalls", { n: 3 })).toBe("3 tool calls");
+    expect(i18n.t("item.toolCalls", { count: 3 })).toBe("3 tool calls");
+  });
+
+  it("uses the singular in English for one", async () => {
+    await i18n.changeLanguage("en");
+    expect(i18n.t("item.toolCalls", { count: 1 })).toBe("1 tool call");
+    expect(i18n.t("task.progress", { count: 1 })).toBe("1 tool call");
+    expect(i18n.t("notice.more", { count: 1 })).toBe("1 more update");
+    expect(i18n.t("notice.more", { count: 2 })).toBe("2 more updates");
+    await i18n.changeLanguage("zh");
+    expect(i18n.t("task.progress", { count: 1 })).toBe("1 次工具调用");
   });
 
   it("falls back to Chinese for unknown stored values", () => {

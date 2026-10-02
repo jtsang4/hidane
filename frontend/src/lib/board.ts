@@ -24,8 +24,9 @@ export function isUnread(card: BoardCard, seen: Readonly<Record<string, number>>
 }
 
 /**
- * The tabs along the top: whatever is in motion or waiting, plus finished work
- * the person has not looked at yet. Waiting first — it is blocked on them.
+ * The sidebar's in-progress list: whatever is in motion or waiting, plus
+ * finished work the person has not looked at yet. Waiting first — it is
+ * blocked on them.
  */
 export function trayCards(cards: BoardCard[], seen: Readonly<Record<string, number>>): BoardCard[] {
   const rank = (c: BoardCard) => (c.state === "waiting" ? 0 : isActive(c) ? 1 : 2);

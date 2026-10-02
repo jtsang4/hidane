@@ -10,6 +10,7 @@
       variants: {
         variant: {
           default: "bg-primary text-primary-foreground hover:bg-primary/90",
+          danger: "bg-danger text-white hover:bg-danger/90",
           outline: "border border-border bg-transparent hover:bg-surface-2",
           ghost: "hover:bg-surface-2",
         },
@@ -17,6 +18,7 @@
           default: "h-9 px-4",
           sm: "h-8 px-3 text-xs",
           icon: "h-9 w-9",
+          "icon-sm": "h-7 w-7",
         },
       },
       defaultVariants: { variant: "default", size: "default" },

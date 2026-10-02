@@ -147,11 +147,23 @@ describe("errorText", () => {
     expect(errorText(new ApiError(0, "Failed to fetch"))).toBe("Failed to fetch");
     expect(errorText(new Error("plain"))).toBe("plain");
   });
+
+  it("names a host action refused outside the desktop app", () => {
+    expect(errorText(new ApiError(404, '404 {"ok":false,"error":"desktop app only"}'))).toBe("只有桌面应用能做这件事");
+  });
 });
 
 describe("settings route", () => {
-  it("maps /settings to the settings page", () => {
-    expect(routeFor("/settings")).toEqual({ name: "settings" });
-    expect(routeFor("/settings/")).toEqual({ name: "settings" });
+  it("opens settings at General and maps each section", () => {
+    expect(routeFor("/settings")).toEqual({ name: "redirect", to: "/settings/general" });
+    expect(routeFor("/settings/")).toEqual({ name: "redirect", to: "/settings/general" });
+    expect(routeFor("/settings/roles")).toEqual({ name: "settings", section: "roles" });
+    expect(routeFor("/settings/nope")).toEqual({ name: "redirect", to: "/settings/general" });
+  });
+
+  it("sends the pages that moved into settings to their section", () => {
+    expect(routeFor("/policies")).toEqual({ name: "redirect", to: "/settings/rules" });
+    expect(routeFor("/status")).toEqual({ name: "redirect", to: "/settings/status" });
+    expect(routeFor("/events")).toEqual({ name: "redirect", to: "/settings/events" });
   });
 });

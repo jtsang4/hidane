@@ -32,11 +32,15 @@ export function subscribeToasts(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
+/** How long a toast stays: confirmations are glanced at, failures need time to be read. */
+export const TOAST_MS: Record<Toast["tone"], number> = { default: 4_000, danger: 10_000 };
+
 export function pushToast(message: string, tone: Toast["tone"] = "danger"): number {
   const id = nextId++;
   // Repeating the same message (a poll failing every cycle) should not stack.
   toasts = [...toasts.filter((t) => t.message !== message), { id, message, tone }];
   emit();
+  if (typeof window !== "undefined") window.setTimeout(() => dismissToast(id), TOAST_MS[tone]);
   return id;
 }
 

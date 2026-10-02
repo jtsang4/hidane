@@ -1,53 +1,51 @@
 <script lang="ts">
   import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
-  import {
-    Activity,
-    AlarmClock,
-    Brain,
-    Flame,
-    Languages,
-    ListTodo,
-    LogOut,
-    Logs,
-    MessageCircle,
-    ScrollText,
-    ShieldCheck,
-    SlidersHorizontal,
-  } from "@lucide/svelte";
+  import { Flame, MessageSquarePlus, PanelLeft, Settings, SquarePen } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import i18n, { t, language, switchLanguage } from "./i18n/index.js";
-  import {
-    api,
-    ApiError,
-    clearToken,
-    getToken,
-    onUnauthorized,
-    setToken,
-  } from "./lib/api.js";
+  import i18n, { t, language } from "./i18n/index.js";
+  import { api, ApiError, clearToken, getToken, onUnauthorized, setToken } from "./lib/api.js";
   import { boot } from "./lib/boot.js";
-  import { liveTransport } from "./lib/stream.js";
-  import { resetLiveText } from "./lib/liveText.js";
-  import { badgeTitle, completionFrom, notifyPermission } from "./lib/notify.js";
-  import { clearToasts, pushToast } from "./lib/toast.js";
-  import { focusHref, navigate, initRouter, routeFor, routerState } from "./lib/router.svelte.js";
+  import { createCommandRunner, formatShortcut, installCommands, isMacPlatform, shortcutKey, type Command } from "./lib/commands.js";
+  import { confirmOpen } from "./lib/confirm.svelte.js";
+  import { closeMenu, menuOpen, watchContextSelection } from "./lib/contextMenu.svelte.js";
   import type { LiveState } from "./lib/live.js";
-  import { cn } from "./lib/utils.js";
+  import { resetLiveText } from "./lib/liveText.js";
+  import { MAIN_NAV, navTarget } from "./lib/nav.js";
+  import { nativeBadge, nativeNotify } from "./lib/native.js";
+  import { badgeTitle, completionFrom, notifyPermission } from "./lib/notify.js";
+  import {
+    conversationHref,
+    focusHref,
+    initRouter,
+    leaveSettings,
+    navigate,
+    openSettings,
+    routeFor,
+    routerState,
+    SETTINGS_SECTIONS,
+    toggleSettings,
+  } from "./lib/router.svelte.js";
+  import { liveTransport } from "./lib/stream.js";
+  import { clearToasts, pushToast } from "./lib/toast.js";
+  import { prefs, setSidebarCollapsed, ui } from "./lib/ui.svelte.js";
+  import CommandPalette, { type PaletteCommand } from "./components/CommandPalette.svelte";
+  import ConfirmHost from "./components/ConfirmHost.svelte";
   import LiveLane from "./components/LiveLane.svelte";
+  import MenuHost from "./components/MenuHost.svelte";
+  import NewTaskDialog from "./components/NewTaskDialog.svelte";
+  import PhoneNav from "./components/PhoneNav.svelte";
+  import Sidebar from "./components/Sidebar.svelte";
   import Toaster from "./components/Toaster.svelte";
   import Button from "./components/ui/Button.svelte";
   import Card from "./components/ui/Card.svelte";
   import Input from "./components/ui/Input.svelte";
   import ConversationPage from "./pages/ConversationPage.svelte";
-  import EventsPage from "./pages/EventsPage.svelte";
   import ItemsPage from "./pages/ItemsPage.svelte";
   import LogPage from "./pages/LogPage.svelte";
   import MemoryPage from "./pages/MemoryPage.svelte";
-  import PoliciesPage from "./pages/PoliciesPage.svelte";
   import SchedulesPage from "./pages/SchedulesPage.svelte";
-  import SettingsPage from "./pages/SettingsPage.svelte";
-  import StatusPage from "./pages/StatusPage.svelte";
+  import SettingsView from "./pages/SettingsView.svelte";
 
-  const BASE_TITLE = "hidane 火种";
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: 3_000, retry: 1 } },
     queryCache: new QueryCache({
@@ -62,18 +60,8 @@
     }),
   });
 
-  const NAV = [
-    { to: "/", key: "nav.chat", icon: MessageCircle },
-    { to: "/items", key: "nav.items", icon: ListTodo },
-    { to: "/events", key: "nav.events", icon: Logs },
-    { to: "/log", key: "nav.log", icon: ScrollText },
-    { to: "/memory", key: "nav.memory", icon: Brain },
-    { to: "/schedules", key: "nav.schedules", icon: AlarmClock },
-    { to: "/policies", key: "nav.policies", icon: ShieldCheck },
-    { to: "/settings", key: "nav.settings", icon: SlidersHorizontal },
-    { to: "/status", key: "nav.status", icon: Activity },
-  ] as const;
-
+  const desktop = boot().desktop;
+  const mac = isMacPlatform();
   // The desktop webview is the only client of its backend: there is no token to ask for.
   const needsToken = boot().auth;
   let authed = $state(!needsToken || getToken().length > 0);
@@ -84,58 +72,179 @@
   // The desktop shell learns the page loaded and its live channel works.
   function onLiveState(state: LiveState) {
     live = state;
-    if (state === "live" && boot().desktop && !readyReported) {
+    if (state === "live" && desktop && !readyReported) {
       readyReported = true;
       void api.uiReady(liveTransport()).catch(() => undefined);
     }
   }
-  let unseen = $state(0);
-  let route = $derived(routeFor(routerState.path));
-  let nextLang = $derived<"zh" | "en">($language === "en" ? "zh" : "en");
-  let liveLabel = $derived($t(live === "live" ? "live.live" : live === "connecting" ? "live.connecting" : "live.offline"));
 
-  // A work item lives beside the conversation now; old links still land on it.
-  $effect(() => {
-    if (route.name === "item") navigate(focusHref(route.id), { replace: true });
+  let unseen = $state(0);
+  /** The Dock badge last sent, so a reload does not re-send zeros. */
+  let badgeSent = 0;
+  let route = $derived(routeFor(routerState.path));
+
+  const keyHint = (command: Command) => {
+    const key = shortcutKey(command);
+    return key ? formatShortcut(key, mac) : "";
+  };
+
+  /** What a command does; the runner in front of it drops a second delivery of the same key press. */
+  function execute(command: Command): void {
+    if (!authed || confirmOpen()) return;
+    if (menuOpen()) closeMenu();
+    // A form is open: its fields keep the keys until it is closed.
+    if (ui.newTaskOpen) return;
+    if (command === "search") {
+      ui.paletteOpen = !ui.paletteOpen;
+      return;
+    }
+    ui.paletteOpen = false;
+    if (command === "open-settings") toggleSettings();
+    else if (command === "new-task") ui.newTaskOpen = true;
+    else if (command === "toggle-sidebar") setSidebarCollapsed(!ui.sidebarCollapsed);
+    else if (command === "focus-composer") {
+      if (route.name !== "chat") navigate(routerState.returnTo.startsWith("/?") ? routerState.returnTo : "/");
+      ui.composerFocus = true;
+    } else {
+      const to = navTarget(command);
+      if (to && !(to === "/" && route.name === "chat")) navigate(to);
+    }
+  }
+  const runCommand = createCommandRunner(execute);
+
+  let paletteCommands = $derived.by((): PaletteCommand[] => {
+    void $language;
+    const en = i18n.getFixedT("en");
+    const zh = i18n.getFixedT("zh");
+    return [
+      ...MAIN_NAV.map((item) => ({
+        id: item.command,
+        group: "go" as const,
+        label: i18n.t("palette.goTo", { page: i18n.t(item.key) }),
+        keywords: [en(item.key), zh(item.key), item.to],
+        shortcut: keyHint(item.command),
+        icon: item.icon,
+        run: () => execute(item.command),
+      })),
+      {
+        id: "new-task",
+        group: "action",
+        label: i18n.t("shell.newTask"),
+        keywords: [en("shell.newTask"), zh("shell.newTask")],
+        shortcut: keyHint("new-task"),
+        icon: SquarePen,
+        run: () => execute("new-task"),
+      },
+      {
+        id: "focus-composer",
+        group: "action",
+        label: i18n.t("palette.focusComposer"),
+        keywords: [en("palette.focusComposer"), zh("palette.focusComposer")],
+        shortcut: keyHint("focus-composer"),
+        icon: MessageSquarePlus,
+        run: () => execute("focus-composer"),
+      },
+      {
+        id: "toggle-sidebar",
+        group: "action",
+        label: i18n.t("palette.toggleSidebar"),
+        keywords: [en("palette.toggleSidebar"), zh("palette.toggleSidebar")],
+        shortcut: keyHint("toggle-sidebar"),
+        icon: PanelLeft,
+        run: () => execute("toggle-sidebar"),
+      },
+      ...SETTINGS_SECTIONS.map((section) => ({
+        id: `settings:${section}`,
+        group: "settings" as const,
+        label: i18n.t("palette.openSettings", { section: i18n.t(`settings.sections.${section}`) }),
+        keywords: [en(`settings.sections.${section}`), zh(`settings.sections.${section}`), en("shell.settings"), zh("shell.settings")],
+        shortcut: section === "general" ? keyHint("open-settings") : "",
+        icon: Settings,
+        run: () => openSettings(section),
+      })),
+    ];
   });
 
   onMount(() => {
     const stopRouter = initRouter();
+    const stopCommands = installCommands(runCommand);
+    const stopSelectionWatch = watchContextSelection();
+    window.addEventListener("hidane:event", onCompletion);
     const stopUnauthorized = onUnauthorized(() => {
       if (!needsToken) return;
       authed = false;
       resetLiveText();
       pushToast(i18n.t("token.invalid"));
     });
-    const clear = () => {
-      if (document.visibilityState === "visible") unseen = 0;
-    };
-    const onCompletion = (event: Event) => {
-      const done = completionFrom((event as MessageEvent<string>).data);
-      if (!done || document.visibilityState === "visible") return;
-      unseen += 1;
-      if (notifyPermission() === "granted") {
-        new Notification(done.ok ? i18n.t("notify.done") : i18n.t("notify.failed"), {
-          body: done.summary || done.workItemId || "",
-          tag: done.workItemId ?? "hidane",
-        });
-      }
-    };
-    document.addEventListener("visibilitychange", clear);
-    window.addEventListener("focus", clear);
-    window.addEventListener("hidane:event", onCompletion);
     return () => {
-      stopRouter();
-      stopUnauthorized();
-      document.removeEventListener("visibilitychange", clear);
-      window.removeEventListener("focus", clear);
       window.removeEventListener("hidane:event", onCompletion);
+      stopRouter();
+      stopCommands();
+      stopSelectionWatch();
+      stopUnauthorized();
     };
   });
 
+  /** In front: the window has focus and the page is shown. */
+  const inFront = () => document.visibilityState === "visible" && document.hasFocus();
+
+  function cameBack(): void {
+    if (inFront()) unseen = 0;
+  }
+
+  function onCompletion(event: Event): void {
+    const done = completionFrom((event as MessageEvent<string>).data);
+    if (!done || inFront()) return;
+    unseen += 1;
+    if (!prefs.notify) return;
+    const title = done.ok ? i18n.t("notify.done") : i18n.t("notify.failed");
+    const body = done.summary || done.workItemId || "";
+    if (desktop) nativeNotify(title, body);
+    else if (notifyPermission() === "granted") new Notification(title, { body, tag: done.workItemId ?? "hidane" });
+  }
+
   $effect(() => {
-    document.title = badgeTitle(BASE_TITLE, unseen);
+    const count = prefs.badge ? unseen : 0;
+    if (desktop) {
+      if (count !== badgeSent) {
+        badgeSent = count;
+        nativeBadge(count);
+      }
+    } else {
+      document.title = badgeTitle($t("common.appName"), count);
+    }
   });
+
+  /** Esc leaves settings once nothing on top of it wants the key; in a field it first lets go of the field. */
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+    if (ui.paletteOpen || ui.newTaskOpen || confirmOpen() || menuOpen() || route.name !== "settings") return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.matches("input, textarea, select, [contenteditable='true']")) {
+      target.blur();
+      return;
+    }
+    leaveSettings();
+  }
+
+  /**
+   * The webview's own menu (Reload, Inspect…) has no place in an app. Fields
+   * and selected text keep it for cut/copy/paste; menus of our own have
+   * already taken the event.
+   */
+  function onContextMenu(event: MouseEvent): void {
+    if (!desktop || event.defaultPrevented) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.toString().trim()) return;
+    event.preventDefault();
+  }
+
+  /** A file dropped outside the composer must not replace the app with the file. */
+  function onWindowDrop(event: DragEvent): void {
+    if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+  }
 
   function submitToken(): void {
     const value = tokenDraft.trim();
@@ -152,24 +261,24 @@
     // Signing out does not reload, so an in-flight reply would otherwise still
     // be held in memory and shown to whoever signs in next on this tab.
     resetLiveText();
+    ui.paletteOpen = false;
+    ui.newTaskOpen = false;
     authed = false;
   }
-
-  function linkClick(event: MouseEvent, path: string): void {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    navigate(path);
-  }
-
-  function active(path: string): boolean {
-    return path === "/" ? route.name === "chat" : routerState.path === path || routerState.path.startsWith(`${path}/`);
-  }
 </script>
+
+<svelte:window
+  onfocus={cameBack}
+  onkeydown={onKeydown}
+  ondragover={onWindowDrop}
+  ondrop={onWindowDrop}
+/>
+<svelte:document onvisibilitychange={cameBack} oncontextmenu={onContextMenu} />
 
 <QueryClientProvider client={queryClient}>
   <LiveLane enabled={authed} onstatechange={onLiveState} />
   {#if !authed}
-    <div class="flex h-full items-center justify-center p-6">
+    <div class="drag-region flex h-full items-center justify-center p-6">
       <Card class="w-full max-w-sm space-y-3">
         <div class="flex items-center gap-2 text-lg font-semibold">
           <Flame size={20} class="text-primary" /> hidane
@@ -179,70 +288,51 @@
         <Button class="w-full" onclick={submitToken} disabled={!tokenDraft.trim()}>{$t("token.enter")}</Button>
       </Card>
     </div>
-  {:else}
-    <div class="flex h-full flex-col-reverse sm:flex-row">
-      <nav class="flex shrink-0 justify-around border-t border-border bg-surface p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:w-44 sm:flex-col sm:justify-start sm:gap-1 sm:border-t-0 sm:border-r sm:p-3 sm:pb-3">
-        <div class="hidden items-center gap-2 px-2 pb-3 text-base font-semibold sm:flex">
-          <Flame size={20} class="text-primary" /> hidane
-        </div>
-        {#each NAV as item (item.to)}
-          {@const Icon = item.icon}
-          <a
-            href={item.to}
-            class={cn(
-              "flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-sm text-muted hover:bg-surface-2 sm:flex-none sm:justify-start sm:px-3",
-              active(item.to) && "bg-surface-2 text-foreground",
-            )}
-            onclick={(event) => linkClick(event, item.to)}
-          >
-            <Icon size={16} />
-            <span class="hidden sm:inline">{$t(item.key)}</span>
-          </a>
-        {/each}
-        <div class="flex shrink-0 items-center sm:mt-auto sm:block">
-          <span class="flex items-center gap-2 px-1 py-2 text-xs text-muted sm:px-3" title={$t("live.hint")} role="status" aria-label={`${$t("live.hint")}: ${liveLabel}`}>
-            <span aria-hidden="true" class={cn("h-2 w-2 rounded-full", live === "live" ? "bg-success" : live === "connecting" ? "animate-pulse bg-primary" : "bg-danger")}></span>
-            <span aria-hidden="true" class="hidden sm:inline">{liveLabel}</span>
-          </span>
-        </div>
-        <button class="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-sm text-muted hover:bg-surface-2 sm:flex-none sm:justify-start sm:px-3" onclick={() => switchLanguage(nextLang)} aria-label={$t("nav.language")}>
-          <Languages size={16} />
-          <span class="hidden sm:inline">{nextLang === "en" ? $t("nav.english") : $t("nav.chinese")}</span>
-        </button>
-        {#if needsToken}
-          <button class="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md px-2 py-2 text-sm text-muted hover:bg-surface-2 sm:flex-none sm:justify-start sm:px-3" onclick={signOut} aria-label={$t("token.signOut")}>
-            <LogOut size={16} />
-            <span class="hidden sm:inline">{$t("token.signOut")}</span>
-          </button>
-        {/if}
-      </nav>
-      <main class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {#if route.name === "chat" || route.name === "item"}
-          <ConversationPage />
-        {:else if route.name === "items"}
-          <ItemsPage />
-        {:else if route.name === "events"}
-          <EventsPage />
-        {:else if route.name === "log"}
-          <LogPage />
-        {:else if route.name === "memory"}
-          <MemoryPage />
-        {:else if route.name === "schedules"}
-          <SchedulesPage />
-        {:else if route.name === "policies"}
-          <PoliciesPage />
-        {:else if route.name === "settings"}
-          <SettingsPage />
-        {:else if route.name === "status"}
-          <StatusPage />
-        {:else}
-          <div class="flex h-full flex-col items-center justify-center gap-3 p-6">
-            <p class="text-sm text-muted">{$t("notFound.title")}</p>
-            <a href="/" class="text-sm text-primary underline" onclick={(event) => linkClick(event, "/")}>{$t("notFound.back")}</a>
-          </div>
-        {/if}
-      </main>
+  {:else if route.name === "settings"}
+    <SettingsView section={route.section} onsignout={signOut} />
+  {:else if route.name !== "redirect" && route.name !== "item"}
+    <div class="flex h-full">
+      {#if !ui.sidebarCollapsed}
+        <div class="hidden h-full sm:flex"><Sidebar {live} onsignout={signOut} /></div>
+      {/if}
+      <div class="flex min-w-0 flex-1 flex-col">
+        <main class="min-h-0 flex-1">
+          {#if route.name === "chat"}
+            <ConversationPage />
+          {:else if route.name === "items"}
+            <ItemsPage />
+          {:else if route.name === "log"}
+            <LogPage />
+          {:else if route.name === "memory"}
+            <MemoryPage />
+          {:else if route.name === "schedules"}
+            <SchedulesPage />
+          {:else}
+            <div class="flex h-full flex-col">
+              <div class="drag-region h-[52px] shrink-0 border-b border-border"></div>
+              <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6">
+                <p class="text-sm text-muted">{$t("notFound.title")}</p>
+                <Button variant="outline" size="sm" onclick={() => navigate(conversationHref({}))}>{$t("notFound.back")}</Button>
+              </div>
+            </div>
+          {/if}
+        </main>
+        <PhoneNav />
+      </div>
     </div>
   {/if}
+  {#if authed && ui.paletteOpen}
+    <CommandPalette
+      commands={paletteCommands}
+      onclose={() => (ui.paletteOpen = false)}
+      onopenitem={(id) => navigate(focusHref(id))}
+      onopenmessage={(id) => navigate(conversationHref({ at: id }))}
+    />
+  {/if}
+  {#if authed && ui.newTaskOpen}
+    <NewTaskDialog onclose={() => (ui.newTaskOpen = false)} />
+  {/if}
+  <ConfirmHost />
+  <MenuHost />
   <Toaster />
 </QueryClientProvider>

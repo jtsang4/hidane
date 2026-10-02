@@ -26,6 +26,18 @@ import (
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
+// Host is the operating system, as the desktop shell exposes it to the page.
+// A webview has no reliable clipboard, notifications or download handling of
+// its own, and following a link would replace the app.
+type Host interface {
+	// Open opens a URL in the system browser, or reveals a file in the file manager.
+	Open(target string, reveal bool) error
+	CopyText(text string) error
+	Notify(title, body string) error
+	// SetBadge shows a count on the app icon; 0 clears it.
+	SetBadge(count int) error
+}
+
 // Options configure one handler.
 type Options struct {
 	K        *kernel.Kernel
@@ -45,10 +57,9 @@ type Options struct {
 	OnUIReady func(transport string)
 	// OnLiveHello re-greets a page that just subscribed to pushed frames.
 	OnLiveHello func()
-	// Open hands a URL or a file to the operating system (system browser,
-	// Finder). Desktop only: a remote serve client must never open things on
-	// the host.
-	Open func(target string, reveal bool) error
+	// Host is what the desktop shell offers the page; nil in serve mode,
+	// where a remote client must never act on the host machine.
+	Host Host
 	// OnSettingsChanged drops anything derived from settings (CLI detection).
 	OnSettingsChanged func()
 	// FireSchedule runs a schedule now.
@@ -80,7 +91,8 @@ func safeEqual(a, b string) bool {
 }
 
 // authorized: /api/* requires the bearer token whenever one is configured.
-// EventSource cannot set headers, so the stream may pass ?token= instead.
+// EventSource cannot set headers, so the stream — and only the stream — may
+// pass ?token= instead: a token in a URL ends up in logs and history.
 func (s *server) authorized(r *http.Request) bool {
 	if s.Token == "" {
 		return true
@@ -88,7 +100,7 @@ func (s *server) authorized(r *http.Request) bool {
 	token := ""
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		token = strings.TrimPrefix(h, "Bearer ")
-	} else {
+	} else if r.URL.Path == "/api/events/stream" {
 		token = r.URL.Query().Get("token")
 	}
 	return token != "" && safeEqual(token, s.Token)
@@ -175,6 +187,10 @@ func (s *server) routes() {
 	m.HandleFunc("POST /api/ui-ready", s.uiReady)
 	m.HandleFunc("POST /api/live/hello", s.liveHello)
 	m.HandleFunc("POST /api/desktop/open-url", s.openURL)
+	m.HandleFunc("POST /api/desktop/clipboard", s.copyText)
+	m.HandleFunc("POST /api/desktop/notify", s.notify)
+	m.HandleFunc("POST /api/desktop/badge", s.badge)
+	m.HandleFunc("POST /api/desktop/open-data-dir", s.openDataDir)
 	m.HandleFunc("POST /api/work-items/{id}/reveal", s.reveal)
 
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusNotFound, errBody("not found")) })
@@ -249,6 +265,12 @@ func (s *server) liveHello(w http.ResponseWriter, r *http.Request) {
 
 // static serves the SPA: real files as themselves, every other path the app shell.
 func (s *server) static(w http.ResponseWriter, r *http.Request) {
+	// Only reads get the app shell: answering a POST to an unknown path with
+	// 200 and HTML reads, to any client, as "accepted".
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return
+	}
 	if s.Assets == nil {
 		http.Error(w, "frontend not built", http.StatusNotFound)
 		return

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from "../i18n/index.js";
-  import { navigate } from "../lib/router.svelte.js";
+  import { escalationText } from "../lib/escalation.js";
+  import { focusHref, navigate } from "../lib/router.svelte.js";
   import { payloadText } from "../lib/grouping.js";
   import type { HidaneEvent } from "../lib/api.js";
   import { cn } from "../lib/utils.js";
@@ -30,9 +31,10 @@
 {#if event.kind === "escalation"}
   <div class="flex justify-center">
     <Badge tone="default">
-      ↑ {payloadText(event)}
+      ↑ {escalationText(event.payload) || payloadText(event)}
       {#if event.workItemId}
-        <a href={`/items/${event.workItemId}`} class="ml-1 underline" onclick={(e) => { e.preventDefault(); navigate(`/items/${event.workItemId}`); }}>{event.workItemId}</a>
+        {@const href = focusHref(event.workItemId)}
+        <a {href} class="ml-1 underline" onclick={(e) => { e.preventDefault(); navigate(href); }}>{event.workItemId}</a>
       {/if}
     </Badge>
   </div>
@@ -44,9 +46,9 @@
       {#if redacted}
         <span>{$t("chat.hidden")}</span>
       {:else if event.kind === "user.message"}
-        <span class="whitespace-pre-wrap">{payloadText(event)}</span>
+        <span class="whitespace-pre-wrap select-text">{payloadText(event)}</span>
       {:else}
-        <Markdown content={payloadText(event)} />
+        <Markdown content={payloadText(event)} class="select-text" />
       {/if}
       <div class="mt-1 text-[10px] opacity-60">
         {#if ghost}{$t("pending.sending")}{:else if streaming}{$t("pending.writing")}{:else}<Time iso={event.ts} />{/if}

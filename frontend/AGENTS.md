@@ -58,7 +58,13 @@
 - `pnpm -C frontend test`
 - `pnpm -C frontend build`
 - After a visible change: `make screenshots`, then look at the pages you touched
-  in zh and en, desktop and phone (`bin/screenshots/`).
+  in zh and en, in each flavour (`bin/screenshots/<page>-<zh|en>-<desktop|browser|phone>.png`:
+  the desktop app's UI, the browser at window size, the browser at phone width).
+- `boot().desktop` decides the flavour. The desktop window has a hidden-inset
+  title bar: keep the top-left 78×52px free (traffic lights) and mark toolbar rows
+  with `drag-region`; interactive elements are `no-drag` globally (`styles.css`).
+- Never call `confirm()`/`alert()`/`prompt()` — WKWebView implements none of
+  them. Use `confirmAction()` (`src/lib/confirm.svelte.ts`).
 - `frontend/e2e/README.md` lists what each Playwright spec guards; extend the one
   that covers your change (`make e2e`).
 - Before handoff, also run the relevant root checks from the repository

@@ -2,33 +2,40 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { ArrowDown, UserRound } from "@lucide/svelte";
+  import { ArrowDown, Copy, EyeOff, ImagePlus, Link, UserRound } from "@lucide/svelte";
   import i18n, { language, t } from "../i18n/index.js";
   import { api, ApiError, type BoardCard, type HidaneEvent } from "../lib/api.js";
-  import { loadSeen, saveSeen, trayCards } from "../lib/board.js";
+  import { boot } from "../lib/boot.js";
+  import { confirmAction } from "../lib/confirm.svelte.js";
+  import { openMenu, type MenuEntry, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { buildTurns, type Turn } from "../lib/conversation.js";
-  import { awayFromLatest, contextBoundary, dayBreaks, loadedRange } from "../lib/history.js";
+  import { awayFromLatest, contextBoundary, dayBreaks, loadedRange, saidText } from "../lib/history.js";
   import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
+  import { messageActions, type MessageAction } from "../lib/menus.js";
+  import { copyText } from "../lib/native.js";
   import { addNotice, dropNotices, noticeFor, type Notice } from "../lib/notices.js";
   import { atFrom, conversationHref, focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
-  import { isPinnedToBottom } from "../lib/scroll.js";
+  import { followAfterScroll, isPinnedToBottom } from "../lib/scroll.js";
+  import { seenState, updateSeen } from "../lib/seen.svelte.js";
+  import { errorText } from "../lib/settings.js";
+  import { openTaskMenu, stopTask } from "../lib/taskActions.js";
   import { pushToast } from "../lib/toast.js";
+  import { ui } from "../lib/ui.svelte.js";
   import { cn, fmtDay } from "../lib/utils.js";
   import ChatBubble from "../components/ChatBubble.svelte";
   import Composer, { type ComposerTarget } from "../components/Composer.svelte";
   import DayPicker from "../components/DayPicker.svelte";
   import FocusPanel from "../components/FocusPanel.svelte";
   import NoticeBar from "../components/NoticeBar.svelte";
-  import SearchResults from "../components/SearchResults.svelte";
-  import TaskTray from "../components/TaskTray.svelte";
+  import Toolbar from "../components/Toolbar.svelte";
   import TurnGroup from "../components/TurnGroup.svelte";
   import Button from "../components/ui/Button.svelte";
-  import Input from "../components/ui/Input.svelte";
 
   /** Events per request; older pages load as the reader scrolls up. */
   const PAGE_SIZE = 80;
 
   const queryClient = useQueryClient();
+  const desktop = boot().desktop;
   let viewport = $state<HTMLDivElement | undefined>();
   let content = $state<HTMLDivElement | undefined>();
   let topSentinel = $state<HTMLDivElement | undefined>();
@@ -48,21 +55,21 @@
   let mode = $state<"live" | "window">("live");
   let hasNewer = $state(false);
   let personOnly = $state(false);
-  let query = $state("");
-  /** The query as last settled, which the results follow. */
-  let settled = $state("");
-  /** A search the reader left by opening a result, offered back to them. */
-  let returnQuery = $state<string | null>(null);
   /** At the live edge and wanting to stay there. */
   let follow = $state(true);
+  /** When the reader last touched the scroller (wheel, touch, key, pointer); never, at first. */
+  let userScrollAt = Number.NEGATIVE_INFINITY;
+  /** Image files are being dragged over the conversation. */
+  let dragging = $state(false);
   /** The first page has been pinned to the live edge; paging waits for it. */
   let primed = $state(false);
   let optimistic = $state<{ text: string; messageId: string | null } | null>(null);
   /** Answering a specific question; outranks the focused card as the target. */
   let replyTarget = $state<ComposerTarget | null>(null);
   let notices = $state<Notice[]>([]);
+  /** Height of what floats over the log's bottom ("back to latest", notices). */
+  let overlayHeight = $state(0);
   let highlighted = $state<string | null>(null);
-  let seenSeq = $state<Record<string, number>>(loadSeen());
   /**
    * A jump is landing. Paging waits: a window opens scrolled to its top, and
    * an older page prepended then would pin the view there instead of at the
@@ -106,17 +113,9 @@
     else for (const [id, title] of Object.entries(page.titles ?? {})) titles.set(id, title);
   });
 
-  // Debounced: every keystroke is a query over the whole log.
-  $effect(() => {
-    const next = query.trim();
-    const timer = window.setTimeout(() => (settled = next), 250);
-    return () => window.clearTimeout(timer);
-  });
-
   let focus = $derived(focusFrom(routerState.search));
   let all = $derived([...seen.values()].sort((a, b) => a.seq - b.seq));
   let turns = $derived(buildTurns(all));
-  let searching = $derived(query.trim().length > 0);
   let cards = $derived(boardQuery.data?.cards ?? []);
   let cardMap = $derived(new Map(cards.map((card) => [card.item.id, card])));
   /** Titles for items no longer on the board (closed long ago), from what was said about them. */
@@ -129,13 +128,12 @@
     return known;
   });
   let choices = $derived(cards.filter((card) => card.item.status === "open").map((card) => ({ id: card.item.id, title: card.item.title })));
-  let tray = $derived(trayCards(cards, seenSeq));
   /** Primary replies still being written. */
   let live = $derived(liveRepliesFor("main", maxSeq(all)));
   let showOptimistic = $derived(mode === "live" && optimistic !== null && !(optimistic.messageId !== null && seen.has(optimistic.messageId)));
   let hasOlder = $derived(olderKnown ?? conversationQuery.data?.hasMore ?? false);
   let breaks = $derived(dayBreaks(turns));
-  let showLatest = $derived(awayFromLatest({ mode, follow, searching, primed, hasTurns: turns.length > 0 }));
+  let showLatest = $derived(awayFromLatest({ mode, follow, searching: false, primed, hasTurns: turns.length > 0 }));
   let boundary = $derived(contextBoundary(turns, contextQuery.data?.fromId ?? null, hasOlder));
   let target = $derived<ComposerTarget | null>(
     replyTarget ?? (focus ? { id: focus, title: titleOf(focus), mode: "focus" } : null),
@@ -151,7 +149,7 @@
    */
   function refreshSeen(): void {
     let changed = false;
-    const next = { ...seenSeq };
+    const next = { ...seenState.map };
     for (const card of cards) {
       const baseline = next[card.item.id];
       // Looking at the card in the conversation counts as having seen it.
@@ -161,10 +159,7 @@
         changed = true;
       }
     }
-    if (changed) {
-      seenSeq = next;
-      saveSeen(next);
-    }
+    if (changed) updateSeen(next);
   }
 
   $effect(() => {
@@ -175,6 +170,8 @@
    * Follow the live edge by watching rendered height, not the data: content is
    * not in the DOM when the data changes and keeps settling afterwards, so only
    * a layout observer lands the jump at the real bottom. Instant on purpose.
+   * The scroller itself is watched too: the composer growing (an attachment,
+   * a reply target) shortens it without the content changing.
    */
   $effect(() => {
     const el = viewport;
@@ -182,12 +179,25 @@
     if (!el || !inner) return;
     const observer = new ResizeObserver(() => {
       if (turns.length === 0 && !showOptimistic) return;
-      if (follow && !searching) el.scrollTo(0, el.scrollHeight);
-      primed = true;
+      if (follow && mode === "live") el.scrollTo(0, el.scrollHeight);
+      // Next frame: what `primed` changes re-lays out the content, and doing that
+      // inside the observer's delivery is a "ResizeObserver loop" error in WebKit.
+      if (!primed) window.requestAnimationFrame(() => (primed = true));
     });
     observer.observe(inner);
+    observer.observe(el);
     return () => observer.disconnect();
   });
+
+  /** Notes the reader's own hand on the scroller; only that may leave the live edge. */
+  function watchReader(node: HTMLElement): () => void {
+    const touched = () => (userScrollAt = performance.now());
+    const kinds = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
+    for (const kind of kinds) node.addEventListener(kind, touched, { passive: true });
+    return () => {
+      for (const kind of kinds) node.removeEventListener(kind, touched);
+    };
+  }
 
   /** Whether a turn's end (where new answers land) — or with `whole` false, any of it — is on screen. */
   function turnVisible(root: string, whole = true): boolean {
@@ -203,7 +213,15 @@
     const el = viewport;
     if (!el) return;
     // Only the live edge can be followed: the bottom of a window is not "now".
-    follow = mode === "live" && isPinnedToBottom(el);
+    const decision = followAfterScroll({
+      live: mode === "live",
+      pinned: isPinnedToBottom(el),
+      userInitiated: performance.now() - userScrollAt < 1000,
+      following: follow,
+    });
+    if (decision === "follow") follow = true;
+    else if (decision === "unfollow") follow = false;
+    else if (decision === "repin") el.scrollTo(0, el.scrollHeight);
     refreshSeen();
     if (notices.length > 0) {
       notices = dropNotices(notices, new Set(notices.filter((n) => turnVisible(n.root)).map((n) => n.root)));
@@ -227,7 +245,9 @@
       if (!notice) return;
       if (notice.workItemId && notice.workItemId === focusFrom(routerState.search)) return;
       window.setTimeout(() => {
-        if (!turnVisible(notice.root)) notices = addNotice(notices, notice);
+        // Following the live edge, an answer anywhere on screen is being seen as it lands.
+        const seenNow = follow && mode === "live" ? turnVisible(notice.root, false) : turnVisible(notice.root);
+        if (!seenNow) notices = addNotice(notices, notice);
       }, 900);
     };
     window.addEventListener("hidane:event", onEvent);
@@ -308,6 +328,8 @@
   function rejoinLive(): void {
     mode = "live";
     hasNewer = false;
+    // The permalink was the window's; the live view is not "at" anything.
+    if (atFrom(routerState.search)) navigate(focusHref(focusFrom(routerState.search)), { replace: true });
     const page = conversationQuery.data;
     if (page) absorb(page);
     void queryClient.invalidateQueries({ queryKey: ["conversation", "page"] });
@@ -408,7 +430,7 @@
     const sentinel = topSentinel;
     const root = viewport;
     seen.size;
-    if (!sentinel || !root || !hasOlder || !primed || searching || anchoring) return;
+    if (!sentinel || !root || !hasOlder || !primed || anchoring) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -426,7 +448,7 @@
     const sentinel = bottomSentinel;
     const root = viewport;
     seen.size;
-    if (!sentinel || !root || mode !== "window" || !hasNewer || searching || anchoring) return;
+    if (!sentinel || !root || mode !== "window" || !hasNewer || anchoring) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) void loadNewer();
@@ -449,18 +471,6 @@
     else navigate(conversationHref({ at: id, focus }));
   }
 
-  function openHit(event: HidaneEvent): void {
-    returnQuery = query.trim();
-    query = "";
-    settled = "";
-    goTo(event.id);
-  }
-
-  function backToSearch(): void {
-    if (returnQuery) query = returnQuery;
-    returnQuery = null;
-  }
-
   function openFocus(id: string): void {
     navigate(conversationHref({ at: atFrom(routerState.search), focus: id }));
   }
@@ -480,15 +490,13 @@
     composer?.focusInput();
   }
 
-  async function stop(id: string): Promise<void> {
-    if (!confirm($t("task.confirmStop"))) return;
-    try {
-      await api.cancelExecution(id);
-      pushToast(i18n.t("task.stopped"), "default");
-      void queryClient.invalidateQueries({ queryKey: ["board"] });
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
-    }
+  function stop(id: string): void {
+    void stopTask(queryClient, id);
+  }
+
+  function taskMenu(card: BoardCard, placement: MenuPlacement): void {
+    const running = card.execution !== null && (card.state === "running" || card.state === "queued" || card.state === "thinking");
+    openTaskMenu(queryClient, { id: card.item.id, title: card.item.title, running, status: card.item.status }, placement, openFocus);
   }
 
   async function route(messageId: string, workItemId: string): Promise<void> {
@@ -504,15 +512,52 @@
 
   async function copyLink(messageId: string): Promise<void> {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}${conversationHref({ at: messageId })}`);
+      await copyText(`${window.location.origin}${conversationHref({ at: messageId })}`);
       pushToast(i18n.t("chat.linkCopied"), "default");
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
+      pushToast(errorText(error));
     }
   }
 
+  async function copyMessage(event: HidaneEvent): Promise<void> {
+    try {
+      await copyText(saidText(event));
+      pushToast(i18n.t("menu.textCopied"), "default");
+    } catch (error) {
+      pushToast(errorText(error));
+    }
+  }
+
+  const MESSAGE_ITEMS: Record<MessageAction, { label: "menu.copyText" | "menu.hide" | "menu.copyLink"; icon: MenuEntry["icon"] }> = {
+    "copy-text": { label: "menu.copyText", icon: Copy },
+    hide: { label: "menu.hide", icon: EyeOff },
+    "copy-link": { label: "menu.copyLink", icon: Link },
+  };
+
+  function messageMenu(event: HidaneEvent, placement: MenuPlacement): void {
+    const own = event.kind === "user.message";
+    const redacted = event.payload["redacted"] === true || (own && turnOf(event.id)?.redacted === true);
+    const items = messageActions({ desktop, own, redacted }).map((action) => ({
+      id: action,
+      label: i18n.t(MESSAGE_ITEMS[action].label),
+      icon: MESSAGE_ITEMS[action].icon,
+      danger: action === "hide",
+    }));
+    openMenu(placement, i18n.t("menu.messageLabel"), items, (choice) => {
+      if (choice === "copy-text") void copyMessage(event);
+      else if (choice === "hide") void hide(event.id);
+      else void copyLink(event.id);
+    });
+  }
+
   async function hide(messageId: string): Promise<void> {
-    if (!confirm(i18n.t("chat.hideConfirm"))) return;
+    const confirmed = await confirmAction({
+      title: i18n.t("chat.hideConfirmTitle"),
+      body: i18n.t("chat.hideConfirm"),
+      confirmLabel: i18n.t("menu.hide"),
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       await api.redactMessage(messageId);
       const event = seen.get(messageId);
@@ -524,15 +569,43 @@
       }
       pushToast(i18n.t("chat.hideDone"), "default");
       void queryClient.invalidateQueries({ queryKey: ["conversation"] });
-      void queryClient.invalidateQueries({ queryKey: ["conversation-search"] });
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
+      pushToast(errorText(error));
     }
   }
 
   function clearTarget(): void {
     if (replyTarget) replyTarget = null;
     else closeFocus();
+  }
+
+  // ⌘L, the menu's New Message, or the palette: the request outlives the navigation here.
+  $effect(() => {
+    if (!ui.composerFocus || !composer) return;
+    ui.composerFocus = false;
+    void tick().then(() => composer?.focusInput());
+  });
+
+  const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes("Files") ?? false;
+
+  function onDragOver(event: DragEvent): void {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    dragging = true;
+  }
+
+  function onDragLeave(event: DragEvent): void {
+    const to = event.relatedTarget;
+    if (!(to instanceof Node) || !(event.currentTarget as HTMLElement).contains(to)) dragging = false;
+  }
+
+  function onDrop(event: DragEvent): void {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragging = false;
+    const files = [...(event.dataTransfer?.files ?? [])];
+    if (files.length > 0) composer?.attachFiles(files);
   }
 </script>
 
@@ -555,47 +628,43 @@
     {titleOf}
     focused={focus}
     highlighted={highlighted === turn.root}
+    routingKnown={mode === "live"}
     onroute={(messageId, workItemId) => void route(messageId, workItemId)}
     onfocus={openFocus}
     onanswer={answer}
     onanswerEscalation={answerEscalation}
-    onstop={(id) => void stop(id)}
-    onlink={(id) => void copyLink(id)}
-    onhide={(id) => void hide(id)}
+    onstop={stop}
+    onmessagemenu={messageMenu}
+    ontaskmenu={taskMenu}
   />
 {/snippet}
 
-<div class="flex h-full flex-col">
-  <TaskTray cards={tray} seen={seenSeq} focused={focus} onfocus={openFocus} />
+<div
+  class="relative flex h-full flex-col"
+  role="region"
+  aria-label={$t("nav.chat")}
+  ondragenter={onDragOver}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
+  ondrop={onDrop}
+>
+  <Toolbar title={$t("nav.chat")}>
+    {#snippet actions()}
+      <DayPicker onpick={goTo} />
+      <button
+        class={cn("flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs focus-visible:outline-2 focus-visible:outline-primary", personOnly ? "border-primary/60 bg-primary/10 text-foreground" : "border-border text-muted hover:text-foreground")}
+        aria-pressed={personOnly}
+        aria-label={$t("chat.personOnly")}
+        title={$t("chat.personOnlyHint")}
+        onclick={() => setPersonOnly(!personOnly)}
+      >
+        <UserRound size={14} aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.personOnly")}</span>
+      </button>
+    {/snippet}
+  </Toolbar>
   <div class="flex min-h-0 flex-1">
     <div class={cn("relative flex min-w-0 flex-1 flex-col", focus && "hidden md:flex")}>
-      <div class="border-b border-border p-2">
-        <div class="mx-auto flex max-w-3xl items-center gap-1.5">
-          <Input
-            bind:value={query}
-            type="search"
-            placeholder={$t("chat.search")}
-            aria-label={$t("chat.search")}
-            onkeydown={(event) => { if (event.key === "Escape") query = ""; }}
-          />
-          <DayPicker onpick={goTo} />
-          <button
-            class={cn("flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs focus-visible:outline-2 focus-visible:outline-primary", personOnly ? "border-primary/60 bg-primary/10 text-foreground" : "border-border text-muted hover:text-foreground")}
-            aria-pressed={personOnly}
-            aria-label={$t("chat.personOnly")}
-            title={$t("chat.personOnlyHint")}
-            onclick={() => setPersonOnly(!personOnly)}
-          >
-            <UserRound size={14} aria-hidden="true" /><span class="hidden sm:inline" aria-hidden="true">{$t("chat.personOnly")}</span>
-          </button>
-        </div>
-        {#if !searching && returnQuery}
-          <div class="mx-auto max-w-3xl pt-1">
-            <button class="px-1 text-xs text-primary hover:underline" onclick={backToSearch}>← {$t("chat.searchBack", { query: returnQuery })}</button>
-          </div>
-        {/if}
-      </div>
-      {#if mode === "window" && !searching}
+      {#if mode === "window"}
         <div class="border-b border-border bg-surface-2/60 px-3 py-1.5 text-center text-xs text-muted" role="status">
           {$t("chat.viewingHistory")}
         </div>
@@ -603,21 +672,19 @@
       <!-- `relative` keeps absolutely positioned descendants (screen-reader text,
            menus) inside the scroller; otherwise they overflow the page shell and
            the whole app scrolls with the conversation. -->
-      <div bind:this={viewport} onscroll={onScroll} class="relative flex-1 overflow-y-auto p-4">
-        {#if searching}
-          <div class="mx-auto max-w-3xl">
-            {#if settled}
-              <SearchResults query={settled} {titleOf} onopen={openHit} onfocus={openFocus} />
-            {:else}
-              <p class="px-1 text-xs text-muted">{$t("chat.searching")}</p>
-            {/if}
-          </div>
-        {/if}
+      <div
+        bind:this={viewport}
+        onscroll={onScroll}
+        {@attach watchReader}
+        class="relative flex-1 overflow-y-auto overscroll-contain p-4"
+        role="log"
+        aria-label={$t("nav.chat")}
+        tabindex="-1"
+      >
         <!-- Hidden, not unmounted, until the first pin: the height must be real
              for the observer to measure it (collapsing it here would mean the
-             observer never fires and the first pin never happens). While
-             searching it collapses so the results start at the top. -->
-        <div bind:this={content} class={cn("mx-auto max-w-3xl space-y-5", turns.length > 0 && !primed && "invisible", searching && "invisible h-0 overflow-hidden", showLatest && "pb-10")}>
+             observer never fires and the first pin never happens). -->
+        <div bind:this={content} class={cn("mx-auto max-w-3xl space-y-5", turns.length > 0 && !primed && "invisible")}>
           <div bind:this={topSentinel} aria-hidden="true"></div>
           {#if hasOlder}
             <div class="text-center">
@@ -628,7 +695,7 @@
           {:else if turns.length > 0}
             <p class="text-center text-xs text-muted">{$t("chat.historyStart")}</p>
           {/if}
-          {#if turns.length === 0 && !showOptimistic && conversationQuery.data}<p class="pt-16 text-center text-sm text-muted">{$t("conversation.empty")}</p>{/if}
+          {#if turns.length === 0 && !showOptimistic && conversationQuery.data}<p class="pt-24 text-center text-sm text-muted">{$t("conversation.empty")}</p>{/if}
           {#each turns as turn (turn.root)}{@render turnView(turn)}{/each}
           {#if mode === "window" && hasNewer}
             <div class="text-center">
@@ -647,12 +714,16 @@
               <ChatBubble event={liveEvent} streaming={!reply.done} />
             {/each}
           {/if}
+          <!-- Room for what floats over the bottom, so it never covers the
+               newest message. A spacer, not padding: the resize observer
+               that keeps the log pinned measures content, not padding. -->
+          {#if overlayHeight > 0}<div aria-hidden="true" style:height={`${overlayHeight}px`}></div>{/if}
           <div bind:this={bottomSentinel} aria-hidden="true"></div>
         </div>
       </div>
       <!-- Just above the composer: the way back to the newest message, then
            any off-screen updates. Stacked so neither covers the other. -->
-      <div class="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-2 px-3">
+      <div class="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-2 px-3" bind:clientHeight={overlayHeight}>
         {#if showLatest}
           <button
             class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs text-foreground shadow-lg backdrop-blur hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary"
@@ -667,7 +738,7 @@
     {#if focus}
       <div class="flex min-h-0 w-full flex-col border-border md:w-[46%] md:max-w-2xl md:border-l">
         {#key focus}
-          <FocusPanel id={focus} cards={cardMap} onclose={closeFocus} onfocus={openFocus} onanswer={answer} onstop={(id) => void stop(id)} />
+          <FocusPanel id={focus} cards={cardMap} onclose={closeFocus} onfocus={openFocus} onanswer={answer} onstop={stop} />
         {/key}
       </div>
     {/if}
@@ -678,10 +749,7 @@
     onclear={clearTarget}
     onsending={(text) => {
       // Something new said belongs at the live edge, not inside old history.
-      if (mode === "window" || searching) {
-        query = "";
-        backToLatest();
-      }
+      if (mode === "window") backToLatest();
       optimistic = { text, messageId: null };
       follow = true;
     }}
@@ -692,4 +760,9 @@
     }}
     onfailed={() => (optimistic = null)}
   />
+  {#if dragging}
+    <div class="pointer-events-none absolute inset-2 z-30 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/70 bg-background/80 text-sm text-foreground backdrop-blur-sm">
+      <ImagePlus size={28} class="text-primary" aria-hidden="true" />{$t("chat.dropImages")}
+    </div>
+  {/if}
 </div>

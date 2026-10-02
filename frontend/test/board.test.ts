@@ -80,6 +80,6 @@ describe("focus routing", () => {
     expect(focusFrom("?focus=wi_a")).toBe("wi_a");
     expect(focusFrom("")).toBeNull();
     expect(focusHref("wi_a")).toBe("/?focus=wi_a");
-    expect(routeFor("/policies")).toEqual({ name: "policies" });
+    expect(routeFor("/items/wi_a")).toEqual({ name: "item", id: "wi_a" });
   });
 });

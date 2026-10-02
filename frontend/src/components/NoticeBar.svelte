@@ -36,7 +36,7 @@
         </button>
       {/each}
       <div class="flex items-center gap-2 px-2 pt-0.5 text-muted">
-        {#if view.hidden > 0}<span>{$t("notice.more", { n: view.hidden })}</span>{/if}
+        {#if view.hidden > 0}<span>{$t("notice.more", { count: view.hidden })}</span>{/if}
         <button class="ml-auto flex items-center gap-1 hover:text-foreground" onclick={ondismiss}><X size={12} />{$t("notice.dismissAll")}</button>
       </div>
     </div>

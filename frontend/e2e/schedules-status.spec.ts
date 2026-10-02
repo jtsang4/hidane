@@ -1,5 +1,5 @@
 import type { Schedule } from "../src/lib/api.js";
-import { expect, test, turn, unique, waitForEvent } from "./fixtures.js";
+import { confirmDialog, expect, test, turn, unique, waitForEvent } from "./fixtures.js";
 
 test("schedules: a prompt schedule runs now and its answer shows up", async ({ page, api }) => {
   await api.setAllRoles("claude");
@@ -8,7 +8,8 @@ test("schedules: a prompt schedule runs now and its answer shows up", async ({ p
 
   await page.goto("/schedules");
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
-  await page.getByRole("button", { name: "新建" }).click();
+  // In the toolbar — and, with no schedules yet, in the empty state too.
+  await page.getByRole("button", { name: "新建" }).first().click();
   await page.getByPlaceholder("名称，如：每日下午提醒").fill(name);
   await page.getByRole("button", { name: "Agent 任务" }).click();
   await page.getByRole("button", { name: "固定间隔" }).click();
@@ -50,26 +51,29 @@ test("schedules: a prompt schedule runs now and its answer shows up", async ({ p
   // Clean up: the schedule must not fire into later tests.
   await page.getByRole("link", { name: "定时" }).click();
   await page.getByRole("button", { name: `删除 ${name}` }).click();
+  await expect(confirmDialog(page)).toContainText(`确认删除定时任务「${name}」？`);
+  await confirmDialog(page).getByRole("button", { name: "删除" }).click();
   await expect(page.getByRole("button", { name: `立即运行 ${name}` })).toHaveCount(0);
   expect((await api.get<{ schedules: Schedule[] }>("/api/schedules")).schedules.map((s) => s.id)).not.toContain(scheduleId);
 });
 
-test("status page shows the runtime, the roles and the detected CLIs", async ({ page, api }) => {
+test("status (Settings → Runtime status) shows the runtime, the roles and the detected CLIs", async ({ page, api }) => {
   await api.setAllRoles("claude");
   await page.goto("/status");
-  await expect(page.getByRole("heading", { name: "运行状态" })).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/status$/);
+  await expect(page.getByRole("heading", { name: "运行状态", level: 1 })).toBeVisible();
 
-  const runtime = page.getByText("运行时", { exact: true }).locator("..");
+  const runtime = page.getByRole("region", { name: "运行时" });
   await expect(runtime).toContainText("正常");
 
-  const agents = page.getByText("Agent CLI", { exact: true }).locator("..");
+  const agents = page.getByRole("region", { name: "Agent CLI" });
   for (const [kind, label] of [["claude", "Claude Code"], ["codex", "Codex"], ["pi", "pi"]] as const) {
     const row = agents.getByRole("listitem").filter({ hasText: `${kind} fake 1.0.0` });
     await expect(row).toContainText(label);
     await expect(row).toContainText("可用");
   }
 
-  const roles = page.getByText("角色分配", { exact: true }).locator("..");
+  const roles = page.getByRole("region", { name: "角色分配" });
   for (const role of ["Primary（主会话）", "Manager（任务管理）", "Worker（执行）", "Distiller（记忆提炼）"]) {
     await expect(roles.getByRole("listitem").filter({ hasText: role })).toContainText("Claude Code · CLI 自己的登录与默认设置 · 默认模型");
   }

@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/dock"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"github.com/jtsang4/hidane/internal/api"
 	"github.com/jtsang4/hidane/internal/app"
@@ -40,9 +44,15 @@ func Run(cfg *config.Config) error {
 	var window *application.WebviewWindow
 	ctx, cancel := context.WithCancel(context.Background())
 
+	h := &host{dock: dock.New()}
+	services := []application.Service{application.NewService(h.dock)}
+	if inBundle() {
+		h.notifications = notifications.New()
+		services = append(services, application.NewService(h.notifications))
+	}
 	handler := a.Handler(app.HandlerOptions{
 		Desktop: true,
-		Open:    openWithOS,
+		Host:    h,
 		OnLiveHello: func() {
 			wapp.Event.Emit(FrameEvent, map[string]any{"event": "hello", "data": map[string]any{"desktop": true}})
 			snapshot, _, cancelLive := a.Sys.Live.Subscribe()
@@ -81,14 +91,52 @@ func Run(cfg *config.Config) error {
 				}
 			},
 		},
+		Services: services,
 		OnShutdown: func() {
 			cancel()
 			a.Stop()
 		},
 	})
-	window = wapp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "hidane 火种", Width: 1280, Height: 860, MinWidth: 720, MinHeight: 520, URL: "/",
-	})
+	h.app = wapp
+	wapp.Menu.Set(menu(wapp, func(command string) {
+		wapp.Event.Emit(CommandEvent, map[string]any{"command": command})
+	}))
+	opts := application.WebviewWindowOptions{
+		Title: "hidane 火种", Width: 1280, Height: 860, MinWidth: 900, MinHeight: 600, URL: "/",
+		// The page draws its own title bar: traffic lights sit over the
+		// sidebar, and the toolbar row is the drag region (--wails-draggable).
+		Mac: application.MacWindow{
+			TitleBar:                application.MacTitleBarHiddenInset,
+			InvisibleTitleBarHeight: 52,
+			Backdrop:                application.MacBackdropTranslucent,
+		},
+		BackgroundColour: application.NewRGB(9, 9, 11),
+	}
+	if st, ok := loadWindowState(cfg.RuntimeDir()); ok {
+		opts.InitialPosition = application.WindowXY
+		opts.X, opts.Y, opts.Width, opts.Height = st.X, st.Y, st.Width, st.Height
+		if runtime.GOOS == "darwin" {
+			// Wails builds the macOS window one point smaller than asked
+			// (contentRect width-1, height-1): without this the window
+			// shrinks a point on every launch.
+			opts.Width, opts.Height = st.Width+1, st.Height+1
+		}
+	}
+	window = wapp.Window.NewWithOptions(opts)
+	if h.notifications != nil {
+		// Clicking a notification is asking to see what it was about.
+		h.notifications.OnNotificationResponse(func(notifications.NotificationResult) {
+			window.Restore()
+			window.Show()
+			window.Focus()
+		})
+	}
+	// Recorded as it changes: at shutdown the window may already be gone.
+	for _, ev := range []events.WindowEventType{events.Common.WindowDidResize, events.Common.WindowDidMove} {
+		window.OnWindowEvent(ev, func(*application.WindowEvent) {
+			saveWindowState(cfg.RuntimeDir(), window)
+		})
+	}
 
 	lost, err := a.Start()
 	if err != nil {

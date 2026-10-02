@@ -24,3 +24,29 @@ export function isPinnedToBottom(
 ): boolean {
   return el.offsetHeight + el.scrollTop > el.scrollHeight - slackPx;
 }
+
+export type FollowDecision = "follow" | "unfollow" | "keep" | "repin";
+
+/**
+ * What a scroll event means for following the live edge.
+ *
+ * Only the reader leaves the bottom: content that grows after the follow
+ * (a task card updating, Markdown settling, an image loading, the composer
+ * growing) also produces a scroll position short of the end, and treating
+ * that as "scrolled away" stranded the view 50–90px above the newest reply
+ * with "back to latest" and a new-reply notice covering it. Without a recent
+ * wheel, touch, key or pointer on the scroller, a follower is put back.
+ */
+export function followAfterScroll(state: {
+  /** Showing the newest page; a window of history is never followed. */
+  live: boolean;
+  pinned: boolean;
+  /** The reader touched the scroller just now. */
+  userInitiated: boolean;
+  following: boolean;
+}): FollowDecision {
+  if (!state.live) return "unfollow";
+  if (state.pinned) return "follow";
+  if (state.userInitiated) return "unfollow";
+  return state.following ? "repin" : "keep";
+}

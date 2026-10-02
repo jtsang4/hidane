@@ -10,5 +10,9 @@ const target = document.getElementById("root");
 if (!target) throw new Error("Missing #root element");
 
 consumeUrlToken();
-if (boot().desktop) installDesktopLinks();
+if (boot().desktop) {
+  // Desktop-only styling (arrow cursors on controls) keys off this attribute.
+  document.documentElement.dataset["desktop"] = "";
+  installDesktopLinks();
+}
 mount(App, { target });

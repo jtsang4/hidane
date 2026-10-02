@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { AlarmClock, CircleHelp, CornerDownRight, EyeOff, Link, Webhook } from "@lucide/svelte";
+  import { AlarmClock, CircleHelp, CornerDownRight, Webhook } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
-  import type { BoardCard, EscalationStep } from "../lib/api.js";
-  import { turnRouting, type Turn } from "../lib/conversation.js";
+  import type { BoardCard, EscalationStep, HidaneEvent } from "../lib/api.js";
+  import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
+  import { escalationText } from "../lib/escalation.js";
+  import { steeredKey, turnRouting, type Turn } from "../lib/conversation.js";
   import { payloadText } from "../lib/grouping.js";
   import { cn } from "../lib/utils.js";
   import AttributionChip from "./AttributionChip.svelte";
   import ChatBubble from "./ChatBubble.svelte";
+  import MoreButton from "./MoreButton.svelte";
   import TaskCard from "./TaskCard.svelte";
   import Time from "./Time.svelte";
   import Badge from "./ui/Badge.svelte";
@@ -19,13 +22,14 @@
     titleOf,
     focused,
     highlighted = false,
+    routingKnown = true,
     onroute,
     onfocus,
     onanswer,
     onanswerEscalation,
     onstop,
-    onlink,
-    onhide,
+    onmessagemenu,
+    ontaskmenu,
   }: {
     turn: Turn;
     cards: ReadonlyMap<string, BoardCard>;
@@ -33,16 +37,27 @@
     titleOf: (id: string) => string;
     focused: string | null;
     highlighted?: boolean;
+    /**
+     * Whether everything after this turn is loaded. In a window of history the
+     * answers may simply lie past its end, so "still routing" cannot be told.
+     */
+    routingKnown?: boolean;
     onroute: (messageId: string, workItemId: string) => void;
     onfocus: (id: string) => void;
     onanswer: (card: BoardCard) => void;
     onanswerEscalation: (eventId: string, workItemId: string) => void;
     onstop: (id: string) => void;
-    /** Copy a permalink to the person's message. */
-    onlink: (messageId: string) => void;
-    /** Hide what the person said. */
-    onhide: (messageId: string) => void;
+    /** The message menu (copy, hide, link) — from a right click or the "⋯" button. */
+    onmessagemenu: (event: HidaneEvent, placement: MenuPlacement) => void;
+    ontaskmenu: (card: BoardCard, placement: MenuPlacement) => void;
   } = $props();
+
+  /** A right click on a message opens its menu, unless text is selected — then the system's Copy is wanted. */
+  function contextMenu(event: MouseEvent, message: HidaneEvent): void {
+    if (keepsSystemMenu(event.currentTarget as Element)) return;
+    event.preventDefault();
+    onmessagemenu(message, atPointer(event));
+  }
 
   let createdCard = $derived(turn.createdItem ? cards.get(turn.createdItem) : undefined);
   let openEscalation = $derived(
@@ -53,18 +68,17 @@
 <section id={`turn-${turn.root}`} data-root={turn.root} class={cn("space-y-2 rounded-lg transition-colors", highlighted && "bg-primary/5 ring-1 ring-primary/30")}>
   {#if turn.message}
     {@const message = turn.message}
-    <div class="group/said">
+    <div class="group/said relative" role="presentation" oncontextmenu={(event) => contextMenu(event, message)}>
       <ChatBubble event={message} hidden={turn.redacted} anchored />
-      <!-- Revealed on hover or keyboard focus; always shown where there is no hover. -->
-      <div class="mt-0.5 flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/said:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-        <button class="rounded p-1 text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary" aria-label={$t("chat.copyLink")} title={$t("chat.copyLink")} onclick={() => onlink(message.id)}><Link size={12} aria-hidden="true" /></button>
-        {#if !turn.redacted && message.payload["redacted"] !== true}
-          <button class="rounded p-1 text-muted hover:bg-surface-2 hover:text-danger focus-visible:outline-2 focus-visible:outline-primary" aria-label={$t("chat.hide")} title={$t("chat.hide")} onclick={() => onhide(message.id)}><EyeOff size={12} aria-hidden="true" /></button>
-        {/if}
-      </div>
+      <!-- In the free space beside the bubble; revealed on hover or keyboard focus, always shown without hover. -->
+      <MoreButton
+        class="absolute bottom-0 left-0 opacity-0 transition-opacity group-hover/said:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+        label={$t("menu.messageMore")}
+        onopen={(placement) => onmessagemenu(message, placement)}
+      />
     </div>
     <AttributionChip {turn} {choices} {titleOf} {onroute} {onfocus} />
-    {#if turnRouting(turn)}
+    {#if routingKnown && turnRouting(turn)}
       <div class="flex justify-end" role="status" aria-live="polite">
         <span class="flex items-center gap-1.5 text-xs text-muted">
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>{$t("conversation.routing")}
@@ -79,14 +93,14 @@
 
   {#if createdCard}
     <div class="flex justify-start">
-      <TaskCard card={createdCard} {cards} compact focused={focused === createdCard.item.id} {onfocus} {onanswer} {onstop} />
+      <TaskCard card={createdCard} {cards} compact focused={focused === createdCard.item.id} {onfocus} {onanswer} {onstop} onmenu={ontaskmenu} />
     </div>
   {/if}
 
   {#each turn.answers as answer (answer.id)}
     {#if answer.kind === "execution.steered"}
       <p class="flex items-center justify-end gap-1 text-xs text-muted">
-        <CornerDownRight size={12} aria-hidden="true" />{$t(answer.payload["queued"] === true ? "conversation.steeredQueued" : "conversation.steered")}
+        <CornerDownRight size={12} aria-hidden="true" />{$t(steeredKey(answer))}
       </p>
     {:else if answer.kind === "escalation" && (answer.payload["question"] !== undefined)}
       {@const workItemId = answer.workItemId}
@@ -95,9 +109,9 @@
         <div class={cn("max-w-[85%] rounded-lg border p-3 text-sm", openEscalation.has(answer.id) ? "border-danger/50 bg-danger/5" : "border-border bg-surface")}>
           <p class="flex items-center gap-1.5 text-xs font-medium text-danger">
             <CircleHelp size={14} aria-hidden="true" />
-            {#if workItemId}{titleOf(workItemId)} · {/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "deadline" ? answer.payload["reason"] : "question"}`)}
+            {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "deadline" ? answer.payload["reason"] : "question"}`)}
           </p>
-          <p class="mt-1 whitespace-pre-wrap">{String(answer.payload["question"] ?? "")}</p>
+          <p class="mt-1 whitespace-pre-wrap select-text">{escalationText(answer.payload)}</p>
           {#if path.some((step) => step.tried)}
             <ul class="mt-1 list-disc pl-4 text-xs text-muted">
               {#each path.filter((step) => step.tried) as step (step.workItemId)}<li><span class="text-foreground/80">{step.title}</span> — {step.tried}</li>{/each}
@@ -112,11 +126,18 @@
     {:else if answer.kind === "escalation"}
       <div class="flex justify-center"><Badge tone="muted">{payloadText(answer)}</Badge></div>
     {:else}
-      <div class="space-y-0.5">
+      <div class="group/answer relative space-y-0.5" role="presentation" oncontextmenu={(event) => { if (answer.kind === "agent.reply") contextMenu(event, answer); }}>
         {#if answer.kind === "agent.reply" && answer.workItemId}
           <button class="ml-1 text-[10px] text-muted hover:text-foreground" onclick={() => answer.workItemId && onfocus(answer.workItemId)}>{titleOf(answer.workItemId)}</button>
         {/if}
         <ChatBubble event={answer} anchored />
+        {#if answer.kind === "agent.reply"}
+          <MoreButton
+            class="absolute right-0 bottom-0 opacity-0 transition-opacity group-hover/answer:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            label={$t("menu.messageMore")}
+            onopen={(placement) => onmessagemenu(answer, placement)}
+          />
+        {/if}
       </div>
     {/if}
   {/each}

@@ -32,6 +32,13 @@ export interface Turn {
 /** Longer than any routing turn can take; see `turnRouting`. */
 const ROUTING_WINDOW_MS = 15 * 60 * 1000;
 
+/** Where steered words went: the running execution, the queued one, or — the
+ * run was already ending — to the task's manager along with its result. */
+export function steeredKey(event: HidaneEvent): "conversation.steered" | "conversation.steeredQueued" | "conversation.steeredLate" {
+  if (event.payload["late"] === true) return "conversation.steeredLate";
+  return event.payload["queued"] === true ? "conversation.steeredQueued" : "conversation.steered";
+}
+
 const ANSWER_KINDS = new Set(["agent.reply", "escalation", "agent.error", "execution.steered"]);
 
 function str(value: unknown): string | undefined {

@@ -3,9 +3,12 @@
   import { t } from "../i18n/index.js";
   import type { BoardCard } from "../lib/api.js";
   import { stateTone } from "../lib/board.js";
+  import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
+  import { escalationText } from "../lib/escalation.js";
   import { liveRepliesFor } from "../lib/liveText.js";
   import { cn } from "../lib/utils.js";
   import Markdown from "./Markdown.svelte";
+  import MoreButton from "./MoreButton.svelte";
   import Badge from "./ui/Badge.svelte";
   import Button from "./ui/Button.svelte";
 
@@ -18,6 +21,7 @@
     onfocus,
     onanswer,
     onstop,
+    onmenu,
   }: {
     card: BoardCard;
     /** Every card, to name this one's children. */
@@ -30,11 +34,14 @@
     onfocus: (id: string) => void;
     onanswer: (card: BoardCard) => void;
     onstop: (id: string) => void;
+    /** The task menu — from a right click on the card or its "⋯" button. */
+    onmenu?: ((card: BoardCard, placement: MenuPlacement) => void) | undefined;
   } = $props();
 
   let busy = $derived(card.state === "running" || card.state === "queued" || card.state === "thinking");
   /** The Manager's reply while it is still being written. */
   let live = $derived(liveRepliesFor(card.item.threadId, card.lastReply?.seq ?? 0));
+  let question = $derived(card.escalation ? escalationText({ reason: card.escalation.reason, question: card.escalation.question }) : "");
   let children = $derived(card.childIds.map((id) => cards.get(id)).filter((c): c is BoardCard => c !== undefined));
   const dot: Record<string, string> = {
     waiting: "bg-danger",
@@ -55,6 +62,13 @@
     card.state === "waiting" ? "border-danger/50" : focused ? "border-primary/60" : "border-border",
   )}
   aria-label={card.item.title}
+  oncontextmenu={(event) => {
+    if (!onmenu || headless) return;
+    // Selected text keeps the system menu, so it can be copied.
+    if (keepsSystemMenu(event.currentTarget)) return;
+    event.preventDefault();
+    onmenu(card, atPointer(event));
+  }}
 >
   {#if headless}
     {#if card.understanding}
@@ -79,30 +93,33 @@
       {#if !focused}
         <Button variant="ghost" size="icon" aria-label={$t("task.open")} title={$t("task.open")} onclick={() => onfocus(card.item.id)}><Maximize2 size={14} /></Button>
       {/if}
+      {#if onmenu}
+        <MoreButton label={$t("menu.moreFor", { title: card.item.title })} onopen={(placement) => onmenu(card, placement)} />
+      {/if}
     </div>
   </header>
   {/if}
 
   {#if card.execution}
     <p class="mt-2 truncate first:mt-0 text-xs text-muted">
-      {$t(`task.state.${card.execution.status === "running" ? "running" : "queued"}`)} · {$t("task.progress", { n: card.execution.toolCalls })}{#if card.execution.lastTool} · {$t("task.lastTool", { tool: card.execution.lastTool })}{/if}
+      {$t(`task.state.${card.execution.status === "running" ? "running" : "queued"}`)} · {$t("task.progress", { count: card.execution.toolCalls })}{#if card.execution.lastTool} · {$t("task.lastTool", { tool: card.execution.lastTool })}{/if}
     </p>
   {/if}
 
   {#each live as reply (reply.id)}
-    <div class="mt-2 rounded-md bg-surface-2 px-2 py-1.5"><Markdown content={reply.text} /></div>
+    <div class="mt-2 rounded-md bg-surface-2 px-2 py-1.5"><Markdown content={reply.text} class="select-text" /></div>
   {/each}
 
   {#if card.escalation && compact}
     <div class="mt-2 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/5 px-2 py-1.5">
       <CircleHelp size={14} class="shrink-0 text-danger" aria-hidden="true" />
-      <p class="min-w-0 flex-1 truncate text-xs"><span class="font-medium text-danger">{$t("task.question")}</span> · {card.escalation.question}</p>
+      <p class="min-w-0 flex-1 truncate text-xs"><span class="font-medium text-danger">{$t("task.question")}</span> · {question}</p>
       <Button size="sm" onclick={() => onanswer(card)}>{$t("task.answer")}</Button>
     </div>
   {:else if card.escalation}
     <div class="mt-2 rounded-md border border-danger/40 bg-danger/5 p-2">
       <p class="flex items-start gap-1.5 text-xs font-medium text-danger"><CircleHelp size={14} class="mt-px shrink-0" />{$t("task.question")}</p>
-      <p class="mt-1 whitespace-pre-wrap">{card.escalation.question}</p>
+      <p class="mt-1 whitespace-pre-wrap select-text">{question}</p>
       {#if card.escalation.path.some((step) => step.tried)}
         <details class="mt-1 text-xs text-muted">
           <summary class="cursor-pointer">{$t("task.tried")}</summary>

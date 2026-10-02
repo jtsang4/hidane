@@ -534,7 +534,14 @@ func (s *server) board(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) policies(w http.ResponseWriter, r *http.Request) {
 	path := s.K.GlobalPolicyPath()
-	writeJSON(w, http.StatusOK, map[string]any{"path": path, "rules": guard.ReadFile(path).Rules})
+	file, err := guard.Load(path)
+	body := map[string]any{"path": path, "rules": file.Rules}
+	// An unreadable file is not "no rules": the guard refuses every change
+	// until it is fixed, and the person has to be able to see why.
+	if err != nil {
+		body["error"] = err.Error()
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (s *server) addPolicy(w http.ResponseWriter, r *http.Request) {
@@ -590,7 +597,12 @@ func (s *server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 func (s *server) memories(w http.ResponseWriter, r *http.Request) {
 	path := s.K.GlobalMemoryPath()
 	text := kernel.ReadTextFile(path)
-	writeJSON(w, http.StatusOK, map[string]any{"path": path, "entries": kernel.ParseMemories(text), "markdown": text})
+	items, err := s.K.WorkItemMemories(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "entries": kernel.ParseMemories(text), "markdown": text, "workItems": items})
 }
 
 // addMemory: a person who already knows a preference should not have to hint
@@ -625,7 +637,7 @@ func (s *server) addMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) forgetMemory(w http.ResponseWriter, r *http.Request) {
-	ok, err := s.K.ForgetMemory(r.Context(), s.K.GlobalMemoryPath(), r.PathValue("id"), "connector:web")
+	ok, err := s.K.Forget(r.Context(), r.PathValue("id"), "connector:web")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
@@ -939,12 +951,16 @@ func (s *server) testAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) desktopOnly(w http.ResponseWriter) bool {
-	if !s.Desktop || s.Open == nil {
-		writeJSON(w, http.StatusNotFound, errBody("not found"))
+	if !s.Desktop || s.Host == nil {
+		// The page names this to the person; a bare "not found" says nothing.
+		writeJSON(w, http.StatusNotFound, errBody(DesktopOnly))
 		return false
 	}
 	return true
 }
+
+// DesktopOnly is the error for host actions outside the desktop app.
+const DesktopOnly = "desktop app only"
 
 // openURL sends an external link to the system browser: navigating the app's
 // own window to it would leave no way back to the app.
@@ -961,7 +977,7 @@ func (s *server) openURL(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("only http(s) and mailto links open externally"))
 		return
 	}
-	if err := s.Open(u.String(), false); err != nil {
+	if err := s.Host.Open(u.String(), false); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
 	}
@@ -995,7 +1011,80 @@ func (s *server) reveal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errBody("not found"))
 		return
 	}
-	if err := s.Open(target, true); err != nil {
+	if err := s.Host.Open(target, true); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *server) copyText(w http.ResponseWriter, r *http.Request) {
+	if !s.desktopOnly(w) {
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	_ = readJSON(r, &body)
+	if err := s.Host.CopyText(body.Text); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *server) notify(w http.ResponseWriter, r *http.Request) {
+	if !s.desktopOnly(w) {
+		return
+	}
+	var body struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	_ = readJSON(r, &body)
+	if strings.TrimSpace(body.Title) == "" {
+		writeJSON(w, http.StatusBadRequest, errBody("title required"))
+		return
+	}
+	if err := s.Host.Notify(clipText(body.Title, 120), clipText(body.Body, 400)); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *server) badge(w http.ResponseWriter, r *http.Request) {
+	if !s.desktopOnly(w) {
+		return
+	}
+	var body struct {
+		Count int `json:"count"`
+	}
+	_ = readJSON(r, &body)
+	if body.Count < 0 {
+		body.Count = 0
+	}
+	if err := s.Host.SetBadge(body.Count); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func clipText(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+// openDataDir shows hidane's data directory (settings, memory, worklogs) in
+// the file manager.
+func (s *server) openDataDir(w http.ResponseWriter, r *http.Request) {
+	if !s.desktopOnly(w) {
+		return
+	}
+	if err := s.Host.Open(s.K.Cfg.Home, false); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
 	}

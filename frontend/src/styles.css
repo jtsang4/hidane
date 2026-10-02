@@ -19,8 +19,79 @@ body,
   height: 100%;
 }
 
+/* An app window, not a page: only content regions scroll, and nothing bounces. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   @apply bg-background text-foreground antialiased;
+  font-size: 14px;
+  line-height: 1.45;
+  /* Chrome is not text: labels, buttons and lists do not select on a drag. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* What is read or copied stays selectable. */
+input,
+textarea,
+[contenteditable="true"],
+pre,
+code,
+.markdown,
+.select-text {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Desktop controls use the arrow, as native ones do; links in content keep the hand. */
+html[data-desktop] :is(button, [role="button"], [role="menuitem"], [role="option"], [role="switch"], [role="tab"], select, summary, label, nav a, aside a) {
+  cursor: default;
+}
+
+/* Focus rings for the keyboard only. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Wails: the toolbar rows are the title bar. Everything interactive inside them stays clickable. */
+.drag-region {
+  --wails-draggable: drag;
+}
+button,
+a,
+input,
+textarea,
+select,
+[role="button"],
+[role="tab"],
+[role="switch"],
+[role="menuitem"],
+[contenteditable="true"] {
+  --wails-draggable: no-drag;
+}
+
+/* Thin scrollbars that stay visible on a dark surface. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--color-muted) 45%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--color-muted) 45%, transparent);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 /* Wide agent tables scroll sideways. macOS overlay scrollbars hide until you

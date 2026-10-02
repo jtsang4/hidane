@@ -35,14 +35,14 @@
 
 <div bind:this={root} class="relative shrink-0">
   <button
-    class={cn("flex h-9 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 text-xs text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary", open && "bg-surface-2 text-foreground")}
+    class={cn("flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 text-xs text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary", open && "bg-surface-2 text-foreground")}
     aria-expanded={open}
     aria-haspopup="true"
     aria-label={$t("chat.datesTitle")}
     title={$t("chat.datesTitle")}
     onclick={() => (open = !open)}
   >
-    <CalendarDays size={14} aria-hidden="true" /><span class="hidden sm:inline" aria-hidden="true">{$t("chat.dates")}</span>
+    <CalendarDays size={14} aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.dates")}</span>
   </button>
   {#if open}
     <div class="absolute right-0 z-20 mt-1 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-border bg-surface p-2 shadow-lg" role="dialog" aria-label={$t("chat.datesTitle")}>

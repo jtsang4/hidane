@@ -69,12 +69,12 @@ export function frameFromWails(event: unknown): { kind: FrameKind; data: string 
   return asFrame(Array.isArray(payload) ? payload[0] : payload);
 }
 
-interface WailsEvents {
+export interface WailsEvents {
   On(name: string, callback: (event: unknown) => void): unknown;
   Off?: (name: string) => void;
 }
 
-function eventsFrom(mod: unknown): WailsEvents | null {
+export function eventsFrom(mod: unknown): WailsEvents | null {
   const pick = (value: unknown): WailsEvents | null => {
     if (typeof value !== "object" || value === null) return null;
     const events = (value as { Events?: unknown }).Events;
@@ -87,7 +87,7 @@ function eventsFrom(mod: unknown): WailsEvents | null {
 
 // A variable specifier keeps the bundler from trying to resolve a module that
 // only exists when the Wails asset server is the host.
-const defaultImportRuntime = (): Promise<unknown> => import(/* @vite-ignore */ WAILS_RUNTIME_URL);
+export const defaultImportRuntime = (): Promise<unknown> => import(/* @vite-ignore */ WAILS_RUNTIME_URL);
 
 /**
  * Open the live channel and dispatch its frames to `handlers`.

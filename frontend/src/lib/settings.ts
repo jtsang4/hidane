@@ -1,3 +1,4 @@
+import i18n from "../i18n/index.js";
 import { ApiError } from "./api.js";
 import type {
   AgentKind,
@@ -171,6 +172,8 @@ export function errorText(error: unknown): string {
     const parsed = JSON.parse(body) as unknown;
     if (typeof parsed === "object" && parsed !== null) {
       const message = (parsed as { error?: unknown }).error;
+      // Must match api.DesktopOnly (the host actions refused outside the app).
+      if (message === "desktop app only") return i18n.t("common.desktopOnly");
       if (typeof message === "string" && message) return message;
     }
   } catch {

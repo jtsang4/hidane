@@ -2,8 +2,10 @@
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { Plus } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
-  import { api, ApiError, type ScheduleInput } from "../lib/api.js";
+  import { api, type ScheduleInput } from "../lib/api.js";
+  import { errorText } from "../lib/settings.js";
   import { pushToast } from "../lib/toast.js";
+  import Page from "../components/Page.svelte";
   import ScheduleCard from "../components/ScheduleCard.svelte";
   import Button from "../components/ui/Button.svelte";
   import Card from "../components/ui/Card.svelte";
@@ -32,7 +34,7 @@
       form = { name: "", action: "prompt", timing: "interval", intervalSec: "3600", cron: "", timezone: "", prompt: "", url: "", wake: false };
       creating = false;
     },
-    onError: (error) => pushToast(error instanceof ApiError ? error.message : String(error)),
+    onError: (error) => pushToast(errorText(error)),
   }));
 
   function submit(): void {
@@ -46,13 +48,13 @@
   }
 </script>
 
-<div class="space-y-3 p-4">
-  <div class="flex items-start justify-between gap-3">
-    <div class="min-w-0"><h1 class="text-lg font-semibold">{$t("schedules.title")}</h1><p class="mt-1 text-xs text-muted">{$t("schedules.subtitle")}</p></div>
+<Page title={$t("schedules.title")}>
+  {#snippet actions()}
     {#if !creating}<Button size="sm" onclick={() => (creating = true)}><Plus size={16} />{$t("schedules.new")}</Button>{/if}
-  </div>
+  {/snippet}
+  <p class="px-1 text-xs text-muted">{$t("schedules.subtitle")}</p>
   {#if creating}
-    <Card class="space-y-3">
+    <Card class="space-y-3" aria-label={$t("schedules.new")}>
       <Input bind:value={form.name} placeholder={$t("schedules.form.name")} />
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-xs text-muted">{$t("schedules.form.actionLabel")}</span>
@@ -75,7 +77,14 @@
       <div class="flex justify-end gap-2"><Button variant="outline" size="sm" onclick={() => (creating = false)}>{$t("common.cancel")}</Button><Button size="sm" disabled={create.isPending} onclick={submit}>{$t("schedules.form.create")}</Button></div>
     </Card>
   {/if}
-  {#if schedulesQuery.isLoading}<p class="text-sm text-muted">{$t("common.loading")}</p>{/if}
-  {#if !schedulesQuery.isLoading && schedules.length === 0 && !creating}<p class="pt-8 text-center text-sm text-muted">{$t("schedules.empty")}</p>{/if}
+  {#if schedulesQuery.isLoading}
+    <p class="flex items-center gap-2 px-1 text-sm text-muted"><span class="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-transparent"></span>{$t("common.loading")}</p>
+  {/if}
+  {#if !schedulesQuery.isLoading && schedules.length === 0 && !creating}
+    <div class="flex flex-col items-center gap-3 py-16">
+      <p class="text-sm text-muted">{$t("schedules.empty")}</p>
+      <Button size="sm" variant="outline" onclick={() => (creating = true)}><Plus size={14} />{$t("schedules.new")}</Button>
+    </div>
+  {/if}
   {#each schedules as schedule (schedule.id)}<ScheduleCard {schedule} />{/each}
-</div>
+</Page>

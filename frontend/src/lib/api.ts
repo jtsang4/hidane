@@ -46,6 +46,15 @@ export interface MemoryEntry {
   id: string;
 }
 
+/** A work item's own memory file (`<workspace>/MEMORY.md`). */
+export interface WorkItemMemory {
+  scope: "work_item";
+  workItemId: string;
+  title: string;
+  path: string;
+  entries: MemoryEntry[];
+}
+
 export interface WorkItem {
   id: string;
   title: string;
@@ -303,13 +312,24 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 }
 
 export const api = {
-  /** Tells the desktop shell the page loaded and reached the backend. */
-  /** Desktop only: show a workspace file in the file manager. */
+  /** Desktop only: show a workspace file in the file manager; `""` shows the workspace itself. */
   revealArtifact: (id: string, path: string) =>
     apiFetch<{ ok: boolean }>(`/api/work-items/${encodeURIComponent(id)}/reveal`, {
       method: "POST",
       body: JSON.stringify({ path }),
     }),
+  /** Desktop only (404 in serve mode): the system clipboard. */
+  desktopClipboard: (text: string) =>
+    apiFetch<{ ok: boolean }>(`/api/desktop/clipboard`, { method: "POST", body: JSON.stringify({ text }) }),
+  /** Desktop only; a 500 when the app is not a packaged .app. */
+  desktopNotify: (title: string, body: string) =>
+    apiFetch<{ ok: boolean }>(`/api/desktop/notify`, { method: "POST", body: JSON.stringify({ title, body }) }),
+  /** Desktop only: the Dock badge; 0 clears it. */
+  desktopBadge: (count: number) =>
+    apiFetch<{ ok: boolean }>(`/api/desktop/badge`, { method: "POST", body: JSON.stringify({ count }) }),
+  /** Desktop only: hidane's data directory in the file manager. */
+  openDataDir: () => apiFetch<{ ok: boolean }>(`/api/desktop/open-data-dir`, { method: "POST" }),
+  /** Tells the desktop shell the page loaded and reached the backend. */
   uiReady: (transport: string) =>
     apiFetch<{ ok: boolean }>(`/api/ui-ready`, { method: "POST", body: JSON.stringify({ transport }) }),
   events: (params: Record<string, string | number | undefined>) => {
@@ -405,7 +425,8 @@ export const api = {
       body: JSON.stringify({ workItemId }),
     }),
   board: () => apiFetch<{ cards: BoardCard[] }>(`/api/board`),
-  policies: () => apiFetch<{ path: string; rules: PolicyRule[] }>(`/api/policies`),
+  /** `error` is set when POLICY.json exists but cannot be read — the guard then refuses every change. */
+  policies: () => apiFetch<{ path: string; rules: PolicyRule[]; error?: string }>(`/api/policies`),
   addPolicy: (input: { pattern: string; reason: string; tools?: string[] }) =>
     apiFetch<{ ok: boolean; rule: PolicyRule }>(`/api/policies`, {
       method: "POST",
@@ -462,7 +483,7 @@ export const api = {
       body: JSON.stringify({ kind, content }),
     }),
   memories: () =>
-    apiFetch<{ path: string; entries: MemoryEntry[]; markdown: string }>(`/api/memories`),
+    apiFetch<{ path: string; entries: MemoryEntry[]; markdown: string; workItems: WorkItemMemory[] }>(`/api/memories`),
   forgetMemory: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/memories/${id}`, { method: "DELETE" }),
   settings: () => apiFetch<Settings>(`/api/settings`),

@@ -18,15 +18,24 @@ describe("mobile layout invariants", () => {
   it("bottom nav items flex to the viewport instead of a fixed row width", () => {
     // Seven links plus three controls measured 400px wide on a 390px phone,
     // scrolling the whole app sideways.
-    const main = read("src/App.svelte");
-    const navItems = main.match(/min-w-0 flex-1/g) ?? [];
-    expect(navItems.length).toBeGreaterThanOrEqual(3);
-    expect(main).toContain("env(safe-area-inset-bottom)");
+    const nav = read("src/components/PhoneNav.svelte");
+    expect(nav).toContain("min-w-0 flex-1");
+    expect(nav).toContain("env(safe-area-inset-bottom)");
+    expect(nav).toContain("sm:hidden");
   });
 
-  it("toasts clear the bottom nav on mobile", () => {
+  it("toasts stay clear of the bottom nav and the composer", () => {
     // An error toast used to cover the nav — exactly when you want to leave.
-    expect(read("src/components/Toaster.svelte")).toContain("bottom-24");
+    const toaster = read("src/components/Toaster.svelte");
+    expect(toaster).toContain("top-14");
+    expect(toaster).not.toMatch(/\bbottom-\d/);
+  });
+
+  it("the window never scrolls as a page: only content regions do", () => {
+    const css = read("src/styles.css");
+    expect(css).toMatch(/overflow: hidden;\s*overscroll-behavior: none;/);
+    expect(css).toContain("--wails-draggable: drag");
+    expect(css).toContain("--wails-draggable: no-drag");
   });
 
   it("worklog code spans wrap instead of widening the page", () => {

@@ -1,5 +1,5 @@
 import { SLOW_DELAY_MS, SLOW_URL } from "./env.js";
-import { expect, say, test, turn, unique, waitForEvent } from "./fixtures.js";
+import { confirmDialog, expect, say, test, turn, unique, waitForEvent } from "./fixtures.js";
 
 // The second backend's fake agents sleep FAKEAGENT_DELAY_MS on every turn, so
 // a worker stays running long enough to be stopped from the UI.
@@ -22,8 +22,25 @@ test("cancel: a running task is stopped from its card", async ({ page, api }) =>
   const running = await waitForEvent(api, `item=${workItemId}`, (e) => e.kind === "execution.running", "the worker is running");
   const executionId = running.executionId as string;
 
+  // Running, it is in the sidebar's in-progress list, whose menu offers the same Stop.
+  const row = page.getByRole("complementary", { name: "侧边栏" }).getByRole("button", { name: new RegExp(`^${text}`) });
+  await expect(row).toBeVisible();
+  await row.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: `「${text}」的操作` });
+  await expect(menu.getByRole("menuitem", { name: "停止" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+
+  // Stop asks first; cancelling the question leaves it running.
+  await card.getByRole("button", { name: "停止" }).click();
+  await expect(confirmDialog(page)).toContainText("停止这个任务？");
+  await confirmDialog(page).getByRole("button", { name: "取消" }).click();
+  await expect(confirmDialog(page)).toHaveCount(0);
+  expect((await api.events(`item=${workItemId}`)).some((e) => e.kind === "execution.cancelled")).toBe(false);
+
   const stopped = page.waitForResponse((response) => response.url().endsWith(`/api/work-items/${workItemId}/cancel`));
   await card.getByRole("button", { name: "停止" }).click();
+  await confirmDialog(page).getByRole("button", { name: "停止" }).click();
   const cancelResponse = await stopped;
   expect(cancelResponse.status()).toBe(200);
   expect(await cancelResponse.json()).toEqual({ ok: true, cancelled: [workItemId] });

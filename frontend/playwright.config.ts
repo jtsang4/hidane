@@ -8,7 +8,7 @@ import { BASE_URL, PORT, SLOW_DELAY_MS, SLOW_PORT, SLOW_URL } from "./e2e/env.js
  * One server is shared by every test, so tests run serially and keep to their
  * own unique texts instead of assuming an empty log.
  */
-export default defineConfig({
+export default defineConfig<{ desktop: boolean }>({
   testDir: "./e2e",
   fullyParallel: false,
   workers: 1,
@@ -23,9 +23,13 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /desktop\.spec\.ts/ },
     // The closest stand-in for the macOS WKWebView the desktop app runs in.
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, testIgnore: /desktop\.spec\.ts/ },
+    // The desktop app's UI (`/boot.js` says desktop) against the same backend.
+    // No token gate there, so token-gate.spec.ts is the browser's alone.
+    { name: "chromium-desktop", use: { ...devices["Desktop Chrome"], desktop: true }, testIgnore: /token-gate\.spec\.ts/ },
+    { name: "webkit-desktop", use: { ...devices["Desktop Safari"], desktop: true }, testIgnore: /token-gate\.spec\.ts/ },
   ],
   webServer: [
     {

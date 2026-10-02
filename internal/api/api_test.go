@@ -107,6 +107,15 @@ func TestAuthGatesTheAPIButNotHealth(t *testing.T) {
 	if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
 		t.Fatalf("stream with query token: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
 	}
+	// Elsewhere a token in the URL is refused: it would end up in logs and history.
+	plain, err := http.Get(e.srv.URL + "/api/events?token=s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain.Body.Close()
+	if plain.StatusCode != 401 {
+		t.Fatalf("query token outside the stream: %d", plain.StatusCode)
+	}
 }
 
 func TestBootTellsTheSPAItsMode(t *testing.T) {
@@ -369,6 +378,10 @@ func TestPoliciesMemoriesSchedules(t *testing.T) {
 	if code, _ := e.do("DELETE", "/api/policies/"+rule, "", nil); code != 404 {
 		t.Fatal("deleted twice")
 	}
+	_ = os.WriteFile(e.k.GlobalPolicyPath(), []byte(`{"rules":[`), 0o644)
+	if _, body := e.do("GET", "/api/policies", "", nil); body["error"] == nil {
+		t.Fatalf("an unreadable policy file is reported, not shown as empty: %v", body)
+	}
 
 	code, body = e.do("POST", "/api/memories", "", map[string]any{"kind": "preference", "content": "short answers"})
 	if code != 201 {
@@ -506,19 +519,43 @@ func TestStaticServesTheSPA(t *testing.T) {
 	if code, _ := get("/api/nope"); code != 404 {
 		t.Fatal("unknown api")
 	}
+	for _, path := range []string{"/feishu/events", "/random/xyz", "/"} {
+		res, err := http.Post(e.srv.URL+path, "application/json", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != 404 {
+			t.Fatalf("POST %s must be 404, not the app shell: %d", path, res.StatusCode)
+		}
+	}
 }
 
-func TestDesktopOpensLinksAndRevealsFilesButServeNever(t *testing.T) {
-	var opened []string
-	open := func(target string, reveal bool) error {
-		opened = append(opened, fmt.Sprintf("%v:%s", reveal, target))
-		return nil
+type fakeHost struct{ calls []string }
+
+func (h *fakeHost) Open(target string, reveal bool) error {
+	h.calls = append(h.calls, fmt.Sprintf("open %v:%s", reveal, target))
+	return nil
+}
+func (h *fakeHost) CopyText(text string) error { h.calls = append(h.calls, "copy "+text); return nil }
+func (h *fakeHost) Notify(title, body string) error {
+	h.calls = append(h.calls, "notify "+title+"|"+body)
+	return nil
+}
+func (h *fakeHost) SetBadge(n int) error {
+	h.calls = append(h.calls, fmt.Sprintf("badge %d", n))
+	return nil
+}
+
+func TestDesktopHostIsReachableFromTheWebviewButNeverFromServe(t *testing.T) {
+	host := &fakeHost{}
+	serve := newEnv(t, api.Options{Token: "t", Host: host})
+	for _, path := range []string{"/api/desktop/open-url", "/api/desktop/clipboard", "/api/desktop/notify", "/api/desktop/badge", "/api/desktop/open-data-dir"} {
+		if code, _ := serve.do("POST", path, "t", map[string]any{"url": "https://example.com", "text": "x", "title": "x", "count": 1}); code != 404 {
+			t.Fatalf("serve mode must not act on the host: %s", path)
+		}
 	}
-	serve := newEnv(t, api.Options{Token: "t", Open: open})
-	if code, _ := serve.do("POST", "/api/desktop/open-url", "t", map[string]any{"url": "https://example.com"}); code != 404 {
-		t.Fatal("serve mode must not open anything on the host")
-	}
-	e := newEnv(t, api.Options{Desktop: true, Open: open})
+	e := newEnv(t, api.Options{Desktop: true, Host: host})
 	if code, _ := e.do("POST", "/api/desktop/open-url", "", map[string]any{"url": "https://example.com/a?b=1"}); code != 200 {
 		t.Fatal("http link")
 	}
@@ -535,7 +572,20 @@ func TestDesktopOpensLinksAndRevealsFilesButServeNever(t *testing.T) {
 	if code, _ := e.do("POST", "/api/work-items/"+item.ID+"/reveal", "", map[string]any{"path": "../../../etc/passwd"}); code != 403 {
 		t.Fatal("reveal must stay inside the workspace")
 	}
-	if len(opened) != 2 || opened[0] != "false:https://example.com/a?b=1" || !strings.HasSuffix(opened[1], "out.txt") || !strings.HasPrefix(opened[1], "true:") {
-		t.Fatalf("opened: %v", opened)
+	e.do("POST", "/api/desktop/clipboard", "", map[string]any{"text": "hello"})
+	if code, _ := e.do("POST", "/api/desktop/notify", "", map[string]any{"title": " "}); code != 400 {
+		t.Fatal("a notification needs a title")
+	}
+	e.do("POST", "/api/desktop/notify", "", map[string]any{"title": "完成", "body": "写好了"})
+	e.do("POST", "/api/desktop/badge", "", map[string]any{"count": -3})
+	e.do("POST", "/api/desktop/open-data-dir", "", nil)
+	want := []string{"open false:https://example.com/a?b=1", "open true:", "copy hello", "notify 完成|写好了", "badge 0", "open false:" + e.k.Cfg.Home}
+	if len(host.calls) != len(want) {
+		t.Fatalf("calls: %v", host.calls)
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(host.calls[i], w) {
+			t.Fatalf("call %d: %q want prefix %q", i, host.calls[i], w)
+		}
 	}
 }

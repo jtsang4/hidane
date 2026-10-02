@@ -42,6 +42,11 @@
     input?.focus();
   }
 
+  /** Images dropped on the conversation land here, as if picked. */
+  export function attachFiles(files: File[]): void {
+    void attach(files);
+  }
+
   const send = createMutation<{ ok: boolean; messageId: string }, unknown, SendVariables>(() => ({
     mutationFn: ({ body, images, target: to }) =>
       api.chat(

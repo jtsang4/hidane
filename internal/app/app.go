@@ -206,8 +206,8 @@ type HandlerOptions struct {
 	OnUIReady   func(transport string)
 	OnLiveHello func()
 	Assets      fs.FS
-	// Open hands URLs and files to the OS (desktop only).
-	Open func(target string, reveal bool) error
+	// Host exposes the OS to the page (desktop only).
+	Host api.Host
 }
 
 // Handler is the single http.Handler for the webview and for serve mode.
@@ -222,7 +222,7 @@ func (a *App) Handler(o HandlerOptions) http.Handler {
 			return a.Detect(ctx)
 		},
 		Desktop: o.Desktop, Token: o.Token, WebhookSecret: a.Cfg.WebhookSecret, Version: Version,
-		OnUIReady: o.OnUIReady, OnLiveHello: o.OnLiveHello, Open: o.Open,
+		OnUIReady: o.OnUIReady, OnLiveHello: o.OnLiveHello, Host: o.Host,
 		FireSchedule: func(ctx context.Context, sc kernel.Schedule) (string, error) {
 			return connectors.FireSchedule(ctx, a.K, sc)
 		},

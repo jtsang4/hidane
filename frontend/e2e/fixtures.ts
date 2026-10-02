@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type APIResponse, type Locator, type Page } from "@playwright/test";
+import { test as base, expect, type APIRequestContext, type APIResponse, type Locator, type Page, type Route } from "@playwright/test";
 import type { AgentKind, HidaneEvent, Role, RoleConfig, Settings, WorkItem } from "../src/lib/api.js";
 import { TOKEN, WEBHOOK_SECRET } from "./env.js";
 
@@ -125,25 +125,67 @@ export async function say(page: Page, text: string): Promise<string> {
   return body.messageId;
 }
 
+/** The in-app confirmation (the desktop webview implements no `confirm()`). */
+export function confirmDialog(page: Page): Locator {
+  return page.getByRole("alertdialog");
+}
+
+/** A call the page made to the desktop host, as the fake host recorded it. */
+export interface HostCall {
+  path: string;
+  body: Record<string, unknown>;
+}
+
+/**
+ * What `/boot.js` says inside the desktop app. Served to a plain browser, the
+ * SPA runs its desktop UI against the real backend: no token gate (the token
+ * still sits in localStorage, and `apiFetch` sends it whenever present), and
+ * no Wails runtime, so the live stream falls back to SSE.
+ */
+export const DESKTOP_BOOT = `window.hidaneBoot = {"desktop":true,"auth":false,"version":"e2e"};`;
+
 type Fixtures = {
   /** Put the API token where the SPA's token gate looks for it before any script runs. */
   withToken: boolean;
+  /** Run the desktop app's UI (set per project). */
+  desktop: boolean;
+  /** In desktop mode, answer `/api/desktop/*` and reveal like the app's host does, recording each call. */
+  fakeHost: boolean;
   /** Browser errors a test expects (matched against "pageerror: …" / "console: …"). */
   allowedErrors: RegExp | null;
   browserErrors: string[];
+  hostCalls: HostCall[];
   api: Api;
 };
 
 export const test = base.extend<Fixtures>({
   withToken: [true, { option: true }],
+  desktop: [false, { option: true }],
+  fakeHost: [true, { option: true }],
   allowedErrors: [null, { option: true }],
 
-  page: async ({ page, withToken }, use) => {
+  hostCalls: async ({}, use) => {
+    await use([]);
+  },
+
+  page: async ({ page, withToken, desktop, fakeHost, hostCalls }, use) => {
     if (withToken) {
       await page.addInitScript((token) => window.localStorage.setItem("hidane-token", token), TOKEN);
     }
-    // Every confirm() in the app guards a destructive action the test means to take.
-    page.on("dialog", (dialog) => void dialog.accept());
+    if (desktop) {
+      await page.route("**/boot.js", (route) => route.fulfill({ contentType: "application/javascript", body: DESKTOP_BOOT }));
+      // An empty module: no `Events`, so both the live stream and the menu commands fall back.
+      await page.route("**/wails/runtime.js", (route) => route.fulfill({ contentType: "application/javascript", body: "export {};" }));
+      if (fakeHost) {
+        const record = async (route: Route) => {
+          const request = route.request();
+          hostCalls.push({ path: new URL(request.url()).pathname, body: (request.postDataJSON() as Record<string, unknown> | null) ?? {} });
+          await route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) });
+        };
+        await page.route("**/api/desktop/**", record);
+        await page.route("**/api/work-items/*/reveal", record);
+      }
+    }
     await use(page);
   },
 
@@ -153,6 +195,11 @@ export const test = base.extend<Fixtures>({
       page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
       page.on("console", (message) => {
         if (message.type() === "error") errors.push(`console: ${message.text()}`);
+      });
+      // The desktop webview has no confirm()/alert()/prompt(): nothing may rely on one.
+      page.on("dialog", (dialog) => {
+        errors.push(`native dialog: ${dialog.type()} ${dialog.message()}`);
+        void dialog.dismiss();
       });
       await use(errors);
       const unexpected = errors.filter((error) => !allowedErrors?.test(error));
