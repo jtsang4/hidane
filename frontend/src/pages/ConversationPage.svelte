@@ -9,8 +9,8 @@
   import { confirmAction } from "../lib/confirm.svelte.js";
   import { openMenu, type MenuEntry, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { buildTurns, type Turn } from "../lib/conversation.js";
-  import { awayFromLatest, contextBoundary, dayBreaks, loadedRange, saidText } from "../lib/history.js";
-  import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
+  import { awayFromLatest, contextBoundary, dayBreaks, loadedRange, mergeHistory, saidText } from "../lib/history.js";
+  import { acknowledgeLiveReplies, liveRepliesFor, maxSeq, watchLiveReplies } from "../lib/liveText.js";
   import { messageActions, type MessageAction } from "../lib/menus.js";
   import { copyText } from "../lib/native.js";
   import { addNotice, dropNotices, noticeFor, type Notice } from "../lib/notices.js";
@@ -48,7 +48,7 @@
   /**
    * `live`: the newest page is loaded and the view follows new events.
    * `window`: a stretch of history opened by a jump (search hit, link, day).
-   * It grows both ways as the reader scrolls and rejoins the live edge once a
+   * It slides both ways as the reader scrolls and rejoins the live edge once a
    * newer page reaches it; until then new events are not mixed into it, since
    * the gap between the two would read as a continuous conversation.
    */
@@ -80,9 +80,8 @@
   let handledAt: string | null = null;
 
   /**
-   * Every conversation event loaded into the view, keyed by id. In live mode
-   * the newest page slides forward on each refetch while older pages keep
-   * their cursor; retaining the union is sound because the log is append-only.
+   * A bounded, contiguous window, keyed by id. Evicted events stay addressable
+   * through server cursors, search and permalinks.
    */
   const seen = new SvelteMap<string, HidaneEvent>();
   /** Work item titles the server sent along with pages, for items no board shows any more. */
@@ -101,16 +100,35 @@
     queryFn: () => api.conversationContext(),
   }));
 
-  function absorb(page: { events: HidaneEvent[]; titles?: Record<string, string> }): void {
-    for (const event of page.events) seen.set(event.id, event);
+  function absorb(page: { events: HidaneEvent[]; titles?: Record<string, string> }, direction: "older" | "newer" = "newer"): void {
+    const merged = mergeHistory(seen.values(), page.events, direction);
+    const retained = new Set(merged.events.map((event) => event.id));
+    for (const id of seen.keys()) if (!retained.has(id)) seen.delete(id);
+    for (const event of merged.events) seen.set(event.id, event);
     for (const [id, title] of Object.entries(page.titles ?? {})) titles.set(id, title);
+    const items = new Set(merged.events.map((event) => event.workItemId));
+    for (const id of titles.keys()) if (!items.has(id)) titles.delete(id);
+    if (merged.droppedOlder) olderKnown = true;
+    if (merged.droppedNewer) {
+      mode = "window";
+      hasNewer = true;
+    }
   }
 
   $effect(() => {
     const page = conversationQuery.data;
     if (!page) return;
-    if (untrack(() => mode) === "live") absorb(page);
-    else for (const [id, title] of Object.entries(page.titles ?? {})) titles.set(id, title);
+    untrack(() => {
+      if (mode !== "live") return;
+      // Preserve the reader's place when live arrivals would evict it. The
+      // newer cursor will fill this gap when they scroll toward the live edge.
+      if (!follow && mergeHistory(seen.values(), page.events, "newer").droppedOlder) {
+        mode = "window";
+        hasNewer = true;
+        return;
+      }
+      absorb(page);
+    });
   });
 
   let focus = $derived(focusFrom(routerState.search));
@@ -130,6 +148,14 @@
   let choices = $derived(cards.filter((card) => card.item.status === "open").map((card) => ({ id: card.item.id, title: card.item.title })));
   /** Primary replies still being written. */
   let live = $derived(liveRepliesFor("main", maxSeq(all)));
+
+  $effect(() => {
+    if (mode === "live") return watchLiveReplies("main");
+  });
+
+  $effect(() => {
+    acknowledgeLiveReplies("main", maxSeq(all));
+  });
   let showOptimistic = $derived(mode === "live" && optimistic !== null && !(optimistic.messageId !== null && seen.has(optimistic.messageId)));
   let hasOlder = $derived(olderKnown ?? conversationQuery.data?.hasMore ?? false);
   let breaks = $derived(dayBreaks(turns));
@@ -308,6 +334,7 @@
       anchoring = true;
       mode = "window";
       seen.clear();
+      titles.clear();
       absorb(page);
       olderKnown = page.hasMore;
       hasNewer = page.hasNewer ?? false;
@@ -346,6 +373,7 @@
     hasNewer = false;
     olderKnown = null;
     seen.clear();
+    titles.clear();
     const page = conversationQuery.data;
     if (page && refill) absorb(page);
     follow = true;
@@ -383,20 +411,35 @@
     if (!revealLoaded(notice.root)) goTo(notice.root);
   }
 
+  /** Restore a visible turn after adding a page and evicting the opposite end. */
+  function preserveScroll(direction: "older" | "newer"): () => void {
+    const el = viewport;
+    if (!el) return () => {};
+    const anchor = [...el.querySelectorAll<HTMLElement>("section[data-root]")].find((node) => node.getBoundingClientRect().bottom > el.getBoundingClientRect().top);
+    const anchorTop = anchor?.getBoundingClientRect().top ?? 0;
+    const root = anchor?.dataset["root"];
+    const beforeHeight = el.scrollHeight;
+    const beforeTop = el.scrollTop;
+    return () => {
+      const retainedAnchor = root ? document.getElementById(`turn-${root}`) : null;
+      el.scrollTop = retainedAnchor
+        ? el.scrollTop + retainedAnchor.getBoundingClientRect().top - anchorTop
+        : beforeTop + (direction === "older" ? el.scrollHeight - beforeHeight : 0);
+    };
+  }
+
   async function loadOlder(): Promise<void> {
     if (loadingOlder || !hasOlder) return;
     const cursor = loadedRange(seen.values())?.oldest;
     if (cursor === undefined) return;
-    const el = viewport;
-    // Distance from the bottom survives a prepend; scrollTop does not.
-    const fromBottom = el ? el.scrollHeight - el.scrollTop : 0;
+    const restore = preserveScroll("older");
     loadingOlder = true;
     try {
       const page = await api.eventsPage({ conversation: true, personOnly, before: cursor, limit: PAGE_SIZE });
-      absorb(page);
+      absorb(page, "older");
       olderKnown = page.hasMore && page.events.length > 0;
       await tick();
-      if (el) el.scrollTop = el.scrollHeight - fromBottom;
+      restore();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : String(error));
     } finally {
@@ -408,12 +451,15 @@
     if (loadingNewer || mode !== "window" || !hasNewer) return;
     const cursor = loadedRange(seen.values())?.newest;
     if (cursor === undefined) return;
+    const restore = preserveScroll("newer");
     loadingNewer = true;
     try {
       const page = await api.eventsPage({ conversation: true, personOnly, after: cursor, limit: PAGE_SIZE });
       absorb(page);
       hasNewer = page.hasNewer ?? false;
       if (!hasNewer) rejoinLive();
+      await tick();
+      restore();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : String(error));
     } finally {
@@ -429,7 +475,7 @@
   $effect(() => {
     const sentinel = topSentinel;
     const root = viewport;
-    seen.size;
+    loadedRange(seen.values())?.oldest;
     if (!sentinel || !root || !hasOlder || !primed || anchoring) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -447,7 +493,7 @@
   $effect(() => {
     const sentinel = bottomSentinel;
     const root = viewport;
-    seen.size;
+    loadedRange(seen.values())?.newest;
     if (!sentinel || !root || mode !== "window" || !hasNewer || anchoring) return;
     const observer = new IntersectionObserver(
       (entries) => {

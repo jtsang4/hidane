@@ -123,6 +123,26 @@ export function loadedRange(events: Iterable<{ seq: number }>): { oldest: number
   return Number.isFinite(oldest) ? { oldest, newest } : null;
 }
 
+/** Four pages bound both retained payloads and the number of rendered events. */
+export const HISTORY_EVENT_LIMIT = 320;
+
+/** Keep a contiguous slice in the direction being read, deduplicated by id. */
+export function mergeHistory(
+  current: Iterable<HidaneEvent>,
+  incoming: readonly HidaneEvent[],
+  direction: "older" | "newer",
+): { events: HidaneEvent[]; droppedOlder: boolean; droppedNewer: boolean } {
+  const merged = new Map([...current].map((event) => [event.id, event]));
+  for (const event of incoming) merged.set(event.id, event);
+  const events = [...merged.values()].sort((a, b) => a.seq - b.seq);
+  const overflow = events.length > HISTORY_EVENT_LIMIT;
+  return {
+    events: direction === "older" ? events.slice(0, HISTORY_EVENT_LIMIT) : events.slice(-HISTORY_EVENT_LIMIT),
+    droppedOlder: overflow && direction === "newer",
+    droppedNewer: overflow && direction === "older",
+  };
+}
+
 /**
  * Offer a way back to the newest message whenever the reader is not there:
  * scrolled up in the live view, or reading a window of older history. Not

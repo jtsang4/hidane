@@ -26,10 +26,10 @@
     "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded",
   ].join(" ");
 
-  let { content, class: className = "" }: { content: string; class?: string } = $props();
+  let { content, streaming = false, class: className = "" }: { content: string; streaming?: boolean; class?: string } = $props();
 
   let html = $derived(
-    DOMPurify.sanitize(
+    streaming ? "" : DOMPurify.sanitize(
       marked.parse(content, { gfm: true, async: false }) as string,
       { ADD_ATTR: ["target", "rel"] },
     ),
@@ -40,4 +40,8 @@
   }
 </script>
 
-<div class={cn("markdown", BASE, "break-words", className)} {@attach renderMarkdown}></div>
+{#if streaming}
+  <div class={cn("markdown whitespace-pre-wrap break-words", className)}>{content}</div>
+{:else}
+  <div class={cn("markdown", BASE, "break-words", className)} {@attach renderMarkdown}></div>
+{/if}

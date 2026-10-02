@@ -48,7 +48,7 @@
       {:else if event.kind === "user.message"}
         <span class="whitespace-pre-wrap select-text">{payloadText(event)}</span>
       {:else}
-        <Markdown content={payloadText(event)} class="select-text" />
+        <Markdown content={payloadText(event)} {streaming} class="select-text" />
       {/if}
       <div class="mt-1 text-[10px] opacity-60">
         {#if ghost}{$t("pending.sending")}{:else if streaming}{$t("pending.writing")}{:else}<Time iso={event.ts} />{/if}
