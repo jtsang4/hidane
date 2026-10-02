@@ -578,7 +578,7 @@ func TestDeadlineEscalationCarriesItsRoot(t *testing.T) {
 			esc = append(esc, e)
 		}
 	}
-	if len(esc) != 1 || esc[0].Payload.Str("root") != msg.ID {
+	if len(esc) != 1 || esc[0].Payload.Str("root") != msg.ID || esc[0].Payload.Bool("stopped") {
 		t.Fatalf("deadline escalation root: %+v (message %s)", esc, msg.ID)
 	}
 	direct := m(w.k.CreateWorkItem(ctx, "opened directly", "test", kernel.CreateWorkItemOpts{}))

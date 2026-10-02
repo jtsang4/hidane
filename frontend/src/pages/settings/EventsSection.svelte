@@ -67,7 +67,7 @@
     <Input class="min-w-0 flex-1" bind:value={item} placeholder={$t("events.filterItem")} aria-label={$t("events.filterItem")} />
     {#if kind || item || query}<Button variant="outline" size="sm" class="h-9 shrink-0" onclick={() => { kind = ""; item = ""; query = ""; }}>{$t("events.clear")}</Button>{/if}
   </div>
-  <p class="px-1 text-xs text-muted" role="status">{$t("events.showing", { n: loaded.length })}{#if filtering} {$t("events.filtered", { n: rows.length })}{/if}{#if freshCount > 0} · {$t("events.fresh", { n: freshCount })}{/if}</p>
+  <p class="px-1 text-xs text-muted" role="status">{$t("events.showing", { n: loaded.length })}{#if filtering}{` ${$t("events.filtered", { n: rows.length })}`}{/if}{#if freshCount > 0}{` · ${$t("events.fresh", { n: freshCount })}`}{/if}</p>
 </div>
 <div class="space-y-2">
   {#each rows as event (event.id)}<EventRow {event} />{/each}

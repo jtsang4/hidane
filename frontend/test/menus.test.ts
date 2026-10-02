@@ -51,7 +51,8 @@ describe("escalation text", () => {
     await i18n.changeLanguage("en");
     const budget = escalationText({ reason: "budget", question: "「x」已经执行了 8 次，已暂停。" });
     expect(budget).toMatch(/^Paused after reaching its limit/);
-    expect(escalationText({ reason: "deadline", question: "「x」已到截止时间。" })).toMatch(/^The deadline has passed/);
+    expect(escalationText({ reason: "deadline", stopped: true, question: "「x」已到截止时间，正在进行的执行已停止。" })).toMatch(/running execution was stopped/);
+    expect(escalationText({ reason: "deadline", stopped: false, question: "「x」已到截止时间。" })).toBe("The deadline has passed. Reply to this task to continue.");
     // An agent's own question is shown as asked.
     expect(escalationText({ reason: "question", question: "Which branch?" })).toBe("Which branch?");
     expect(escalationText({})).toBe("");

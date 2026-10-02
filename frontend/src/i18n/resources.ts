@@ -327,6 +327,7 @@ export const zh = {
       escalation: {
         budget: "已达到执行或转发次数的上限，已自动暂停。需要继续的话，直接回复这个任务。",
         deadline: "已到截止时间，进行中的执行已停止。需要继续的话，直接回复这个任务。",
+        deadlineIdle: "已到截止时间。需要继续的话，直接回复这个任务。",
       },
     },
     notice: {
@@ -843,7 +844,8 @@ export const en = {
       reason: { budget: "Budget spent", deadline: "Deadline passed", question: "Question" },
       escalation: {
         budget: "Paused after reaching its limit of runs or hand-offs. Reply to this task to continue.",
-        deadline: "The deadline has passed and any running execution was stopped. Reply to this task to continue.",
+        deadline: "The deadline has passed and the running execution was stopped. Reply to this task to continue.",
+        deadlineIdle: "The deadline has passed. Reply to this task to continue.",
       },
     },
     notice: {

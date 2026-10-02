@@ -27,7 +27,7 @@
     <Badge {tone}>{label}</Badge>
     <span class="ml-auto text-xs text-muted">
       {#if group.started}<Time iso={group.started.ts} />{/if}
-      {#if group.sideEffects.length > 0} · {$t("item.toolCalls", { count: group.sideEffects.filter((e) => e.kind.endsWith("intent")).length })}{/if}
+      {#if group.sideEffects.length > 0}{` · ${$t("item.toolCalls", { count: group.sideEffects.filter((e) => e.kind.endsWith("intent")).length })}`}{/if}
     </span>
   </button>
   {#if open}

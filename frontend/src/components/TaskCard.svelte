@@ -102,7 +102,7 @@
 
   {#if card.execution}
     <p class="mt-2 truncate first:mt-0 text-xs text-muted">
-      {$t(`task.state.${card.execution.status === "running" ? "running" : "queued"}`)} · {$t("task.progress", { count: card.execution.toolCalls })}{#if card.execution.lastTool} · {$t("task.lastTool", { tool: card.execution.lastTool })}{/if}
+      {$t(`task.state.${card.execution.status === "running" ? "running" : "queued"}`)} · {$t("task.progress", { count: card.execution.toolCalls })}{#if card.execution.lastTool}{` · ${$t("task.lastTool", { tool: card.execution.lastTool })}`}{/if}
     </p>
   {/if}
 

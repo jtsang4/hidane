@@ -60,6 +60,6 @@
     </div>
   </div>
   <p class="text-xs break-all whitespace-pre-wrap text-muted select-text">{detail}</p>
-  <p class="text-xs text-muted">{schedule.enabled && schedule.nextRunAt ? $t("schedules.nextRun", { time: fmtDateTime(schedule.nextRunAt) }) : $t("schedules.paused")}{#if schedule.lastRunAt} · {$t("schedules.lastRun", { time: fmtDateTime(schedule.lastRunAt), status: schedule.lastStatus ?? "" })}{/if}</p>
+  <p class="text-xs text-muted">{schedule.enabled && schedule.nextRunAt ? $t("schedules.nextRun", { time: fmtDateTime(schedule.nextRunAt) }) : $t("schedules.paused")}{#if schedule.lastRunAt}{` · ${$t("schedules.lastRun", { time: fmtDateTime(schedule.lastRunAt), status: schedule.lastStatus ?? "" })}`}{/if}</p>
   <RunHistory scheduleId={schedule.id} />
 </Card>

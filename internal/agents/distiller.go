@@ -276,7 +276,7 @@ func (s *System) EnforceDeadlines(ctx context.Context) error {
 			note = "，正在进行的执行已停止"
 		}
 		if _, err := k.Append(ctx, kernel.EventInput{Source: "kernel:runtime", Kind: "escalation", ThreadID: "main", WorkItemID: item.ID,
-			Payload: kernel.Payload{"reason": "deadline", "root": s.itemRoot(ctx, item.ID),
+			Payload: kernel.Payload{"reason": "deadline", "root": s.itemRoot(ctx, item.ID), "stopped": len(stopped) > 0,
 				"question": fmt.Sprintf("「%s」已到截止时间%s。需要继续的话，直接回复这个任务。", item.Title, note)}}); err != nil {
 			return err
 		}
