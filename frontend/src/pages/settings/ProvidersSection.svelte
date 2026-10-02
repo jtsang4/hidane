@@ -103,12 +103,6 @@
     if (confirmed) deleteProvider.mutate(provider.id);
   }
 
-  function onPreset(event: Event & { currentTarget: HTMLSelectElement }): void {
-    const id = event.currentTarget.value;
-    event.currentTarget.value = "";
-    if (id) startCreate(id);
-  }
-
   function roleNames(roles: Role[]): string {
     return roles.map((role) => $t(`settings.roles.${role}`)).join(", ");
   }
@@ -121,12 +115,16 @@
   {#if editing === null}
     <div class="flex flex-wrap items-center gap-2">
       {#if presets.length > 0}
-        <Select class="h-8 w-auto text-xs" aria-label={$t("settings.providers.presetPlaceholder")} onchange={onPreset}>
-          <option value="">{$t("settings.providers.presetPlaceholder")}</option>
-          {#each presets as preset (preset.id)}
-            <option value={preset.id}>{preset.label}</option>
-          {/each}
-        </Select>
+        <!-- A menu of starting points, not a setting: it never keeps a value. -->
+        <Select
+          class="h-8 w-auto"
+          size="sm"
+          label={$t("settings.providers.presetPlaceholder")}
+          placeholder={$t("settings.providers.presetPlaceholder")}
+          value=""
+          options={presets.map((preset) => ({ value: preset.id, label: preset.label }))}
+          onchange={(id) => startCreate(id)}
+        />
       {/if}
       <Button size="sm" onclick={() => startCreate()}><Plus size={16} />{$t("settings.providers.blank")}</Button>
     </div>

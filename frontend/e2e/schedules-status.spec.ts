@@ -1,6 +1,26 @@
 import type { Schedule } from "../src/lib/api.js";
 import { confirmDialog, expect, test, turn, unique, waitForEvent } from "./fixtures.js";
 
+test("schedules: an HTTP schedule's wake checkbox reaches the spec", async ({ page, api }) => {
+  const name = unique("e2e-http-schedule");
+  await page.goto("/schedules");
+  await page.getByRole("button", { name: "新建" }).first().click();
+  await page.getByPlaceholder("名称，如：每日下午提醒").fill(name);
+  await page.getByRole("button", { name: "HTTP 轮询" }).click();
+  await page.getByPlaceholder("间隔秒数（≥10）").fill("86400");
+  await page.getByPlaceholder("要轮询的 URL（http/https）").fill("http://127.0.0.1:9/never-called");
+  const wake = page.getByRole("checkbox", { name: "响应捕获后唤醒 Primary 处理（否则只记录）" });
+  await expect(wake).not.toBeChecked();
+  // The label is part of the control: clicking its text ticks the box.
+  await page.getByText("响应捕获后唤醒 Primary 处理（否则只记录）").click();
+  await expect(wake).toBeChecked();
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByRole("button", { name: `立即运行 ${name}` })).toBeVisible();
+  const schedule = (await api.get<{ schedules: Schedule[] }>("/api/schedules")).schedules.find((s) => s.name === name);
+  expect(schedule).toMatchObject({ action: "http", spec: { url: "http://127.0.0.1:9/never-called", wake: true } });
+  await api.send("DELETE", `/api/schedules/${(schedule as Schedule).id}`);
+});
+
 test("schedules: a prompt schedule runs now and its answer shows up", async ({ page, api }) => {
   await api.setAllRoles("claude");
   const name = unique("e2e-schedule");

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import i18n from "../src/i18n/index.js";
-import { fmtRelative } from "../src/lib/utils.js";
+import { fmtRelative, fmtShortDay } from "../src/lib/utils.js";
 
 const NOW = Date.UTC(2026, 7, 24, 12, 0, 0);
 const ago = (seconds: number) => new Date(NOW - seconds * 1000).toISOString();
@@ -44,5 +44,14 @@ describe("fmtRelative", () => {
     await i18n.changeLanguage("en");
     expect(fmtRelative(ago(300), NOW)).toBe("5m ago");
     expect(fmtRelative(ago(5), NOW)).toBe("just now");
+  });
+});
+
+describe("fmtShortDay", () => {
+  it("names a day by month and day only, in the UI language", async () => {
+    expect(fmtShortDay("2026-10-03")).toBe("10月3日");
+    await i18n.changeLanguage("en");
+    expect(fmtShortDay("2026-10-03")).toBe("Oct 3");
+    expect(fmtShortDay("not-a-day")).toBe("not-a-day");
   });
 });

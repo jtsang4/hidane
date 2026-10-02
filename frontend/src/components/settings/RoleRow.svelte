@@ -4,8 +4,8 @@
   import type { AgentKind, AgentTestResult, Effort, ProviderView, Role, RoleConfig } from "../../lib/api.js";
   import { AGENT_KINDS, effortsFor, errorText, roleCompatibility } from "../../lib/settings.js";
   import Button from "../ui/Button.svelte";
-  import Input from "../ui/Input.svelte";
-  import Select from "../ui/Select.svelte";
+  import Combobox from "../ui/Combobox.svelte";
+  import Select, { type SelectOption } from "../ui/Select.svelte";
   import SaveStatus from "./SaveStatus.svelte";
   import SettingsRow from "./SettingsRow.svelte";
 
@@ -56,8 +56,13 @@
     provider: `role-${role}-provider`,
     model: `role-${role}-model`,
     effort: `role-${role}-effort`,
-    models: `role-${role}-models`,
   });
+  let providerOptions = $derived<SelectOption[]>([
+    { value: "", label: $t("settings.ownLogin") },
+    ...providers.map((provider) => ({ value: provider.id, label: `${provider.label} (${provider.id})` })),
+    // A provider removed since this role was saved is still what the role names.
+    ...(draft.provider && !providers.some((provider) => provider.id === draft.provider) ? [{ value: draft.provider, label: draft.provider }] : []),
+  ]);
 
   function update(patch: Partial<RoleConfig>): void {
     edits = { ...edits, ...patch };
@@ -140,46 +145,36 @@
   </div>
   <div class="divide-y divide-border rounded-lg border border-border bg-surface">
     <SettingsRow label={$t("settings.roles.agent")} for={ids.agent}>
-      <Select id={ids.agent} class="w-56" value={draft.agent} onchange={(event) => { const agent = event.currentTarget.value as AgentKind; change({ agent, ...(effortsFor(agent).includes(draft.effort) ? {} : { effort: "" }) }); }}>
-        {#each AGENT_KINDS as kind (kind)}
-          <option value={kind}>{$t(`settings.kinds.${kind}`)}</option>
-        {/each}
-      </Select>
+      <Select
+        id={ids.agent}
+        class="w-56"
+        value={draft.agent}
+        options={AGENT_KINDS.map((kind) => ({ value: kind, label: $t(`settings.kinds.${kind}`) }))}
+        onchange={(next) => { const agent = next as AgentKind; change({ agent, ...(effortsFor(agent).includes(draft.effort) ? {} : { effort: "" }) }); }}
+      />
     </SettingsRow>
     <SettingsRow label={$t("settings.roles.provider")} for={ids.provider} below={issue ? warning : undefined}>
-      <Select id={ids.provider} class="w-56" value={draft.provider} onchange={(event) => change({ provider: event.currentTarget.value })}>
-        <option value="">{$t("settings.ownLogin")}</option>
-        {#each providers as provider (provider.id)}
-          <option value={provider.id}>{provider.label} ({provider.id})</option>
-        {/each}
-        {#if draft.provider && !providers.some((provider) => provider.id === draft.provider)}
-          <option value={draft.provider}>{draft.provider}</option>
-        {/if}
-      </Select>
+      <Select id={ids.provider} class="w-56" value={draft.provider} options={providerOptions} onchange={(next) => change({ provider: next })} />
     </SettingsRow>
     <SettingsRow label={$t("settings.roles.model")} hint={$t("settings.roles.modelHint")} for={ids.model}>
-      <Input
+      <Combobox
         id={ids.model}
-        list={ids.models}
         class="w-56 font-mono"
-        placeholder={$t("settings.roles.modelPlaceholder")}
+        emptyLabel={$t("runAs.defaultModel")}
         value={draft.model}
-        oninput={(event) => update({ model: event.currentTarget.value })}
-        onblur={() => void commit()}
-        onkeydown={(event) => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); void commit(); } }}
+        suggestions={models.map((model) => ({ value: model }))}
+        oninput={(text) => update({ model: text })}
+        onchange={(next) => change({ model: next })}
       />
-      <datalist id={ids.models}>
-        {#each models as model (model)}
-          <option value={model}></option>
-        {/each}
-      </datalist>
     </SettingsRow>
     <SettingsRow label={$t("settings.roles.effort")} for={ids.effort}>
-      <Select id={ids.effort} class="w-56" value={draft.effort} onchange={(event) => change({ effort: event.currentTarget.value as Effort })}>
-        {#each effortsFor(draft.agent) as effort (effort)}
-          <option value={effort}>{$t(`settings.effort.${effort || "default"}`)}</option>
-        {/each}
-      </Select>
+      <Select
+        id={ids.effort}
+        class="w-56"
+        value={draft.effort}
+        options={effortsFor(draft.agent).map((effort) => ({ value: effort, label: $t(`settings.effort.${effort || "default"}`) }))}
+        onchange={(next) => change({ effort: next as Effort })}
+      />
     </SettingsRow>
     {#if testing || result || testError}
       <div class="px-4 py-3">

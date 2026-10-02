@@ -1,4 +1,4 @@
-import { confirmDialog, expect, test } from "./fixtures.js";
+import { choose, confirmDialog, expect, test } from "./fixtures.js";
 
 const KEY = "sk-e2e-provider-secret-7Q2Z";
 const KEY_HINT = "…7Q2Z";
@@ -52,7 +52,7 @@ test.describe("settings", () => {
       await expect(page.getByText("还没有模型服务，角色会使用各 CLI 自己的登录。")).toBeVisible();
 
       // --- create from the DeepSeek preset ---------------------------------------
-      await page.getByLabel("从预设新建…").selectOption("deepseek");
+      await choose(page.getByRole("combobox", { name: "从预设新建…" }), "DeepSeek");
       await expect(page.getByRole("heading", { name: "新建模型服务" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "名称", exact: true })).toHaveValue("DeepSeek");
       await expect(page.getByLabel("ID（可选，留空自动生成）")).toHaveValue("deepseek");
@@ -80,8 +80,8 @@ test.describe("settings", () => {
       await nav.getByRole("link", { name: "角色" }).click();
       await expect(page).toHaveURL(/\/settings\/roles$/);
       const distiller = page.getByRole("group", { name: "Distiller（记忆提炼）" });
-      await distiller.getByLabel("Agent CLI").selectOption("pi");
-      await distiller.getByLabel("模型服务").selectOption("deepseek");
+      await choose(distiller.getByLabel("Agent CLI"), "pi");
+      await choose(distiller.getByLabel("模型服务"), "DeepSeek (deepseek)");
       const model = distiller.getByLabel("模型", { exact: true });
       await model.fill("deepseek-v4-pro");
       // Typing alone does not save the model…
@@ -94,9 +94,9 @@ test.describe("settings", () => {
 
       // --- the same provider cannot drive codex: shown, kept unsaved --------------
       const worker = page.getByRole("group", { name: "Worker（执行）" });
-      await worker.getByLabel("Agent CLI").selectOption("codex");
+      await choose(worker.getByLabel("Agent CLI"), "Codex");
       await expect.poll(async () => (await api.settings()).roles.worker).toMatchObject({ agent: "codex", provider: "" });
-      await worker.getByLabel("模型服务").selectOption("deepseek");
+      await choose(worker.getByLabel("模型服务"), "DeepSeek (deepseek)");
       await expect(worker.getByRole("alert")).toHaveText("Codex 需要该服务提供 OpenAI Responses 地址。");
       await expect(worker.getByRole("status").filter({ hasText: "未保存" })).toBeVisible();
       await expect(worker.getByRole("button", { name: "测试" })).toBeDisabled();
@@ -109,7 +109,7 @@ test.describe("settings", () => {
       expect(refused.status()).toBe(400);
       expect((await api.settings()).roles.worker).toMatchObject({ agent: "codex", provider: "" });
       // Back to the CLI's own login: compatible again, and the row is saved.
-      await worker.getByLabel("模型服务").selectOption("");
+      await choose(worker.getByLabel("模型服务"), "CLI 自己的登录与默认设置");
       await expect(worker.getByRole("alert")).toHaveCount(0);
       await expect(worker.getByRole("button", { name: "测试" })).toBeEnabled();
 
@@ -128,8 +128,8 @@ test.describe("settings", () => {
 
       // Free the role, then the delete goes through.
       await nav.getByRole("link", { name: "角色" }).click();
-      await distiller.getByLabel("Agent CLI").selectOption("claude");
-      await distiller.getByLabel("模型服务").selectOption("");
+      await choose(distiller.getByLabel("Agent CLI"), "Claude Code");
+      await choose(distiller.getByLabel("模型服务"), "CLI 自己的登录与默认设置");
       await expect.poll(async () => (await api.settings()).roles.distiller).toMatchObject({ agent: "claude", provider: "" });
       await nav.getByRole("link", { name: "模型服务" }).click();
       await expect(page.getByText("使用中：Distiller（记忆提炼）")).toHaveCount(0);

@@ -9,6 +9,7 @@
   import ScheduleCard from "../components/ScheduleCard.svelte";
   import Button from "../components/ui/Button.svelte";
   import Card from "../components/ui/Card.svelte";
+  import Checkbox from "../components/ui/Checkbox.svelte";
   import Input from "../components/ui/Input.svelte";
   import Textarea from "../components/ui/Textarea.svelte";
 
@@ -72,7 +73,7 @@
       {#if form.action === "prompt"}
         <Textarea rows={3} bind:value={form.prompt} placeholder={$t("schedules.form.prompt")} />
       {:else}
-        <div class="space-y-2"><Input bind:value={form.url} placeholder={$t("schedules.form.url")} /><label class="flex items-center gap-2 text-sm text-muted"><input type="checkbox" bind:checked={form.wake} />{$t("schedules.form.wake")}</label></div>
+        <div class="space-y-2"><Input bind:value={form.url} placeholder={$t("schedules.form.url")} /><label class="flex items-center gap-2 text-sm text-muted"><Checkbox bind:checked={form.wake} />{$t("schedules.form.wake")}</label></div>
       {/if}
       <div class="flex justify-end gap-2"><Button variant="outline" size="sm" onclick={() => (creating = false)}>{$t("common.cancel")}</Button><Button size="sm" disabled={create.isPending} onclick={submit}>{$t("schedules.form.create")}</Button></div>
     </Card>

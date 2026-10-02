@@ -23,10 +23,13 @@
 
 <SettingsCard title={$t("settings.general.language")}>
   <SettingsRow label={$t("settings.general.languageLabel")} for="settings-language">
-    <Select id="settings-language" class="w-40" value={$language} onchange={(event) => switchLanguage(event.currentTarget.value === "en" ? "en" : "zh")}>
-      <option value="zh">中文</option>
-      <option value="en">English</option>
-    </Select>
+    <Select
+      id="settings-language"
+      class="w-40"
+      value={$language}
+      options={[{ value: "zh", label: "中文" }, { value: "en", label: "English" }]}
+      onchange={(next) => switchLanguage(next === "en" ? "en" : "zh")}
+    />
   </SettingsRow>
 </SettingsCard>
 

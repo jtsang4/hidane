@@ -79,6 +79,13 @@ export function fmtDay(day: string): string {
   });
 }
 
+/** A `YYYY-MM-DD` day where room is short, e.g. "10月3日" or "Oct 3". */
+export function fmtShortDay(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  if (!y || !m || !d) return day;
+  return new Date(y, m - 1, d).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" });
+}
+
 /** A `YYYY-MM` month as a heading. */
 export function fmtMonth(month: string): string {
   const [y, m] = month.split("-").map(Number);

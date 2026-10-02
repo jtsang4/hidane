@@ -18,6 +18,12 @@ test("settings opens with ⌘, and leaves with Esc, ⌘, or Back — to the page
   // Moving between sections does not change where Esc goes back to.
   await page.getByRole("navigation", { name: "设置分区" }).getByRole("link", { name: "角色" }).click();
   await expect(page).toHaveURL(/\/settings\/roles$/);
+  // Esc in an open list closes the list, not settings.
+  await page.getByRole("group", { name: "Primary（主会话）" }).getByRole("combobox", { name: "Agent CLI" }).click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toBeHidden();
+  await expect(page).toHaveURL(/\/settings\/roles$/);
   await page.getByRole("navigation", { name: "设置分区" }).getByRole("link", { name: "事件日志" }).click();
   // Esc in a field lets go of the field first, then leaves.
   const search = page.getByRole("textbox", { name: "在已加载的事件里搜索…" });
@@ -123,6 +129,25 @@ test("⌘L goes to the conversation and puts the cursor in the composer", async 
   await page.keyboard.press("ControlOrMeta+l");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByPlaceholder("说点什么…")).toBeFocused();
+});
+
+test("the work log picks its day from a calendar", async ({ page }) => {
+  await page.goto("/log");
+  const today = page.getByRole("button", { name: "今天", exact: true });
+  await expect(today).toBeDisabled();
+  const day = page.getByRole("button", { name: /^日期 / });
+  const shown = (await day.getAttribute("aria-label")) ?? "";
+  await day.click();
+  const calendar = page.getByRole("dialog", { name: "日期" });
+  await expect(calendar.getByRole("button", { name: "上个月" })).toBeVisible();
+  // Today has the focus; the day before it is one key away.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Enter");
+  await expect(calendar).toBeHidden();
+  await expect(day).not.toHaveAccessibleName(shown);
+  await expect(today).toBeEnabled();
+  await today.click();
+  await expect(day).toHaveAccessibleName(shown);
 });
 
 test("confirm dialog: cancelling does nothing, confirming does it", async ({ page, api }) => {

@@ -1,6 +1,6 @@
 import type { HidaneEvent, WorkItem } from "../src/lib/api.js";
 import type { Page } from "@playwright/test";
-import { confirmDialog, expect, test, turn, say, unique, waitForEvent } from "./fixtures.js";
+import { choose, confirmDialog, expect, test, turn, say, unique, waitForEvent } from "./fixtures.js";
 import { HISTORY_EVENT_LIMIT } from "../src/lib/history.js";
 
 /** How far the conversation is from its newest message, in px. */
@@ -133,17 +133,23 @@ test("the composer picks what a task runs on: agent, model and effort, like Pase
   await page.goto("/");
   const picker = page.getByRole("group", { name: "运行方式" });
   // By default a task follows the role settings.
-  await expect(picker.getByRole("combobox", { name: "Agent" })).toHaveValue("");
-  await picker.getByRole("combobox", { name: "Agent" }).selectOption("codex");
+  const agent = picker.getByRole("combobox", { name: "Agent" });
+  await expect(agent).toHaveText(/^跟随设置/);
+  await choose(agent, "Codex");
   // The model list comes from the CLI itself (`codex debug models`, the fake's catalog here).
-  await expect(page.locator("datalist option[value='gpt-fake-1']")).toHaveCount(1);
+  await picker.getByRole("button", { name: "显示选项" }).click();
+  await expect(page.getByRole("listbox").getByRole("option", { name: /gpt-fake-1/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toBeHidden();
   const model = picker.getByRole("combobox", { name: "模型" });
   await model.fill("gpt-fake-mini");
   await model.press("Enter");
   // That model takes only low and medium; the effort list follows it.
   const effort = picker.getByRole("combobox", { name: "推理强度" });
-  await expect(effort.locator("option")).toHaveText(["默认", "低", "中"]);
-  await effort.selectOption("medium");
+  await effort.click();
+  await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["默认", "低", "中"]);
+  await page.getByRole("listbox").getByRole("option", { name: "中" }).click();
+  await expect(effort).toHaveText("中");
   await expect(picker).toContainText("用于新任务");
 
   const text = `创建一个文件写上 ${unique("e2e-runas")}`;
@@ -162,17 +168,17 @@ test("the composer picks what a task runs on: agent, model and effort, like Pase
   // Addressing the task, the picker shows and changes what that task runs on, at once.
   await card.getByRole("button", { name: "展开" }).click();
   await expect(picker).toContainText("用于这个任务，立即生效");
-  await expect(picker.getByRole("combobox", { name: "Agent" })).toHaveValue("codex");
-  await picker.getByRole("combobox", { name: "Agent" }).selectOption("pi");
+  await expect(agent).toHaveText("Codex");
+  await choose(agent, "pi");
   await expect(page.getByRole("alert").filter({ hasText: "改为使用 pi" })).toBeVisible();
   await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs?.agent).toBe("pi");
-  await picker.getByRole("combobox", { name: "Agent" }).selectOption("");
+  await choose(agent, /^跟随设置/);
   await expect(page.getByRole("alert").filter({ hasText: "改回跟随设置" })).toBeVisible();
   await expect.poll(async () => (await api.workItems()).find((candidate) => candidate.id === item?.id)?.runAs ?? null).toBeNull();
 
   // The choice for new tasks is remembered on this machine.
   await page.goto("/");
-  await expect(page.getByRole("group", { name: "运行方式" }).getByRole("combobox", { name: "Agent" })).toHaveValue("codex");
+  await expect(page.getByRole("group", { name: "运行方式" }).getByRole("combobox", { name: "Agent" })).toHaveText("Codex");
 });
 
 test("hiding a message through its menu leaves the view following the newest replies", async ({ page, api }) => {

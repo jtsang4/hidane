@@ -7,7 +7,7 @@
   import Markdown from "../components/Markdown.svelte";
   import Page from "../components/Page.svelte";
   import Button from "../components/ui/Button.svelte";
-  import Input from "../components/ui/Input.svelte";
+  import DatePicker from "../components/ui/DatePicker.svelte";
 
   let day = $state(today());
   let valid = $derived(/^\d{4}-\d{2}-\d{2}$/.test(day));
@@ -23,7 +23,7 @@
 <Page title={$t("log.title")}>
   {#snippet actions()}
     <Button variant="ghost" size="icon-sm" aria-label={$t("log.prev")} onclick={() => (day = shiftDay(day, -1))}><ChevronLeft size={16} /></Button>
-    <Input type="date" class="h-8 w-36" aria-label={$t("log.day")} bind:value={day} />
+    <DatePicker label={$t("log.day")} value={day} max={today()} onchange={(next) => (day = next)} />
     <Button variant="ghost" size="icon-sm" aria-label={$t("log.next")} disabled={isToday} onclick={() => (day = shiftDay(day, 1))}><ChevronRight size={16} /></Button>
     <Button variant="outline" size="sm" disabled={isToday} onclick={() => (day = today())}>{$t("log.today")}</Button>
   {/snippet}

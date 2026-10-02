@@ -130,6 +130,14 @@ export function confirmDialog(page: Page): Locator {
   return page.getByRole("alertdialog");
 }
 
+/** Pick an option from a select (`ui/Select`): open it from its trigger, click the option by name. */
+export async function choose(trigger: Locator, option: string | RegExp): Promise<void> {
+  await trigger.click();
+  const listbox = trigger.page().getByRole("listbox");
+  await listbox.getByRole("option", { name: option, exact: typeof option === "string" }).click();
+  await expect(listbox).toBeHidden();
+}
+
 /** A call the page made to the desktop host, as the fake host recorded it. */
 export interface HostCall {
   path: string;

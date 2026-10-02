@@ -19,6 +19,12 @@ body,
   height: 100%;
 }
 
+/* The theme is dark only; what the engine still draws (scrollbars, number
+   spinners, autofill) must not come out light. */
+html {
+  color-scheme: dark;
+}
+
 /* An app window, not a page: only content regions scroll, and nothing bounces. */
 html,
 body {
@@ -71,6 +77,7 @@ select,
 [role="tab"],
 [role="switch"],
 [role="menuitem"],
+[role="option"],
 [contenteditable="true"] {
   --wails-draggable: no-drag;
 }

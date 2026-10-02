@@ -4,6 +4,7 @@ import i18n from "../src/i18n/index.js";
 import { zh } from "../src/i18n/resources.js";
 import type { AgentTestResult, ProviderView, RoleConfig } from "../src/lib/api.js";
 import RoleRow from "../src/components/settings/RoleRow.svelte";
+import { choose } from "./choose.js";
 
 const text = zh.translation.settings;
 
@@ -40,14 +41,14 @@ describe("RoleRow", () => {
     expect(screen.queryByRole("alert")).toBeNull();
 
     // DeepSeek has no OpenAI Responses endpoint, so Codex cannot use it: shown, not saved.
-    await fireEvent.change(screen.getByLabelText(text.roles.agent), { target: { value: "codex" } });
+    await choose(screen.getByLabelText(text.roles.agent), text.kinds.codex);
     expect(screen.getByRole("alert")).toHaveTextContent(text.compat.codex);
     expect(screen.getByText(text.save.unsaved)).toBeInTheDocument();
     expect(onsave).not.toHaveBeenCalled();
     expect(testButton()).toBeDisabled();
 
     // Back to the CLI's own login: compatible, so the change saves at once.
-    await fireEvent.change(screen.getByLabelText(text.roles.provider), { target: { value: "" } });
+    await choose(screen.getByLabelText(text.roles.provider), text.ownLogin);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(onsave).toHaveBeenCalledTimes(1);
     expect(onsave).toHaveBeenCalledWith({ agent: "codex", provider: "", model: "deepseek-chat", effort: "low" });
@@ -71,7 +72,7 @@ describe("RoleRow", () => {
   it("says Saving…, then Saved, or the server's refusal inline", async () => {
     let finish: (value?: unknown) => void = () => undefined;
     renderRow({ onsave: () => new Promise((resolve) => (finish = resolve)) });
-    await fireEvent.change(screen.getByLabelText(text.roles.effort), { target: { value: "high" } });
+    await choose(screen.getByLabelText(text.roles.effort), text.effort.high);
     expect(screen.getByText(text.save.saving)).toBeInTheDocument();
     finish();
     await flush();
@@ -88,8 +89,8 @@ describe("RoleRow", () => {
     });
     const ontest = vi.fn(() => Promise.resolve({ ok: true, text: "", error: "", durationMs: 1, agent: "pi", model: "" }));
     const { rerender } = render(RoleRow, { props: { role: "distiller", config: saved, providers: [deepseek], onsave, ontest } });
-    await fireEvent.change(screen.getByLabelText(text.roles.effort), { target: { value: "high" } });
-    await fireEvent.change(screen.getByLabelText(text.roles.provider), { target: { value: "" } });
+    await choose(screen.getByLabelText(text.roles.effort), text.effort.high);
+    await choose(screen.getByLabelText(text.roles.provider), text.ownLogin);
     expect(calls).toHaveLength(1);
     // The first save lands: the parent passes the saved configuration back.
     await rerender({ config: { ...saved, effort: "high" } });
@@ -101,16 +102,16 @@ describe("RoleRow", () => {
       { ...saved, effort: "high", provider: "" },
     ]);
     await rerender({ config: { ...saved, effort: "high", provider: "" } });
-    expect(screen.getByLabelText(text.roles.provider)).toHaveValue("");
+    expect(screen.getByLabelText(text.roles.provider)).toHaveTextContent(text.ownLogin);
     expect(screen.getByText(text.save.saved)).toBeInTheDocument();
   });
 
   it("shows a refused save inline and keeps the choice on screen", async () => {
     renderRow({ onsave: () => Promise.reject(new Error("roles: provider gone")) });
-    await fireEvent.change(screen.getByLabelText(text.roles.effort), { target: { value: "high" } });
+    await choose(screen.getByLabelText(text.roles.effort), text.effort.high);
     await flush();
     expect(screen.getByText(/roles: provider gone/)).toBeInTheDocument();
-    expect(screen.getByLabelText(text.roles.effort)).toHaveValue("high");
+    expect(screen.getByLabelText(text.roles.effort)).toHaveTextContent(text.effort.high);
   });
 
   it("tests the saved configuration and shows the round-trip result", async () => {
