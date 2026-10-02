@@ -52,7 +52,37 @@ const replies = new SvelteMap<string, LiveReply>();
  * construction, at any latency, and if the refetch fails it simply stays up.
  */
 const retiring = new SvelteMap<string, number>();
+const readers = new Map<string, number>();
 let lastSeq = 0;
+
+function forget(id: string): void {
+  replies.delete(id);
+  retiring.delete(id);
+}
+
+/** Hold the provisional copy only while a view can need the render handoff. */
+export function watchLiveReplies(threadId: string): () => void {
+  readers.set(threadId, (readers.get(threadId) ?? 0) + 1);
+  return () => {
+    const remaining = (readers.get(threadId) ?? 1) - 1;
+    if (remaining > 0) {
+      readers.set(threadId, remaining);
+      return;
+    }
+    readers.delete(threadId);
+    for (const [id, reply] of replies) {
+      if (reply.threadId === threadId && retiring.has(id)) forget(id);
+    }
+  };
+}
+
+/** Release text after the view has rendered the durable replacement. */
+export function acknowledgeLiveReplies(threadId: string, renderedSeq: number): void {
+  for (const [id, reply] of replies) {
+    const replacement = retiring.get(id);
+    if (reply.threadId === threadId && replacement !== undefined && replacement <= renderedSeq) forget(id);
+  }
+}
 
 /** Highest seq among events the caller has rendered. The retirement gate. */
 export function maxSeq(events: readonly { seq: number }[]): number {
@@ -107,8 +137,7 @@ export function applyLiveFrame(raw: string): void {
   if (!existing) {
     for (const [old, reply] of replies) {
       if (reply.threadId === threadId && retiring.has(old)) {
-        replies.delete(old);
-        retiring.delete(old);
+        forget(old);
       }
     }
   }
@@ -157,7 +186,8 @@ export function noteLiveEvent(event: {
   if (!ANSWER_KINDS.has(event.kind) || event.threadId === null) return;
   for (const [id, reply] of replies) {
     if (reply.threadId === event.threadId && event.seq > reply.sinceSeq) {
-      retiring.set(id, event.seq);
+      if (readers.has(reply.threadId)) retiring.set(id, event.seq);
+      else forget(id);
     }
   }
 }
@@ -166,5 +196,6 @@ export function noteLiveEvent(event: {
 export function resetLiveText(): void {
   replies.clear();
   retiring.clear();
+  readers.clear();
   lastSeq = 0;
 }

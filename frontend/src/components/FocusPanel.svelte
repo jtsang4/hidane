@@ -8,7 +8,7 @@
   import { boot } from "../lib/boot.js";
   import { steeredKey } from "../lib/conversation.js";
   import { executionGroups } from "../lib/grouping.js";
-  import { liveRepliesFor, maxSeq } from "../lib/liveText.js";
+  import { acknowledgeLiveReplies, liveRepliesFor, maxSeq, watchLiveReplies } from "../lib/liveText.js";
   import { nextCursor } from "../lib/pagination.js";
   import { conversationHref, navigate } from "../lib/router.svelte.js";
   import { revealWorkspace, setTaskStatus } from "../lib/taskActions.js";
@@ -70,6 +70,14 @@
   let thread = $derived(events.filter((e) => (e.kind === "user.message" && e.threadId !== "main") || THREAD_KINDS.has(e.kind)));
   let executions = $derived(executionGroups(events));
   let live = $derived(liveRepliesFor(data?.item.threadId ?? "", maxSeq(thread)));
+
+  $effect(() => {
+    if (data?.item.threadId) return watchLiveReplies(data.item.threadId);
+  });
+
+  $effect(() => {
+    if (data?.item.threadId) acknowledgeLiveReplies(data.item.threadId, maxSeq(thread));
+  });
   let hasOlder = $derived((data?.hasMore ?? false) && !exhausted);
   let parent = $derived(data?.item.parentId ? cards.get(data.item.parentId) : undefined);
   /** The message this item was created for; old items are on no board, so the log is asked too. */

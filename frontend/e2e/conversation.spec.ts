@@ -1,6 +1,7 @@
 import type { HidaneEvent, WorkItem } from "../src/lib/api.js";
 import type { Page } from "@playwright/test";
 import { expect, test, turn, say, unique, waitForEvent } from "./fixtures.js";
+import { HISTORY_EVENT_LIMIT } from "../src/lib/history.js";
 
 /** How far the conversation is from its newest message, in px. */
 function distanceFromBottom(page: Page): Promise<number> {
@@ -167,4 +168,63 @@ test("a permalink opens the conversation at its message, and back at the live ed
   await expect(page).not.toHaveURL(/at=/);
   await expect(page.getByText("正在查看较早的对话")).toHaveCount(0);
   await expect(asked.getByText("正在判断归属…")).toHaveCount(0);
+});
+
+test("long history stays bounded, pages both ways without moving the reader, and reopens evicted messages", async ({ page }) => {
+  const history: HidaneEvent[] = Array.from({ length: 1_000 }, (_, i) => ({
+    seq: i + 1, id: `history_${i + 1}`, ts: "2026-01-01T00:00:00Z", source: "test",
+    kind: "user.message", threadId: "main", workItemId: null, executionId: null,
+    payload: { text: `History message ${i + 1}\n${"Long history. ".repeat(20)}` },
+  }));
+  // A deterministic archive isolates pagination from the shared server's agents.
+  await page.route("**/api/events?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    if (!query.has("conversation")) return route.continue();
+    const limit = Number(query.get("limit"));
+    const before = query.get("before");
+    const after = query.get("after");
+    const around = query.get("around");
+    let events = history;
+    if (around) {
+      const index = history.findIndex((event) => event.id === around);
+      events = history.slice(Math.max(0, index - limit / 2), index + limit / 2);
+    } else if (before) events = history.filter((event) => event.seq < Number(before)).slice(-limit);
+    else if (after) events = history.filter((event) => event.seq > Number(after)).slice(0, limit);
+    else events = history.slice(-limit);
+    await route.fulfill({ json: { events, hasMore: (events[0]?.seq ?? 1) > 1, hasNewer: (events.at(-1)?.seq ?? 1_000) < 1_000, titles: {} } });
+  });
+  await page.goto("/");
+  const log = page.getByRole("log", { name: "会话" });
+  const rows = log.locator("section[data-root]");
+  await expect(turn(page, "history_1000")).toBeVisible();
+
+  async function pageThrough(direction: "older" | "newer"): Promise<void> {
+    await log.dispatchEvent("wheel");
+    await log.evaluate((el, direction) => { el.scrollTop = direction === "older" ? 700 : el.scrollHeight - el.clientHeight - 700; }, direction);
+    await expect(page.getByRole("button", { name: "回到最新" })).toBeVisible();
+    const anchor = await rows.evaluateAll((nodes) => {
+      const top = nodes[0]?.closest('[role="log"]')?.getBoundingClientRect().top ?? 0;
+      const node = nodes.find((node) => node.getBoundingClientRect().bottom > top) as HTMLElement | undefined;
+      return { root: node?.dataset["root"] ?? "", top: node?.getBoundingClientRect().top ?? 0 };
+    });
+    const edge = direction === "older" ? rows.first() : rows.last();
+    const beforeEdge = await edge.getAttribute("data-root");
+    const response = page.waitForResponse((r) => new URL(r.url()).searchParams.has(direction === "older" ? "before" : "after"));
+    await page.getByRole("button", { name: direction === "older" ? "加载更早的消息" : "加载更新的消息", exact: true }).dispatchEvent("click");
+    await response;
+    await expect(edge).not.toHaveAttribute("data-root", beforeEdge!);
+    await expect.poll(async () => Math.abs((await turn(page, anchor.root).boundingBox())!.y - anchor.top)).toBeLessThan(2);
+    expect(await rows.count()).toBeLessThanOrEqual(HISTORY_EVENT_LIMIT);
+  }
+
+  for (let i = 0; i < 6; i++) await pageThrough("older");
+  await expect(page.getByText("正在查看较早的对话")).toBeVisible();
+  await expect(turn(page, "history_1000")).toHaveCount(0);
+  for (let i = 0; i < 2; i++) await pageThrough("newer");
+  await page.getByRole("button", { name: "回到最新" }).click();
+  await expect(turn(page, "history_1000")).toBeVisible();
+  await expect(page.getByText("正在查看较早的对话")).toHaveCount(0);
+  await page.goto("/?at=history_10");
+  await expect(turn(page, "history_10")).toBeVisible();
+  expect(await rows.count()).toBeLessThanOrEqual(HISTORY_EVENT_LIMIT);
 });

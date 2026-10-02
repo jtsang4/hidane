@@ -9,6 +9,8 @@ import {
   excerpt,
   highlight,
   loadedRange,
+  mergeHistory,
+  HISTORY_EVENT_LIMIT,
   rootOfEvent,
   searchTerms,
 } from "../src/lib/history.js";
@@ -76,6 +78,25 @@ describe("search presentation", () => {
 });
 
 describe("reading history by day", () => {
+  it("bounds retained history while keeping either paging direction available", () => {
+    const history = Array.from({ length: 1_000 }, (_, i) => ev("user.message", { text: "x".repeat(1_000) }, { id: `m${i}`, seq: i + 1 }));
+    let retained: HidaneEvent[] = [];
+    for (let end = history.length; end > 0; end -= 80) {
+      const result = mergeHistory(retained, history.slice(Math.max(0, end - 80), end), "older");
+      retained = result.events;
+      expect(retained.length).toBeLessThanOrEqual(HISTORY_EVENT_LIMIT);
+    }
+    expect(loadedRange(retained)).toEqual({ oldest: 1, newest: HISTORY_EVENT_LIMIT });
+    for (let start = HISTORY_EVENT_LIMIT; start < history.length; start += 80) {
+      const result = mergeHistory(retained, history.slice(start, start + 80), "newer");
+      expect(result.droppedOlder).toBe(true);
+      retained = result.events;
+    }
+    expect(loadedRange(retained)).toEqual({ oldest: 681, newest: 1_000 });
+    const updated = { ...retained[0]!, payload: { text: "updated" } };
+    expect(mergeHistory(retained, [updated], "newer").events[0]?.payload["text"]).toBe("updated");
+  });
+
   it("opens each day, including the first loaded one", () => {
     const a = ev("user.message", { text: "a" }, { id: "a", ts: "2026-09-24T02:00:00Z" });
     const b = ev("user.message", { text: "b" }, { id: "b", ts: "2026-09-24T09:00:00Z" });

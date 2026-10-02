@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyLiveFrame,
+  acknowledgeLiveReplies,
   liveRepliesFor,
   maxSeq,
   noteLiveEvent,
   resetLiveText,
+  watchLiveReplies,
 } from "../src/lib/liveText.js";
 
 function event(seq: number, kind: string, threadId: string | null = "main") {
@@ -15,7 +17,12 @@ function event(seq: number, kind: string, threadId: string | null = "main") {
 const NOT_YET_RENDERED = 0;
 
 describe("liveText", () => {
-  beforeEach(() => resetLiveText());
+  let stop: () => void;
+  beforeEach(() => {
+    resetLiveText();
+    stop = watchLiveReplies("main");
+  });
+  afterEach(() => stop());
 
   it("accumulates deltas into one bubble", () => {
     applyLiveFrame(JSON.stringify({ id: "ls_1", threadId: "main", delta: "你" }));
@@ -64,6 +71,38 @@ describe("liveText", () => {
     noteLiveEvent(event(11, "agent.reply"));
     const rendered = maxSeq([event(10, "user.message"), event(11, "agent.reply")]);
     expect(liveRepliesFor("main", rendered)).toEqual([]);
+    acknowledgeLiveReplies("main", rendered);
+    expect(liveRepliesFor("main", NOT_YET_RENDERED)).toEqual([]);
+  });
+
+  it("releases the last 32,000 characters of each of 500 completed tasks", () => {
+    for (let i = 0; i < 500; i++) {
+      const threadId = `th_${i}`;
+      const release = watchLiveReplies(threadId);
+      applyLiveFrame(JSON.stringify({ id: `ls_${i}`, threadId, text: "x".repeat(32_000) }));
+      noteLiveEvent(event(i + 1, "agent.reply", threadId));
+      expect(liveRepliesFor(threadId, i + 1)).toHaveLength(0);
+      acknowledgeLiveReplies(threadId, i + 1);
+      expect(liveRepliesFor(threadId, 0)).toHaveLength(0);
+      release();
+    }
+  });
+
+  it("releases an off-screen task on its durable announcement", () => {
+    applyLiveFrame(JSON.stringify({ id: "ls_task", threadId: "th_task", text: "finished" }));
+    noteLiveEvent(event(1, "agent.reply", "th_task"));
+    expect(liveRepliesFor("th_task", 0)).toEqual([]);
+  });
+
+  it("holds a replacement until the last view closes or acknowledges it", () => {
+    const second = watchLiveReplies("main");
+    applyLiveFrame(JSON.stringify({ id: "ls_1", threadId: "main", text: "finished" }));
+    noteLiveEvent(event(1, "agent.reply"));
+    acknowledgeLiveReplies("main", 0);
+    stop();
+    expect(liveRepliesFor("main", 0)).toHaveLength(1);
+    second();
+    expect(liveRepliesFor("main", 0)).toEqual([]);
   });
 
   it("needs the announcement, not just a newer render, to retire a bubble", () => {
