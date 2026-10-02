@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/jtsang4/hidane/internal/kernel"
 )
@@ -94,101 +95,124 @@ func Str(v any) string {
 	return ""
 }
 
-// The `reply` key, not a `reply` value: requiring the colon keeps this off the
-// `"type":"reply"` that precedes it in every charter example.
-var replyKey = regexp.MustCompile(`"reply"\s*:\s*"`)
-
-// decodeSoFar decodes as much of the reply string as has unambiguously arrived.
-func decodeSoFar(raw string) string {
-	loc := replyKey.FindStringIndex(raw)
-	if loc == nil {
-		return ""
-	}
-	var out strings.Builder
-	i := loc[1]
-	for i < len(raw) {
-		ch := raw[i]
-		if ch == '"' {
-			break
-		}
-		if ch != '\\' {
-			out.WriteByte(ch)
-			i++
-			continue
-		}
-		// A trailing backslash is the front half of an escape still in flight.
-		if i+1 >= len(raw) {
-			break
-		}
-		esc := raw[i+1]
-		if esc == 'u' {
-			if i+6 > len(raw) {
-				break
-			}
-			hi, err := strconv.ParseUint(raw[i+2:i+6], 16, 32)
-			if err != nil {
-				break
-			}
-			r := rune(hi)
-			step := 6
-			if utf16.IsSurrogate(r) {
-				// Never hand out half a surrogate pair: the two halves can land
-				// in separate chunks.
-				if i+12 > len(raw) || raw[i+6] != '\\' || raw[i+7] != 'u' {
-					break
-				}
-				lo, err := strconv.ParseUint(raw[i+8:i+12], 16, 32)
-				if err != nil {
-					break
-				}
-				r = utf16.DecodeRune(r, rune(lo))
-				step = 12
-			}
-			out.WriteRune(r)
-			i += step
-			continue
-		}
-		switch esc {
-		case 'n':
-			out.WriteByte('\n')
-		case 't':
-			out.WriteByte('\t')
-		case 'r':
-			out.WriteByte('\r')
-		case 'b':
-			out.WriteByte('\b')
-		case 'f':
-			out.WriteByte('\f')
-		default:
-			out.WriteByte(esc)
-		}
-		i += 2
-	}
-	s := out.String()
-	// Keep the emitted prefix on a rune boundary.
-	for len(s) > 0 && !utf8Valid(s) {
-		s = s[:len(s)-1]
-	}
-	return s
-}
-
-func utf8Valid(s string) bool { return strings.ToValidUTF8(s, "�") == s }
-
 // ReplyExtractor turns a role's raw JSON token stream into the human-facing
-// `reply` text only: charters make the stream JSON, and forwarding it verbatim
-// would print JSON at the reader.
+// `reply` text only. Each byte is consumed once; only an incomplete escape or
+// UTF-8 rune is held across chunks, never the accumulated response.
 func ReplyExtractor() func(chunk string) string {
-	var raw strings.Builder
-	emitted := 0
+	const key = `"reply"`
+	matched, phase := 0, 0 // key, colon, opening quote, reply, finished
+	pending := ""
 	return func(chunk string) string {
-		raw.WriteString(chunk)
-		decoded := decodeSoFar(raw.String())
-		if len(decoded) <= emitted {
+		if phase == 4 {
 			return ""
 		}
-		delta := decoded[emitted:]
-		emitted = len(decoded)
-		return delta
+		i := 0
+		for phase < 3 && i < len(chunk) {
+			ch := chunk[i]
+			i++
+			if phase == 0 && ch == key[matched] {
+				matched++
+				if matched == len(key) {
+					phase = 1
+				}
+				continue
+			}
+			if phase > 0 && (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f') {
+				continue
+			}
+			if phase == 1 && ch == ':' {
+				phase = 2
+				continue
+			}
+			if phase == 2 && ch == '"' {
+				phase = 3
+				break
+			}
+			phase, matched = 0, 0
+			if ch == '"' {
+				matched = 1
+			}
+		}
+		if phase < 3 {
+			return ""
+		}
+		raw := pending + chunk[i:]
+		pending = ""
+		var out strings.Builder
+		i = 0
+		for i < len(raw) {
+			ch := raw[i]
+			if ch == '"' {
+				phase = 4
+				break
+			}
+			if ch != '\\' {
+				if !utf8.FullRuneInString(raw[i:]) {
+					break
+				}
+				_, size := utf8.DecodeRuneInString(raw[i:])
+				out.WriteString(raw[i : i+size])
+				i += size
+				continue
+			}
+			// A trailing backslash is the front half of an escape still in flight.
+			if i+1 >= len(raw) {
+				break
+			}
+			esc := raw[i+1]
+			if esc == 'u' {
+				if i+6 > len(raw) {
+					break
+				}
+				hi, err := strconv.ParseUint(raw[i+2:i+6], 16, 32)
+				if err != nil {
+					phase = 4
+					break
+				}
+				r := rune(hi)
+				step := 6
+				if utf16.IsSurrogate(r) {
+					// Never hand out half a surrogate pair: the two halves can land
+					// in separate chunks.
+					if i+12 > len(raw) {
+						break
+					}
+					if raw[i+6] != '\\' || raw[i+7] != 'u' {
+						phase = 4
+						break
+					}
+					lo, err := strconv.ParseUint(raw[i+8:i+12], 16, 32)
+					if err != nil {
+						phase = 4
+						break
+					}
+					r = utf16.DecodeRune(r, rune(lo))
+					step = 12
+				}
+				out.WriteRune(r)
+				i += step
+				continue
+			}
+			switch esc {
+			case 'n':
+				out.WriteByte('\n')
+			case 't':
+				out.WriteByte('\t')
+			case 'r':
+				out.WriteByte('\r')
+			case 'b':
+				out.WriteByte('\b')
+			case 'f':
+				out.WriteByte('\f')
+			default:
+				out.WriteByte(esc)
+			}
+			i += 2
+		}
+		if phase != 4 {
+			pending = strings.Clone(raw[i:])
+		}
+		return out.String()
 	}
 }
 
