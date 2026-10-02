@@ -34,7 +34,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 - Pay for verification by the size of the change — a full acceptance costs about an hour and real tokens:
   - every change: `make test` (and `make e2e` for anything a person sees); CI runs them on every push, with the fakes and no tokens;
   - a driver, the guard, a charter or a role's context: the `hidane-live-check` skill (minutes, a few real calls);
-  - behavior a scenario describes: `make acceptance ARGS="--changed origin/main"` (only the scenarios the changed paths map to) or `ARGS="--only 4F,6E"`;
+  - behavior a scenario describes: `make acceptance ARGS="--changed origin/main"` (only the scenarios the changed paths map to) or `ARGS="--only 4F,6E"`. Rebase onto the trunk first: the script refuses to start while `main` or `origin/main` has commits the branch lacks (`--behind-ok` overrides), since a run against code about to be rebased is paid for again;
   - the full `make acceptance`: before a minor or major release (the `hidane-release` skill), or after a sweeping change.
 - A finding the acceptance makes more than once becomes a Go or Playwright test, so the next run need not rediscover it. Only a violated written expectation is a FAIL; everything else the tester notices is a note for the backlog, and a gateway error is retried, not a FAIL.
 - The fakes prove protocol handling, not the real CLIs: after changing a driver, the guard, a charter or a role's context, follow the `hidane-live-check` skill (real `claude` / `codex` / `pi`, fresh `HIDANE_HOME`, judged against the files on disk — not the reply).

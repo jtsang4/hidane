@@ -13,22 +13,37 @@
 #   scripts/acceptance.sh --changed origin/main
 #                                            the scenarios the changed paths touch
 #   --model <id>                             the tester's model (default: the CLI's)
+#   --behind-ok                              run even though the trunk has moved on
 #
+# It refuses to start while main or origin/main has commits this branch lacks:
+# a run against code about to be rebased is spent again after the rebase.
 # A model-gateway error (5xx, overload, rate limit) does not void a run: the
 # tester's session is resumed where it stopped, up to three times.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 report="$repo/.acceptance-report.json"
-only="" changed="" model=""
+only="" changed="" model="" behind_ok=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --only) only="$2"; shift 2 ;;
     --changed) changed="$2"; shift 2 ;;
     --model) model="$2"; shift 2 ;;
-    *) echo "usage: scripts/acceptance.sh [--only IDS | --changed REF] [--model ID]" >&2; exit 2 ;;
+    --behind-ok) behind_ok=1; shift ;;
+    *) echo "usage: scripts/acceptance.sh [--only IDS | --changed REF] [--model ID] [--behind-ok]" >&2; exit 2 ;;
   esac
 done
+
+if [[ -z "$behind_ok" ]]; then
+  for trunk in main origin/main; do
+    git -C "$repo" rev-parse --verify -q "$trunk^{commit}" >/dev/null || continue
+    behind="$(git -C "$repo" rev-list --count "HEAD..$trunk")"
+    if [[ "$behind" -gt 0 ]]; then
+      echo "error: $trunk has $behind commit(s) this branch lacks — rebase onto it first, or pass --behind-ok" >&2
+      exit 1
+    fi
+  done
+fi
 
 # Which scenarios a path can break. Keep in step with acceptance/scenarios.md.
 scenarios_for() {
