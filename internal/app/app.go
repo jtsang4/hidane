@@ -121,6 +121,9 @@ func (a *App) Detect(ctx context.Context) []agentcli.Detection {
 	if a.detected != nil && time.Since(a.detectedAt) < 20*time.Second {
 		return a.detected
 	}
+	// The answer is shared by every caller for a while: a request that goes
+	// away (a page reload) must not kill the probes and cache "not found".
+	ctx = context.WithoutCancel(ctx)
 	bins := a.Settings.Get().Binaries
 	out := make([]agentcli.Detection, len(settings.Agents))
 	var wg sync.WaitGroup
@@ -152,6 +155,8 @@ func (a *App) Catalog(ctx context.Context, agent string) agentcli.Catalog {
 		return c.catalog
 	}
 	a.detectMu.Unlock()
+	// Cached for every caller, like Detect: one caller's cancellation is not the answer.
+	ctx = context.WithoutCancel(ctx)
 	c := agentcli.Catalog{Agent: agent}
 	if bin, err := a.Launcher.Binary(agent); err != nil {
 		c = agentcli.ListModels(ctx, agent, "", a.Launcher.Env)

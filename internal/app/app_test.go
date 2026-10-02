@@ -1,12 +1,14 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
@@ -97,5 +99,40 @@ func TestAnExistingSettingsFileIsLeftAlone(t *testing.T) {
 	defer a.Close()
 	if got := a.Settings.Get().Roles["primary"].Agent; got != "pi" {
 		t.Fatalf("a person's choice is never overwritten: %s", got)
+	}
+}
+
+// The detection is cached for every caller: a request cancelled mid-probe (a
+// reload) must not leave every CLI reported as missing.
+func TestACancelledRequestDoesNotCacheMissingCLIs(t *testing.T) {
+	onlyCodex(t)
+	a, err := app.Open(config.ForTest(t.TempDir()), app.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	srv := httptest.NewServer(a.Handler(app.HandlerOptions{Token: "t"}))
+	defer srv.Close()
+	// Changing a binary path forgets the cached detection.
+	req, _ := http.NewRequest("PUT", srv.URL+"/api/settings/binaries", strings.NewReader(`{"binaries":{"pi":""}}`))
+	req.Header.Set("Authorization", "Bearer t")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("binaries: %v %v", res, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, when := range []struct {
+		name string
+		ctx  context.Context
+	}{{"the cancelled request", ctx}, {"the next caller", context.Background()}} {
+		for _, d := range a.Detect(when.ctx) {
+			if d.Kind == "codex" && !d.Available {
+				t.Fatalf("%s sees codex as missing: %s", when.name, d.Error)
+			}
+		}
+	}
+	if c := a.Catalog(ctx, "codex"); c.Error != "" || len(c.Models) == 0 {
+		t.Fatalf("a cancelled request cached an empty codex catalog: %+v", c)
 	}
 }
