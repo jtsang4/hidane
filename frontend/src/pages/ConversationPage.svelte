@@ -15,7 +15,7 @@
   import { copyText } from "../lib/native.js";
   import { addNotice, dropNotices, noticeFor, type Notice } from "../lib/notices.js";
   import { atFrom, conversationHref, focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
-  import { followAfterScroll, isPinnedToBottom } from "../lib/scroll.js";
+  import { followAfterScroll, isPinnedToBottom, scrollerGesture } from "../lib/scroll.js";
   import { seenState, updateSeen } from "../lib/seen.svelte.js";
   import { errorText } from "../lib/settings.js";
   import { openTaskMenu, stopTask } from "../lib/taskActions.js";
@@ -217,13 +217,30 @@
     return () => observer.disconnect();
   });
 
-  /** Notes the reader's own hand on the scroller; only that may leave the live edge. */
+  /**
+   * Notes the reader's own hand on the scroller; only that may leave the live
+   * edge. Only gestures that move the view count: a click, a right-click or a
+   * text selection inside the log does not — counting every pointerdown let a
+   * reply that landed within a second of opening a message's menu unpin the
+   * view for good.
+   */
   function watchReader(node: HTMLElement): () => void {
     const touched = () => (userScrollAt = performance.now());
-    const kinds = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
-    for (const kind of kinds) node.addEventListener(kind, touched, { passive: true });
+    const onPointer = (event: PointerEvent) => {
+      if (scrollerGesture({ onScroller: event.target === node })) touched();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (scrollerGesture({ key: event.key })) touched();
+    };
+    node.addEventListener("wheel", touched, { passive: true });
+    node.addEventListener("touchmove", touched, { passive: true });
+    node.addEventListener("pointerdown", onPointer, { passive: true });
+    node.addEventListener("keydown", onKey, { passive: true });
     return () => {
-      for (const kind of kinds) node.removeEventListener(kind, touched);
+      node.removeEventListener("wheel", touched);
+      node.removeEventListener("touchmove", touched);
+      node.removeEventListener("pointerdown", onPointer);
+      node.removeEventListener("keydown", onKey);
     };
   }
 

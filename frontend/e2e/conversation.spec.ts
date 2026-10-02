@@ -1,6 +1,6 @@
 import type { HidaneEvent, WorkItem } from "../src/lib/api.js";
 import type { Page } from "@playwright/test";
-import { expect, test, turn, say, unique, waitForEvent } from "./fixtures.js";
+import { confirmDialog, expect, test, turn, say, unique, waitForEvent } from "./fixtures.js";
 import { HISTORY_EVENT_LIMIT } from "../src/lib/history.js";
 
 /** How far the conversation is from its newest message, in px. */
@@ -173,6 +173,38 @@ test("the composer picks what a task runs on: agent, model and effort, like Pase
   // The choice for new tasks is remembered on this machine.
   await page.goto("/");
   await expect(page.getByRole("group", { name: "运行方式" }).getByRole("combobox", { name: "Agent" })).toHaveValue("codex");
+});
+
+test("hiding a message through its menu leaves the view following the newest replies", async ({ page, api }) => {
+  await api.setAllRoles("claude");
+  // History enough to scroll: the bug needs a conversation taller than the view.
+  for (let i = 0; i < 40; i++) {
+    await api.send("POST", "/api/chat", { text: `你好 ${unique("e2e-history")}` }, 202);
+  }
+  await page.goto("/");
+  let last = "";
+  await expect
+    .poll(async () => {
+      const events = await api.events("kind=agent.reply&tail=1");
+      last = events[0]?.id ?? "";
+      return (await api.events("kind=agent.reply&tail=60")).length;
+    }, { timeout: 60_000 })
+    .toBeGreaterThanOrEqual(40);
+  await expect(page.locator(`[id^="turn-"]`).last()).toBeVisible();
+  await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2);
+
+  const hidden = await say(page, `你好 ${unique("e2e-hide")}`);
+  await expect(turn(page, hidden)).toContainText("你好！我是 hidane 的主代理。");
+  await turn(page, hidden).getByText(/e2e-hide/).click({ button: "right" });
+  await page.getByRole("menu", { name: "消息操作" }).getByRole("menuitem", { name: "隐藏" }).click();
+  await confirmDialog(page).getByRole("button", { name: "隐藏" }).click();
+  await expect(turn(page, hidden).getByText("这条消息已隐藏")).toBeVisible();
+
+  const task = await say(page, `创建一个文件写上 ${unique("e2e-after-hide")}`);
+  await expect(turn(page, task)).toContainText("已完成：", { timeout: 45_000 });
+  await expect.poll(() => distanceFromBottom(page), { message: "still pinned to the newest message" }).toBeLessThan(2);
+  await expect(page.getByRole("button", { name: "回到最新" })).toHaveCount(0);
+  expect(last).not.toBe("");
 });
 
 test("a late answer's notice never covers the newest message while the view sits at the bottom", async ({ page, api }) => {

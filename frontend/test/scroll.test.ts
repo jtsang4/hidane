@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPinnedToBottom, PINNED_SLACK_PX } from "../src/lib/scroll.js";
+import { isPinnedToBottom, PINNED_SLACK_PX, scrollerGesture } from "../src/lib/scroll.js";
 
 /**
  * Guards the autoscroll decision that produced the visible "loads from the
@@ -29,5 +29,14 @@ describe("isPinnedToBottom", () => {
   it("stops being pinned once the gap exceeds the slack", () => {
     const away = { offsetHeight: 600, scrollTop: 9400 - PINNED_SLACK_PX, scrollHeight: 10000 };
     expect(isPinnedToBottom(away)).toBe(false);
+  });
+});
+
+describe("scroller gestures", () => {
+  it("counts only what moves the view: the scrollbar and scrolling keys", () => {
+    expect(scrollerGesture({ onScroller: true })).toBe(true);
+    expect(scrollerGesture({ onScroller: false })).toBe(false);
+    for (const key of ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]) expect(scrollerGesture({ key })).toBe(true);
+    for (const key of ["Enter", "Escape", "a", "Tab"]) expect(scrollerGesture({ key })).toBe(false);
   });
 });

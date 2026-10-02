@@ -50,3 +50,15 @@ export function followAfterScroll(state: {
   if (state.userInitiated) return "unfollow";
   return state.following ? "repin" : "keep";
 }
+
+const SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]);
+
+/**
+ * Whether a pointer press or key moves the scroller itself: a press on the
+ * scroller (its scrollbar, not its content) or a scrolling key. Clicks on
+ * messages, menus and text selection are not reading gestures.
+ */
+export function scrollerGesture(input: { onScroller?: boolean; key?: string }): boolean {
+  if (input.onScroller) return true;
+  return input.key !== undefined && SCROLL_KEYS.has(input.key);
+}
