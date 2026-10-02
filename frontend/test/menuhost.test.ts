@@ -18,10 +18,12 @@ describe("MenuHost", () => {
     const menu = screen.getByRole("menu", { name: "消息操作" });
     const entries = screen.getAllByRole("menuitem");
     expect(entries.map((entry) => entry.textContent?.trim())).toEqual(["复制文本", "隐藏"]);
-    expect(entries[0]).toHaveFocus();
-    await fireEvent.keyDown(menu, { key: "ArrowDown" });
+    // Focus moves in once the items are mounted, a microtask after the menu.
+    await vi.waitFor(() => expect(entries[0]).toHaveFocus());
+    // Keys go where a keyboard sends them: the focused item.
+    await fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(entries[1]).toHaveFocus();
-    await fireEvent.keyDown(menu, { key: "ArrowDown" });
+    await fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(entries[0]).toHaveFocus();
     await fireEvent.click(entries[1]!);
     expect(menuState.current).toBeNull();

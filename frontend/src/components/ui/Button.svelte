@@ -27,12 +27,14 @@
 
   type Props = HTMLButtonAttributes & {
     children?: Snippet;
+    ref?: HTMLButtonElement | null;
     variant?: VariantProps<typeof buttonVariants>["variant"];
     size?: VariantProps<typeof buttonVariants>["size"];
   };
 
   let {
     children,
+    ref = $bindable(null),
     class: className = "",
     variant = "default",
     size = "default",
@@ -40,6 +42,6 @@
   }: Props = $props();
 </script>
 
-<button {...rest} class={cn(buttonVariants({ variant, size }), className)}>
+<button bind:this={ref} {...rest} class={cn(buttonVariants({ variant, size }), className)}>
   {@render children?.()}
 </button>

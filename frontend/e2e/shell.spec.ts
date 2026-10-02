@@ -166,6 +166,13 @@ test("confirm dialog: cancelling does nothing, confirming does it", async ({ pag
   await forget.focus();
   await page.keyboard.press("Enter");
   await expect(confirmDialog(page)).toBeVisible();
+  // Tab stays inside the dialog, round from the last button to the first and back.
+  const confirmButton = confirmDialog(page).getByRole("button", { name: "遗忘" });
+  await expect(confirmButton).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(confirmDialog(page).getByRole("button", { name: "取消" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(confirmButton).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(confirmDialog(page)).toHaveCount(0);
   await expect(forget).toBeFocused();

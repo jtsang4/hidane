@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import i18n from "../src/i18n/index.js";
 import { confirmAction, confirmState, settleConfirm } from "../src/lib/confirm.svelte.js";
 import ConfirmDialog from "../src/components/ConfirmDialog.svelte";
@@ -41,6 +41,9 @@ describe("ConfirmDialog", () => {
   });
 
   it("keeps Tab inside the dialog", async () => {
+    // The trap asks `tabbable`, which counts an element without client rects as hidden — every element, in jsdom.
+    const rects = vi.spyOn(Element.prototype, "getClientRects").mockReturnValue([new DOMRect(0, 0, 1, 1)] as unknown as DOMRectList);
+    onTestFinished(() => rects.mockRestore());
     open();
     const cancel = screen.getByRole("button", { name: "取消" });
     const confirm = screen.getByRole("button", { name: "删除" });

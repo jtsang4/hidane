@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
+  import { Popover } from "bits-ui";
   import { CalendarDays } from "@lucide/svelte";
   import { language, t } from "../i18n/index.js";
   import { api } from "../lib/api.js";
@@ -9,7 +10,6 @@
   let { onpick }: { onpick: (eventId: string) => void } = $props();
 
   let open = $state(false);
-  let root = $state<HTMLDivElement | undefined>();
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const days = createQuery(() => ({
@@ -25,27 +25,25 @@
     open = false;
     onpick(eventId);
   }
-
-  function onWindowClick(event: MouseEvent): void {
-    if (open && root && event.target instanceof Node && !root.contains(event.target)) open = false;
-  }
 </script>
 
-<svelte:window onclick={onWindowClick} onkeydown={(event) => { if (event.key === "Escape") open = false; }} />
-
-<div bind:this={root} class="relative shrink-0">
-  <button
-    class={cn("flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 text-xs text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary", open && "bg-surface-2 text-foreground")}
-    aria-expanded={open}
-    aria-haspopup="true"
+<Popover.Root bind:open>
+  <Popover.Trigger
+    class={cn("flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 text-xs text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary", open && "bg-surface-2 text-foreground")}
     aria-label={$t("chat.datesTitle")}
     title={$t("chat.datesTitle")}
-    onclick={() => (open = !open)}
   >
     <CalendarDays size={14} aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.dates")}</span>
-  </button>
-  {#if open}
-    <div class="absolute right-0 z-20 mt-1 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-border bg-surface p-2 shadow-lg" role="dialog" aria-label={$t("chat.datesTitle")}>
+  </Popover.Trigger>
+  <Popover.Portal>
+    <Popover.Content
+      align="end"
+      sideOffset={4}
+      collisionPadding={8}
+      role="dialog"
+      aria-label={$t("chat.datesTitle")}
+      class="z-[65] max-h-[min(60vh,var(--bits-popover-content-available-height))] w-64 overflow-y-auto rounded-lg border border-border bg-surface p-2 shadow-lg outline-none"
+    >
       <p class="px-1 pb-1 text-xs font-medium text-muted">{$t("chat.datesTitle")}</p>
       {#if days.isPending}
         <p class="px-1 py-2 text-xs text-muted">{$t("common.loading")}</p>
@@ -58,7 +56,7 @@
             <ul>
               {#each group.days as day (day.day)}
                 <li>
-                  <button class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-2" onclick={() => pick(day.firstId)}>
+                  <button class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary" onclick={() => pick(day.firstId)}>
                     <span>{fmtDay(day.day)}</span><span class="text-xs text-muted">{$t("chat.dayCount", { n: day.count })}</span>
                   </button>
                 </li>
@@ -67,6 +65,6 @@
           {/each}
         {/key}
       {/if}
-    </div>
-  {/if}
-</div>
+    </Popover.Content>
+  </Popover.Portal>
+</Popover.Root>

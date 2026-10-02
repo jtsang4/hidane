@@ -25,6 +25,22 @@ for (const kind of ["claude", "codex", "pi"] as const) {
     await expect(question).toContainText(text);
     await expect(question).toContainText("已完成：", { timeout: 45_000 });
     await expect(question.getByText(`新任务「${text}」`)).toBeVisible();
+    if (kind === "claude") {
+      // Where the message went can be changed from its line: a menu of open tasks and a new one.
+      const change = question.getByRole("button", { name: "改变这条消息的归属" });
+      await change.click();
+      const routes = page.getByRole("menu");
+      await expect(routes.getByRole("menuitem", { name: "新任务" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(routes).toBeHidden();
+      await expect(change).toBeFocused();
+      // Jumping to a day lists today, with this message counted.
+      await page.getByRole("button", { name: "跳到某一天" }).click();
+      const days = page.getByRole("dialog", { name: "跳到某一天" });
+      await expect(days.getByRole("button").first()).toContainText(/条/);
+      await page.keyboard.press("Escape");
+      await expect(days).toBeHidden();
+    }
 
     // --- the event log is the evidence --------------------------------------
     const message = await api.event(messageId);
