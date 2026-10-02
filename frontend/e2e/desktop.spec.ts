@@ -122,4 +122,13 @@ test.describe("when the host endpoints fail", () => {
     await page.waitForTimeout(500);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
+
+  test("a host action asked for outside the app explains itself, in a neutral toast", async ({ page }) => {
+    await page.goto("/settings/about");
+    await page.getByRole("button", { name: "在访达中显示" }).click();
+    const toast = page.getByRole("alert").filter({ hasText: "只有桌面应用能做这件事" });
+    await expect(toast).toBeVisible();
+    // An explanation of what this surface cannot do, not a failure.
+    await expect(toast).toHaveAttribute("data-tone", "default");
+  });
 });

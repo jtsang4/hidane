@@ -5,8 +5,7 @@
   import { api } from "../../lib/api.js";
   import { boot } from "../../lib/boot.js";
   import { copyText, parentDir } from "../../lib/native.js";
-  import { errorText } from "../../lib/settings.js";
-  import { pushToast } from "../../lib/toast.js";
+  import { pushToast, toastError } from "../../lib/toast.js";
   import SettingsCard from "../../components/settings/SettingsCard.svelte";
   import SettingsRow from "../../components/settings/SettingsRow.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -20,7 +19,7 @@
       await copyText(dataDir);
       pushToast(i18n.t("settings.about.copied"), "default");
     } catch (error) {
-      pushToast(errorText(error));
+      toastError(error);
     }
   }
 
@@ -28,7 +27,7 @@
     try {
       await api.openDataDir();
     } catch (error) {
-      pushToast(errorText(error));
+      toastError(error);
     }
   }
 </script>

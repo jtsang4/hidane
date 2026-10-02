@@ -177,17 +177,31 @@ export function providerPatch(draft: ProviderDraft): ProviderPatch {
  */
 export function errorText(error: unknown): string {
   if (!(error instanceof ApiError)) return error instanceof Error ? error.message : String(error);
+  if (isDesktopOnly(error)) return i18n.t("common.desktopOnly");
   const body = error.message.replace(/^\d+\s*/, "");
+  const message = serverError(error);
+  return message || body || error.message;
+}
+
+/**
+ * A host action (Finder, clipboard, notifications) refused because this is
+ * not the desktop app — an explanation of what the browser cannot do, not a
+ * failure, so it is not shown as one.
+ */
+export function isDesktopOnly(error: unknown): boolean {
+  // Must match api.DesktopOnly.
+  return error instanceof ApiError && serverError(error) === "desktop app only";
+}
+
+function serverError(error: ApiError): string {
   try {
-    const parsed = JSON.parse(body) as unknown;
+    const parsed = JSON.parse(error.message.replace(/^\d+\s*/, "")) as unknown;
     if (typeof parsed === "object" && parsed !== null) {
       const message = (parsed as { error?: unknown }).error;
-      // Must match api.DesktopOnly (the host actions refused outside the app).
-      if (message === "desktop app only") return i18n.t("common.desktopOnly");
-      if (typeof message === "string" && message) return message;
+      if (typeof message === "string") return message;
     }
   } catch {
     // Not JSON: the raw text is the best we have.
   }
-  return body || error.message;
+  return "";
 }

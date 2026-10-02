@@ -8,7 +8,7 @@ import { openMenu, type MenuEntry, type MenuPlacement } from "./contextMenu.svel
 import { taskActions, type TaskAction } from "./menus.js";
 import { focusHref, navigate } from "./router.svelte.js";
 import { errorText } from "./settings.js";
-import { pushToast } from "./toast.js";
+import { pushToast, toastError } from "./toast.js";
 
 /** Work-item actions shared by cards, the sidebar, the task list and the focus panel. */
 
@@ -58,7 +58,7 @@ export async function revealWorkspace(id: string): Promise<void> {
   try {
     await api.revealArtifact(id, "");
   } catch (error) {
-    pushToast(errorText(error));
+    toastError(error);
   }
 }
 

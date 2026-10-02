@@ -19,7 +19,7 @@
   import { seenState, updateSeen } from "../lib/seen.svelte.js";
   import { errorText } from "../lib/settings.js";
   import { openTaskMenu, stopTask } from "../lib/taskActions.js";
-  import { pushToast } from "../lib/toast.js";
+  import { pushToast, toastError } from "../lib/toast.js";
   import { ui } from "../lib/ui.svelte.js";
   import { cn, fmtDay } from "../lib/utils.js";
   import ChatBubble from "../components/ChatBubble.svelte";
@@ -580,7 +580,7 @@
       await copyText(`${window.location.origin}${conversationHref({ at: messageId })}`);
       pushToast(i18n.t("chat.linkCopied"), "default");
     } catch (error) {
-      pushToast(errorText(error));
+      toastError(error);
     }
   }
 
@@ -589,7 +589,7 @@
       await copyText(saidText(event));
       pushToast(i18n.t("menu.textCopied"), "default");
     } catch (error) {
-      pushToast(errorText(error));
+      toastError(error);
     }
   }
 

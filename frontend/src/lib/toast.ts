@@ -1,4 +1,5 @@
 import { writable } from "svelte/store";
+import { errorText, isDesktopOnly } from "./settings.js";
 
 export interface Toast {
   id: number;
@@ -52,4 +53,9 @@ export function dismissToast(id: number): void {
 export function clearToasts(): void {
   toasts = [];
   emit();
+}
+
+/** A failed action, said plainly: in red, unless it only explains that this needs the desktop app. */
+export function toastError(error: unknown): number {
+  return pushToast(errorText(error), isDesktopOnly(error) ? "default" : "danger");
 }

@@ -8,6 +8,7 @@ import {
   draftProblem,
   emptyDraft,
   errorText,
+  isDesktopOnly,
   parseModels,
   providerInput,
   providerPatch,
@@ -150,6 +151,9 @@ describe("errorText", () => {
 
   it("names a host action refused outside the desktop app", () => {
     expect(errorText(new ApiError(404, '404 {"ok":false,"error":"desktop app only"}'))).toBe("只有桌面应用能做这件事");
+    expect(isDesktopOnly(new ApiError(404, '404 {"ok":false,"error":"desktop app only"}'))).toBe(true);
+    expect(isDesktopOnly(new ApiError(404, '404 {"ok":false,"error":"not found"}'))).toBe(false);
+    expect(isDesktopOnly(new Error("desktop app only"))).toBe(false);
   });
 });
 

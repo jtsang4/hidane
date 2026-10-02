@@ -4,6 +4,7 @@
   import { t } from "../i18n/index.js";
   import { api, authHeaders, type ArtifactEntry } from "../lib/api.js";
   import { boot } from "../lib/boot.js";
+  import { toastError } from "../lib/toast.js";
   import Time from "./Time.svelte";
   import Button from "./ui/Button.svelte";
   import Markdown from "./Markdown.svelte";
@@ -25,6 +26,14 @@
   }
 
   async function download(): Promise<void> {
+    try {
+      await save();
+    } catch (error) {
+      toastError(error);
+    }
+  }
+
+  async function save(): Promise<void> {
     if (desktop) {
       await api.revealArtifact(workItemId, file.path);
       return;

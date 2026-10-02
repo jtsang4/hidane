@@ -11,6 +11,7 @@
     {#each $toastStore as toast (toast.id)}
       <div
         role="alert"
+        data-tone={toast.tone}
         class={cn(
           "pointer-events-auto flex w-fit max-w-md items-start gap-3 rounded-lg border px-3 py-2 text-sm shadow-lg backdrop-blur",
           toast.tone === "danger"
