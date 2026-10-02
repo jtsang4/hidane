@@ -61,8 +61,9 @@ Across the tree, facts propagate like DOM events:
   Which kinds bubble is declared per kind; tool traffic never does.
 - **Capture** — before any worker tool call runs, it passes the built-in deny
   list, the policy files from the global one down through each ancestor
-  workspace to its own (`POLICY.json`), and a confinement check (writes stay in
-  the work item's workspace, never in hidane's own data directory); any of them
+  workspace to its own (`POLICY.json`), and a confinement check (file tools and
+  the writes a shell command spells out stay in the work item's workspace, never
+  in hidane's own data directory); any of them
   can refuse it. Rules only, no model. While a person's new message is queued
   for a running worker, changes are paused until it has been read.
 - **Cancel** flows down the tree; its source is a person, a deadline, or a spent
@@ -171,6 +172,24 @@ agent loop without a model. The acceptance scenarios are natural language —
 cheap to evolve with requirements, and able to express semantic checks (does the
 reply match what actually happened?) that assertion scripts cannot. Verdicts
 require observed evidence; the report lands in `.acceptance-report.json`.
+
+## Releases
+
+Pushing a version tag (`v1.2.3`, or `v1.2.3-rc.1` for a prerelease) runs
+`.github/workflows/release.yml`, which tests the tagged commit again, builds the
+desktop app and publishes it as a GitHub release. Nothing else triggers it.
+
+| System | Artifact | Requirements |
+|---|---|---|
+| macOS 12+ | `hidane-<v>-macos-universal.dmg` / `.zip` (Apple Silicon + Intel) | — |
+| Windows 10/11 | `hidane-<v>-windows-{amd64,arm64}.zip` (`hidane.exe` + console `hidane-cli.exe`) | WebView2 runtime |
+| Linux | `hidane-<v>-linux-{amd64,arm64}.deb` / `.tar.gz` | GTK 4 + WebKitGTK 6.0 (Ubuntu 24.04+, Debian 13+) |
+
+Each package must open its window in CI before anything is published. Packaging
+is `scripts/package.sh <macos|windows <arch>|linux>` — the same script locally
+and in CI. The macOS app is ad-hoc signed unless the repository has Developer
+ID secrets (see the `hidane-release` skill, which also walks an agent through
+choosing the version, a local dry run, tagging and verifying the release).
 
 ## Environment
 

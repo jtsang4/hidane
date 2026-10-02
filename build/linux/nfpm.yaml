@@ -1,0 +1,25 @@
+# Debian package for the Linux desktop app. scripts/package.sh linux sets
+# VERSION_DEB and ARCH and stages the binary at bin/package/linux-stage/hidane
+# (nfpm does not expand variables in contents paths).
+name: hidane
+arch: ${ARCH}
+platform: linux
+version: ${VERSION_DEB}
+section: utils
+priority: optional
+maintainer: jtsang4 <https://github.com/jtsang4/hidane>
+description: A persistent personal agent runtime (desktop app and CLI).
+homepage: https://github.com/jtsang4/hidane
+license: MIT
+depends:
+  - libgtk-4-1
+  - libwebkitgtk-6.0-4
+contents:
+  - src: bin/package/linux-stage/hidane
+    dst: /usr/bin/hidane
+    file_info:
+      mode: 0755
+  - src: build/linux/hidane.desktop
+    dst: /usr/share/applications/hidane.desktop
+  - src: build/appicon.png
+    dst: /usr/share/pixmaps/hidane.png

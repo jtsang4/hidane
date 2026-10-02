@@ -21,3 +21,6 @@ bin/
 /hidane-nogui
 frontend/test-results/
 frontend/playwright-report/
+
+# Windows resources generated while packaging
+/*.syso

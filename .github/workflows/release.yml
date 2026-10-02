@@ -1,0 +1,214 @@
+name: release
+
+# A version tag (v1.2.3, or v1.2.3-rc.1 for a prerelease) builds the desktop
+# app for macOS, Windows and Linux and publishes them as a GitHub release.
+# Nothing else triggers this workflow. Packaging lives in scripts/package.sh,
+# which the hidane-release skill also runs locally as a dry run.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ github.ref_name }}
+  NFPM_VERSION: v2.47.0
+
+jobs:
+  # A tag never ships what the test suite refuses.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C frontend check
+      - run: pnpm -C frontend test
+      - run: pnpm -C frontend build
+      - name: go vet + test (nogui)
+        run: |
+          go vet -tags nogui ./...
+          go test -race -tags nogui ./...
+      - name: go vet (windows)
+        run: GOOS=windows go vet ./...
+
+  macos:
+    needs: verify
+    runs-on: macos-latest
+    env:
+      # Secrets cannot be tested in a step's `if`; their presence can.
+      HAS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: make frontend
+      # Optional: with a Developer ID certificate in the repository secrets the
+      # app is signed with it (and notarized when the Apple ID secrets are set
+      # too); without, it is ad-hoc signed.
+      - name: import signing certificate
+        if: env.HAS_CERTIFICATE == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+      - name: package
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: scripts/package.sh macos
+      - name: smoke (the packaged app opens its window)
+        run: |
+          dir="$(mktemp -d)"
+          ditto -x -k "bin/release/hidane-$VERSION-macos-universal.zip" "$dir"
+          HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 "$dir/hidane.app/Contents/MacOS/hidane"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: bin/release/*
+          if-no-files-found: error
+
+  windows:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: make frontend
+      # Only its .syso generator is used; without cgo it needs no GTK here.
+      - name: install wails3
+        run: CGO_ENABLED=0 go install "github.com/wailsapp/wails/v3/cmd/wails3@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3)"
+      - run: scripts/package.sh windows ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}
+          path: bin/release/*
+          if-no-files-found: error
+
+  windows-smoke:
+    needs: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-amd64
+      - name: the packaged app opens its window
+        shell: pwsh
+        run: |
+          Expand-Archive -Path "hidane-$env:VERSION-windows-amd64.zip" -DestinationPath app
+          .\app\hidane\hidane-cli.exe version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $env:HIDANE_HOME = Join-Path $env:RUNNER_TEMP "hidane-home"
+          $env:HIDANE_GUI_SMOKE = "1"
+          $env:HIDANE_LOGIN_SHELL = "0"
+          $p = Start-Process -FilePath .\app\hidane\hidane.exe -Wait -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          Get-Content out.txt, err.txt
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          if (-not (Select-String -Path out.txt, err.txt -Pattern "ui ready" -Quiet)) { exit 1 }
+
+  linux:
+    needs: verify
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: GTK 4 + WebKitGTK 6.0 (Wails v3's default Linux backend)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev xvfb dbus-x11
+      - run: go install "github.com/goreleaser/nfpm/v2/cmd/nfpm@$NFPM_VERSION"
+      - run: make frontend
+      - run: scripts/package.sh linux
+      - name: smoke (the packaged app opens its window)
+        # The runner forbids the user namespaces WebKit's sandbox needs; the
+        # smoke only proves the app starts and loads its UI.
+        env:
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1"
+        run: |
+          dir="$(mktemp -d)"
+          tar -xzf "bin/release/hidane-$VERSION-linux-${{ matrix.arch }}.tar.gz" -C "$dir"
+          HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 \
+            timeout 180 xvfb-run -a dbus-run-session -- "$dir/hidane/hidane"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: bin/release/*
+          if-no-files-found: error
+
+  publish:
+    needs: [macos, windows, windows-smoke, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          if [[ "$VERSION" == *-* ]]; then prerelease="--prerelease"; fi
+          # --notes is prepended to the generated "what changed" notes.
+          gh release create "$VERSION" dist/* --verify-tag --title "hidane $VERSION" \
+            --notes "$(sed "s/<version>/$VERSION/g" build/release-notes.md)" --generate-notes $prerelease

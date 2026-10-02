@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "@VERSION@"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "@PRODUCT_VERSION@",
+			"CompanyName": "jtsang4",
+			"FileDescription": "hidane 火种",
+			"LegalCopyright": "MIT License",
+			"ProductName": "hidane",
+			"Comments": "A persistent personal agent runtime"
+		}
+	}
+}

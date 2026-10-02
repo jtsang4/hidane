@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=hidane
+Comment=A persistent personal agent runtime
+Exec=hidane
+Icon=hidane
+Terminal=false
+Categories=Utility;Development;
+StartupWMClass=hidane
