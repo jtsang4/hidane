@@ -356,7 +356,9 @@ func NextAfterRun(sc Schedule, now time.Time) time.Time {
 	return next
 }
 
-// MarkRun does the bookkeeping after a firing.
+// MarkRun does the bookkeeping after a firing. A firing before the schedule
+// was due (run now) leaves its clock alone: a manual test must not postpone
+// the real run.
 func (k *Kernel) MarkRun(ctx context.Context, id, status string, now time.Time) error {
 	sc, err := k.GetSchedule(ctx, id)
 	if err != nil {
@@ -365,6 +367,11 @@ func (k *Kernel) MarkRun(ctx context.Context, id, status string, now time.Time) 
 	var next any
 	if sc.Enabled {
 		next = FormatTime(NextAfterRun(sc, now))
+		if sc.NextRunAt != nil {
+			if due, err := ParseTime(*sc.NextRunAt); err == nil && due.After(now) {
+				next = *sc.NextRunAt
+			}
+		}
 	}
 	if len(status) > 200 {
 		status = status[:200]

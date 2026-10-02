@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 )
@@ -34,8 +36,9 @@ func run(t *testing.T, bin, home string, args ...string) string {
 	return string(out)
 }
 
-func TestCLIChatRunsTheWholeLoop(t *testing.T) {
-	bin := buildCLI(t)
+// fakeHome is a HIDANE_HOME whose every role runs on the fake CLIs.
+func fakeHome(t *testing.T) string {
+	t.Helper()
 	fakes := fakecli.Dir(t)
 	home := t.TempDir()
 	roles := map[string]any{}
@@ -47,6 +50,12 @@ func TestCLIChatRunsTheWholeLoop(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "settings.json"), settings, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return home
+}
+
+func TestCLIChatRunsTheWholeLoop(t *testing.T) {
+	bin := buildCLI(t)
+	home := fakeHome(t)
 
 	if out := run(t, bin, home, "agents"); strings.Count(out, " ok ") != 3 {
 		t.Fatalf("agents:\n%s", out)
@@ -85,5 +94,35 @@ func TestCLIChatRunsTheWholeLoop(t *testing.T) {
 	guard.Stdin = strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"sudo reboot"}}`)
 	if err := guard.Run(); err == nil {
 		t.Fatal("the guard subcommand refuses with a non-zero exit for codex")
+	}
+}
+
+// The usual case: the desktop app (here `serve`) holds the runtime, and
+// `hidane chat` only submits and follows the answer.
+func TestCLIChatFollowsWhileAnotherProcessRunsTheRuntime(t *testing.T) {
+	bin := buildCLI(t)
+	home := fakeHome(t)
+	serve := exec.Command(bin, "serve")
+	serve.Env = append(os.Environ(), "HIDANE_HOME="+home, "HIDANE_LOGIN_SHELL=0", "HIDANE_ADDR=127.0.0.1:27411", "HIDANE_API_TOKEN=t")
+	if err := serve.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = serve.Process.Kill(); _ = serve.Wait() })
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(home, "hidane.db")); err == nil {
+			if resp, err := http.Get("http://127.0.0.1:27411/health"); err == nil {
+				resp.Body.Close()
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("serve never came up")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	out := run(t, bin, home, "chat", "--timeout", "60", "写一个文件，内容是 shared-runtime")
+	if !strings.Contains(out, "已完成") {
+		t.Fatalf("chat output:\n%s", out)
 	}
 }

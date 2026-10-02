@@ -108,6 +108,11 @@ Distiller 只推理不用工具，Worker 用工具）、模型/effort、已解�
 规则只读文件、不调模型；被拦截的调用写入 `HIDANE_POLICY_BLOCKS_FILE`，执行结束时作为
 `policy.blocked` 事件记入日志。
 
+闸门读的是命令文本，所以有边界：`python3 -c` / `node -e` 这类脚本往哪写，文本里不一定看得出来，
+闸门拦不住。codex worker 另有自己的 OS 沙箱（`workspace-write`）；claude 的沙箱实测能挡住这类写入，
+但同时挡住了 Go 构建缓存、`/tmp`、`~/.npm`，普通的 `go build` / `npm install` 都会失败，因此没有开启。
+没有 `HIDANE_WORKSPACE` 的调用（不是 hidane 派出的 worker）一律拒绝修改。
+
 ### 4.3 LLM Provider 配置（参考 paseo）
 
 `HIDANE_HOME/settings.json`（权限 0600，API 响应中密钥只返回是否存在与尾号）：
@@ -203,6 +208,14 @@ Distiller 只推理不用工具，Worker 用工具）、模型/effort、已解�
 | 评审：蒸馏读窗口固定 200 条，安静期里会永远停住 | 向前扫描直到素材足够、到达日志头或上限 |
 | 评审：serve 模式下未设 secret 的 webhook 任何网页都能跨域 POST 触发；任何能私聊机器人的飞书用户都能驱动 agent | 未设 `HIDANE_WEBHOOK_SECRET` 时 webhook 一律 403；飞书增加发送者白名单，未配置时只认第一个私聊（主人），其余只记录 `connector.feishu_ignored` |
 | WKWebView 里点回复中的外链会把整个应用窗口导航走；下载没有落盘的地方 | 桌面模式拦截外链交给系统浏览器、产物「下载」改为在访达中显示（仅桌面端点，serve 不暴露） |
+| 第二轮验收：真实 claude 把运行中追加的消息并进当前这一轮，只出一个 result；驱动按「每条消息一个 result」等待，执行一直挂到 10 分钟超时 | 一条消息被回放（`isReplay`）即视为已读入；`queued_turn_count == 0` 且所有消息都已读入/都有 result 才收尾。假 CLI 增加 `FAKEAGENT_CLAUDE_ABSORB` 模拟这种行为 |
+| 第二轮验收：Manager 刚派出 worker 时追加的消息被报「无法送达」丢掉 | 送达看 worker 池自己的状态而不是 `executions` 表（任务离开队列早于表变成 running）；执行正要结束、送不进去的话记为 `execution.steered`（`late`），随这次执行的结果一起交给 Manager |
+| 第二轮验收：子任务同一轮里「完成 + 回复」，`children.settled` 先于回复发出，父任务拿到旧结果；结果在 3000 字处被无声截断 | Manager 效果分三段执行：其它 → 回复 → `done`；结果上限 6000 字，截断处注明完整内容所在的工作项与目录 |
+| 第二轮验收：工作项层的记忆（`<workspace>/MEMORY.md`）`forget` / `DELETE` 都找不到 | 遗忘按 id 在全局与所有工作项层里找；`GET /api/memories` 与「记忆」页、`hidane memories` 都列出工作项层 |
+| 第二轮验收：`hidane chat` 在 Manager 最后一轮还没跑完时就退出 | 等整个系统安静 2 秒（无执行、无未读、无进行中的 turn）才退出 |
+| 第二轮验收：Primary 停止任务 / 批量改状态时出现两条确认 | 系统对实际结果的确认替代模型事先写好的回复（回复在其它效果之后执行） |
+| 第二轮验收：召回结果用 UTC 日期，模型把本地 10 月 2 日早上说的话说成 10 月 1 日 | 召回按本地时间写到分钟 |
+| 第二轮验收：每次启动窗口小 1px | Wails 在 macOS 上按 `width-1, height-1` 建窗口，恢复时补回 |
 | 桌面端 Wails 事件是推送的，页面订阅前的 `hello` 会丢 | 页面订阅后请求一次问候（`POST /api/live/hello`），GUI 冒烟要求实时帧确实经 Wails 事件到达 |
 
 ## 9. 验证现状

@@ -79,7 +79,8 @@ func (h *harness) invocations() []invocation {
 }
 
 func (h *harness) req(prompt string) agentcli.Request {
-	return agentcli.Request{Prompt: prompt, Cwd: h.cwd, Timeout: 20 * time.Second, SessionDir: filepath.Join(h.cwd, ".sessions")}
+	return agentcli.Request{Prompt: prompt, Cwd: h.cwd, Timeout: 20 * time.Second, SessionDir: filepath.Join(h.cwd, ".sessions"),
+		Env: guard.Env{Workspace: h.cwd}.Vars()}
 }
 
 func TestReasoningCallsOnEveryCLI(t *testing.T) {
@@ -141,7 +142,7 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 			h := newHarness(t, "CLAUDECODE=1")
 			blocks := filepath.Join(h.cwd, ".hidane", "blocks.jsonl")
 			_ = os.MkdirAll(filepath.Dir(blocks), 0o755)
-			env := guard.Env{BlocksFile: blocks}
+			env := guard.Env{BlocksFile: blocks, Workspace: h.cwd}
 			var mu sync.Mutex
 			var tools []agentcli.ToolEvent
 			req := h.req("WRITE result.txt: hello world\nRUN: sudo rm -rf /tmp/x")
@@ -176,6 +177,7 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 			if starts != 2 || errs != 1 || res.ToolCalls != 2 {
 				t.Fatalf("tool events: %+v (calls %d)", tools, res.ToolCalls)
 			}
+
 		})
 	}
 }
@@ -185,7 +187,7 @@ func TestProviderInjectionKeepsKeysOffTheCommandLine(t *testing.T) {
 		OpenAIBaseURL: "https://gw.example.com/v1", PiProvider: "deepseek", APIKey: "sk-secret-123456"}
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
-			h := newHarness(t, "ANTHROPIC_API_KEY=inherited-should-vanish")
+			h := newHarness(t, "ANTHROPIC_API_KEY=inherited-should-vanish", "ANTHROPIC_BASE_URL=http://inherited.example")
 			req := h.req("ping")
 			req.SystemPrompt = "connectivity check"
 			req.Provider = p
@@ -219,6 +221,9 @@ func TestProviderInjectionKeepsKeysOffTheCommandLine(t *testing.T) {
 					}
 				}
 			case "pi":
+				if _, inherited := inv.Env["ANTHROPIC_BASE_URL"]; inherited {
+					t.Fatal("an inherited endpoint must not redirect the configured provider")
+				}
 				if !strings.Contains(args, "--provider deepseek") || !strings.Contains(args, "--model deepseek-v4-pro") || !strings.Contains(args, "--thinking high") {
 					t.Fatalf("pi args: %s", args)
 				}
@@ -268,6 +273,36 @@ func TestSteeringReachesARunningAgent(t *testing.T) {
 				t.Fatal("a finished run must refuse steering")
 			}
 		})
+	}
+}
+
+// Real claude folds a message steered in mid-turn into the running turn: one
+// result for two messages. The run must still end.
+func TestClaudeSteerAbsorbedIntoTheRunningTurn(t *testing.T) {
+	h := newHarness(t, "FAKEAGENT_DELAY_MS=400", "FAKEAGENT_CLAUDE_ABSORB=1")
+	consumed := make(chan struct{}, 4)
+	req := h.req("WRITE a.txt: first")
+	req.SystemPrompt = workerCharter
+	req.Tools = true
+	req.Timeout = 10 * time.Second
+	req.OnSteerConsumed = func() { consumed <- struct{}{} }
+	run, err := h.l.Start(context.Background(), "claude", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if !run.Steer("WRITE b.txt: second") {
+		t.Fatal("a running agent must accept steering")
+	}
+	res := run.Wait()
+	if !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	if len(consumed) != 1 {
+		t.Fatal("steered input was never reported as consumed")
+	}
+	if _, err := os.Stat(filepath.Join(h.cwd, "b.txt")); err != nil {
+		t.Fatalf("steered instruction was not carried out: %v (%s)", err, res.Text)
 	}
 }
 

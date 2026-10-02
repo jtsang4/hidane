@@ -354,11 +354,18 @@ func TestSchedulesValidateAndStayOnGrid(t *testing.T) {
 	}
 }
 
+func promoted(e kernel.MemoryEntry, _ bool, err error) kernel.MemoryEntry {
+	if err != nil {
+		panic(err)
+	}
+	return e
+}
+
 func TestMemoryFilesPromoteParseForget(t *testing.T) {
 	k := kerneltest.New(t)
-	a := m(k.PromoteToFile(ctx, "preference", "prefers concise answers", "global", "", "", "test"))
-	m(k.PromoteToFile(ctx, "fact", "lives in Shanghai", "global", "", "", "test"))
-	m(k.PromoteToFile(ctx, "preference", "writes in Chinese", "global", "", "", "test"))
+	a := promoted(k.PromoteToFile(ctx, "preference", "prefers concise answers", "global", "", "", "test"))
+	promoted(k.PromoteToFile(ctx, "fact", "lives in Shanghai", "global", "", "", "test"))
+	promoted(k.PromoteToFile(ctx, "preference", "writes in Chinese", "global", "", "", "test"))
 	entries := kernel.ParseMemories(kernel.ReadTextFile(k.GlobalMemoryPath()))
 	if len(entries) != 3 {
 		t.Fatalf("entries: %+v", entries)
@@ -378,6 +385,50 @@ func TestMemoryFilesPromoteParseForget(t *testing.T) {
 	}
 	if f := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "memory.forgotten"})); len(f) != 1 {
 		t.Fatal("forgetting must be recorded as memory.forgotten")
+	}
+}
+
+// A work item's memory is as forgettable as the global one, by id alone.
+func TestWorkItemMemoryCanBeForgotten(t *testing.T) {
+	k := kerneltest.New(t)
+	item := m(k.CreateWorkItem(ctx, "site", "test", kernel.CreateWorkItemOpts{}))
+	k.EnsureWorkspace(item.ID, "")
+	entry := promoted(k.PromoteToFile(ctx, "decision", "deploy from main", "work_item", item.Workspace, item.ID, "test"))
+	layers := m(k.WorkItemMemories(ctx))
+	if len(layers) != 1 || layers[0].WorkItemID != item.ID || len(layers[0].Entries) != 1 || layers[0].Entries[0].ID != entry.ID {
+		t.Fatalf("layers: %+v", layers)
+	}
+	if !m(k.Forget(ctx, entry.ID, "test")) {
+		t.Fatal("a work item memory must be forgettable by id")
+	}
+	if len(m(k.WorkItemMemories(ctx))) != 0 {
+		t.Fatal("the entry is still in the work item's MEMORY.md")
+	}
+	f := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "memory.forgotten"}))
+	if len(f) != 1 || f[0].WorkItemID != item.ID {
+		t.Fatalf("forgotten: %+v", f)
+	}
+	if m(k.Forget(ctx, entry.ID, "test")) {
+		t.Fatal("forgetting twice finds nothing")
+	}
+}
+
+// A replayed distillation finds what it promoted before instead of adding it again.
+func TestPromotionIsIdempotent(t *testing.T) {
+	k := kerneltest.New(t)
+	a, added, err := k.PromoteToFile(ctx, "preference", "prefers tables", "global", "", "", "test")
+	if err != nil || !added {
+		t.Fatal(err)
+	}
+	b, again, err := k.PromoteToFile(ctx, "preference", "prefers tables", "global", "", "", "test")
+	if err != nil || again {
+		t.Fatalf("the second promotion must report nothing added: %v %v", again, err)
+	}
+	if a.ID != b.ID || len(kernel.ParseMemories(kernel.ReadTextFile(k.GlobalMemoryPath()))) != 1 {
+		t.Fatalf("promoted twice: %+v %+v", a, b)
+	}
+	if p := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "memory.promoted"})); len(p) != 1 {
+		t.Fatalf("nothing new was promoted the second time: %d events", len(p))
 	}
 }
 
@@ -414,5 +465,18 @@ func TestTriageRulesAndLoopProtection(t *testing.T) {
 	}
 	if !kernel.NeedsTriage(wh) {
 		t.Fatal("connector events need triage")
+	}
+}
+
+func TestRunNowDoesNotPostponeTheSchedule(t *testing.T) {
+	k := kerneltest.New(t)
+	name, action, interval := "hourly", "prompt", 3600
+	sc := m(k.CreateSchedule(ctx, kernel.ScheduleInput{Name: &name, Action: &action, IntervalSec: &interval, Spec: &kernel.ScheduleSpec{Prompt: "x"}}, "test"))
+	if err := k.MarkRun(ctx, sc.ID, "posted", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	after := m(k.GetSchedule(ctx, sc.ID))
+	if *after.NextRunAt != *sc.NextRunAt {
+		t.Fatalf("a manual run moved the next run from %s to %s", *sc.NextRunAt, *after.NextRunAt)
 	}
 }

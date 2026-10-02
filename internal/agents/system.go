@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,7 +131,7 @@ func (s *System) StoreImages(images []InboundImage) ([]agentcli.Image, error) {
 	if len(images) == 0 {
 		return nil, nil
 	}
-	dir := filepath.Join(s.K.Cfg.Home, "inbox", s.K.Now().UTC().Format("2006-01-02"))
+	dir := filepath.Join(s.K.Cfg.Home, "inbox", s.K.Today())
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -180,6 +181,20 @@ func imagesOf(events []kernel.Event) []agentcli.Image {
 	return out
 }
 
+// maxAnswerRunes bounds what an answer or a worker's summary may store. Far
+// beyond any real answer: it guards the log, it does not shape replies — a
+// silent cut once left the person reading half an answer as if it were whole.
+const maxAnswerRunes = 200_000
+
+// clipNoted is clipRunes that says so: a reader must know text was left out.
+func clipNoted(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + fmt.Sprintf("\n\n[… %d more characters not shown]", len(r)-n)
+}
+
 func clipRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) > n {
@@ -196,4 +211,22 @@ func joinNonEmpty(parts []string, sep string) string {
 		}
 	}
 	return strings.Join(out, sep)
+}
+
+// originOf marks an answer whose conversation began outside the person — a
+// webhook or a schedule — the way the Primary marks its own answers, so the
+// conversation's "only mine" filter treats a work item's later replies alike.
+func (s *System) originOf(ctx context.Context, rootID string, payload kernel.Payload) {
+	root, ok, err := s.K.GetEvent(ctx, rootID)
+	if err != nil || !ok {
+		return
+	}
+	switch root.Kind {
+	case "triage.decision":
+		payload["rootKind"] = "external"
+		payload["rootText"] = clipRunes(root.Payload.Str("summary"), 200)
+	case "schedule.prompt":
+		payload["rootKind"] = "scheduled"
+		payload["rootText"] = root.Payload.Str("name")
+	}
 }

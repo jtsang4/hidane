@@ -118,11 +118,62 @@ var (
 
 // IsReadOnly reports whether a shell command only looks. A second line, a
 // command substitution or an acting flag makes any command a change.
+// Commands joined with ;, &&, || or | are read-only when every part is.
 func IsReadOnly(cmd string) bool {
 	if strings.ContainsAny(cmd, "\n\r`") || strings.Contains(cmd, "$(") || strings.Contains(cmd, "<(") || strings.Contains(cmd, ">(") {
 		return false
 	}
-	return readOnlyHead.MatchString(cmd) && !findActs.MatchString(cmd) && !branchActs.MatchString(cmd) && !treeOut.MatchString(cmd)
+	masked := maskQuoted(cmd)
+	if masked == "" {
+		return false
+	}
+	for _, span := range splitSpans(masked, readOnlySep) {
+		seg, mseg := cmd[span[0]:span[1]], masked[span[0]:span[1]]
+		if !readOnlyHead.MatchString(mseg) || findActs.MatchString(seg) || branchActs.MatchString(seg) || treeOut.MatchString(seg) {
+			return false
+		}
+	}
+	return true
+}
+
+var readOnlySep = regexp.MustCompile(`&&|\|\||;|\||&`)
+
+// maskQuoted blanks what is inside quotes, keeping every offset, so a `>` or
+// `;` in quoted text is not read as shell syntax. "" means the quotes do not
+// close: nothing can then be read off the command reliably.
+func maskQuoted(cmd string) string {
+	b := []byte(cmd)
+	var quote byte
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		switch {
+		case quote == 0 && (c == '\'' || c == '"'):
+			quote = c
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote == '"' && c == '\\' && i+1 < len(b):
+			b[i], b[i+1] = '_', '_'
+			i++
+		case quote != 0:
+			b[i] = '_'
+		}
+	}
+	if quote != 0 {
+		return ""
+	}
+	return string(b)
+}
+
+// splitSpans cuts at the separators found in the masked command; the spans
+// index the original command too.
+func splitSpans(masked string, sep *regexp.Regexp) [][2]int {
+	var out [][2]int
+	start := 0
+	for _, m := range sep.FindAllStringIndex(masked, -1) {
+		out = append(out, [2]int{start, m[0]})
+		start = m[1]
+	}
+	return append(out, [2]int{start, len(masked)})
 }
 
 // Call is a tool call in canonical form: tool is bash | write | edit | <other>.
@@ -254,6 +305,12 @@ var controlDir = regexp.MustCompile(`(^|[\s'"=:(])(\./)?\.hidane(/|[\s'"]|$)`)
 // commands can only be checked for naming those places.
 func confinement(call Call, env Env) string {
 	if env.Workspace == "" {
+		// Every run hidane starts names its workspace. Without one there is
+		// nothing to confine to, so changes are refused rather than allowed
+		// everywhere.
+		if call.Tool == "write" || call.Tool == "edit" || (call.Tool == "bash" && !IsReadOnly(call.Subject)) {
+			return "blocked by hidane guard: this run was given no workspace, so it may not change anything"
+		}
 		return ""
 	}
 	ws := resolved(env.Workspace)
@@ -299,8 +356,92 @@ func confinement(call Call, env Env) string {
 				}
 			}
 		}
+		for _, target := range shellWrites(call.Subject) {
+			resolvedTarget := fileTarget(target, env.Workspace)
+			if resolvedTarget == "" || !inside(ws, resolved(resolvedTarget)) {
+				return fmt.Sprintf("blocked by hidane guard: this command writes to %s, outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+			}
+		}
 	}
 	return ""
+}
+
+var (
+	shellWrapper = regexp.MustCompile(`^\s*(?:/usr)?(?:/bin/)?(?:ba|z|da)?sh\s+(?:-[a-z]*c[a-z]*)\s+(.*)$`)
+	segmentSep   = regexp.MustCompile(`&&|\|\||;|\||\n|&\s`)
+	redirection  = regexp.MustCompile(`(?:^|[^<>&0-9])(?:[0-9]?>>?|&>>?)\s*([^\s;&|<>()'"]+|'[^']*'|"[^"]*")`)
+	deviceFiles  = map[string]bool{"/dev/null": true, "/dev/stdout": true, "/dev/stderr": true, "/dev/tty": true}
+)
+
+func unquote(s string) string {
+	if len(s) >= 2 && (s[0] == '\'' || s[0] == '"') && s[len(s)-1] == s[0] {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+// shellWrites lists the paths a shell command writes to, as far as they can
+// be read off the command line: redirections, tee, the arguments of commands
+// that create or change files, a copy's destination, and directories cd'd
+// into (relative writes then land there). A heuristic — codex additionally
+// runs in its own sandbox — but it catches the plain cases a model writes.
+func shellWrites(cmd string) []string {
+	if m := shellWrapper.FindStringSubmatch(cmd); m != nil {
+		cmd = unquote(strings.TrimSpace(m[1]))
+	}
+	var out []string
+	add := func(p string) {
+		p = unquote(p)
+		if p != "" && !deviceFiles[p] && !strings.HasPrefix(p, "&") {
+			out = append(out, p)
+		}
+	}
+	masked := maskQuoted(cmd)
+	if masked == "" {
+		// Unbalanced quotes: read it as written, which errs toward finding writes.
+		masked = cmd
+	}
+	for _, m := range redirection.FindAllStringSubmatchIndex(masked, -1) {
+		add(cmd[m[2]:m[3]])
+	}
+	for _, span := range splitSpans(masked, segmentSep) {
+		fields := strings.Fields(cmd[span[0]:span[1]])
+		for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "-") {
+			fields = fields[1:] // VAR=value prefixes
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		name := filepath.Base(fields[0])
+		var args []string
+		for _, f := range fields[1:] {
+			if strings.HasPrefix(f, "-") || strings.ContainsAny(f, "<>") {
+				continue
+			}
+			args = append(args, f)
+		}
+		switch name {
+		case "touch", "mkdir", "rm", "rmdir", "truncate", "tee", "shred", "unlink":
+			for _, a := range args {
+				add(a)
+			}
+		case "chmod", "chown":
+			if len(args) > 1 {
+				for _, a := range args[1:] {
+					add(a)
+				}
+			}
+		case "cp", "mv", "install", "ln", "rsync":
+			if len(args) > 1 {
+				add(args[len(args)-1])
+			}
+		case "cd", "pushd":
+			if len(args) > 0 && !IsReadOnly(cmd) {
+				add(args[0])
+			}
+		}
+	}
+	return out
 }
 
 // Evaluate decides one call.
@@ -323,14 +464,17 @@ func Evaluate(call Call, env Env) Decision {
 	isMutating := mutating[call.Tool] && !(call.Tool == "bash" && IsReadOnly(call.Subject))
 	for _, path := range env.PolicyFiles {
 		file, err := Load(path)
-		if err != nil && mutating[call.Tool] {
+		if err != nil && isMutating {
 			return Decision{Block: true, Policy: true, Reason: fmt.Sprintf("blocked by hidane guard: policy file %s is unreadable (%v); fix it before changing anything", path, err)}
 		}
 		for _, rule := range file.Rules {
 			tools := rule.Tools
 			applies := false
 			if len(tools) == 0 {
-				applies = mutating[call.Tool]
+				// Changes only: a shell command that just looks (ls, cat, grep)
+				// is a read, like the read tool. A rule meant for reads names
+				// its tools.
+				applies = isMutating
 			} else {
 				for _, t := range tools {
 					if strings.EqualFold(t, call.Tool) {
@@ -468,7 +612,8 @@ func RunHook(format string, stdin io.Reader, stdout, stderr io.Writer, env Env) 
 	call := Normalize(in.ToolName, in.ToolInput)
 	d := Evaluate(call, env)
 	if d.Block {
-		RecordBlock(env, call, d)
+		// Recorded under the CLI's own name, matching its side_effect events.
+		RecordBlock(env, Call{Tool: in.ToolName, Subject: call.Subject}, d)
 		if d.Policy {
 			// Said to the model only: a refused compound command was once
 			// reported as half done, when none of it had run.

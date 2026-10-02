@@ -336,8 +336,8 @@ func worklogLine(e kernel.Event) string {
 	if detail == "" {
 		b, _ := json.Marshal(e.Payload)
 		detail = string(b)
-		if len(detail) > 200 {
-			detail = detail[:200]
+		if r := []rune(detail); len(r) > 200 {
+			detail = string(r[:200])
 		}
 	} else if r := []rune(detail); len(r) > 500 {
 		detail = string(r[:500]) + "…"

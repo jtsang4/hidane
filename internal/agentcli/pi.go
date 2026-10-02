@@ -101,6 +101,11 @@ func piArgs(l *Launcher, req Request) ([]string, []string) {
 		args = append(args, "--session", req.ResumeID)
 	}
 	env := WithoutVars(l.Env, parentSessionVars...)
+	if req.Provider != nil {
+		// hidane chose the endpoint: an inherited ANTHROPIC_BASE_URL must not
+		// redirect it.
+		env = WithoutPrefix(env, "ANTHROPIC_")
+	}
 	env = append(env, "PI_OFFLINE=1", "HIDANE_GUARD_BIN="+l.GuardCommand)
 	env = append(env, req.Env...)
 	return args, env

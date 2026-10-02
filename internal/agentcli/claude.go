@@ -24,6 +24,7 @@ type claudeRun struct {
 	results       int
 	replays       int
 	cancelled     bool
+	finishing     bool
 	timedOut      bool
 	sessionID     string
 	resultSeen    bool
@@ -266,8 +267,12 @@ func (r *claudeRun) onLine(line []byte) {
 		}
 		finished := r.results >= r.sent
 		if m.QueuedTurns != nil {
-			finished = *m.QueuedTurns == 0 && r.results >= r.sent
+			// A message steered in mid-turn joins that turn: it is replayed but
+			// gets no result of its own, so results alone would wait forever.
+			// One not yet replayed is still unread and will start a turn.
+			finished = *m.QueuedTurns == 0 && (r.results >= r.sent || r.replays >= r.sent)
 		}
+		r.finishing = finished
 		r.mu.Unlock()
 		if finished {
 			r.p.closeStdin()
@@ -278,7 +283,7 @@ func (r *claudeRun) onLine(line []byte) {
 func (r *claudeRun) Steer(text string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.cancelled {
+	if r.cancelled || r.finishing {
 		return false
 	}
 	if err := r.p.writeJSON(claudeUserMessage(text, nil)); err != nil {

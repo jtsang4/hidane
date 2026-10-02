@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
@@ -159,5 +160,20 @@ func TestWorklogProjection(t *testing.T) {
 	}
 	if projections.DescribeTool(kernel.Payload{"tool": "write", "input": `{"path":"a.txt"}`}) != "write a.txt" {
 		t.Fatal("describe tool")
+	}
+}
+
+// Recall dates what was said the way the person lived it, not in UTC.
+func TestRecallDatesInLocalTime(t *testing.T) {
+	saved := time.Local
+	t.Cleanup(func() { time.Local = saved })
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skip(err)
+	}
+	time.Local = loc
+	text := projections.DescribeRecall([]kernel.Event{{Seq: 1, Kind: "user.message", TS: "2026-10-01T21:46:00.000Z", Payload: kernel.Payload{"text": "deploy"}}})
+	if !strings.Contains(text, "2026-10-02 05:46 person: deploy") {
+		t.Fatalf("recall: %q", text)
 	}
 }

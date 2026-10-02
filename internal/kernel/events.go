@@ -136,9 +136,10 @@ type EventInput struct {
 	Hop      int
 }
 
-// RedactedSQL is true for a person's message they chose to hide, or a
-// Manager's forwarded copy of one. Evaluated against a row named `events`.
-const RedactedSQL = `(events.kind = 'user.message' AND EXISTS (
+// RedactedSQL is true for a person's message they chose to hide, or a verbatim
+// copy of it: the Manager's forwarded copy, or the same words steered into a
+// running worker. Evaluated against a row named `events`.
+const RedactedSQL = `(events.kind IN ('user.message', 'execution.steered') AND EXISTS (
   SELECT 1 FROM events r WHERE r.kind = 'message.redacted'
     AND json_extract(r.payload, '$.of') IN (events.id, json_extract(events.payload, '$.of'))))`
 

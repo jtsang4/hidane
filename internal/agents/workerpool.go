@@ -106,48 +106,59 @@ func (p *WorkerPool) Dispatch(ctx context.Context, item kernel.WorkItem, owner, 
 	return started, nil
 }
 
-// AmendQueued adds the person's words to a job that has not started.
-func (p *WorkerPool) AmendQueued(workItemID, text string) bool {
+// Delivery is where the person's words went.
+type Delivery int
+
+const (
+	// Missed: no run could take them — none is left, or it is already ending.
+	Missed Delivery = iota
+	// Amended: added to the instructions of a job that has not started.
+	Amended
+	// Steered: handed to the running agent.
+	Steered
+)
+
+// Deliver hands the person's words to a work item's execution. The pool's own
+// state decides, not the executions table: a job leaves the queue before its
+// row says running, and a message routed by the row was refused in between.
+func (p *WorkerPool) Deliver(workItemID, text string) Delivery {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	var target *job
 	for _, id := range p.order {
-		j := p.jobs[id]
-		if j != nil && j.workItemID == workItemID && p.running[id] == nil {
-			j.amendments = append(j.amendments, text)
-			return true
+		if j := p.jobs[id]; j != nil && j.workItemID == workItemID {
+			if p.running[id] == nil {
+				j.amendments = append(j.amendments, text)
+				p.mu.Unlock()
+				return Amended
+			}
+			target = j
+			break
 		}
 	}
-	return false
-}
-
-func (p *WorkerPool) activeJobFor(workItemID string) *job {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, j := range p.running {
-		if j.workItemID == workItemID {
-			return j
+	p.mu.Unlock()
+	if target == nil {
+		return Missed
+	}
+	// The pending-input flag goes up first, so no write can slip between the two.
+	target.mu.Lock()
+	defer target.mu.Unlock()
+	if target.cancelled {
+		return Missed
+	}
+	if target.pending != "" {
+		_ = os.WriteFile(target.pending, []byte(clipRunes(text, 2000)), 0o644)
+	}
+	if target.run == nil {
+		target.buffer = append(target.buffer, text)
+		return Steered
+	}
+	if !target.run.Steer(text) {
+		if target.pending != "" {
+			_ = os.Remove(target.pending)
 		}
+		return Missed
 	}
-	return nil
-}
-
-// Steer hands the person's words to the running execution for a work item.
-// The pending-input flag goes up first, so no write can slip between the two.
-func (p *WorkerPool) Steer(workItemID, text string) bool {
-	j := p.activeJobFor(workItemID)
-	if j == nil {
-		return false
-	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	if j.pending != "" {
-		_ = os.WriteFile(j.pending, []byte(clipRunes(text, 2000)), 0o644)
-	}
-	if j.run == nil {
-		j.buffer = append(j.buffer, text)
-		return true
-	}
-	return j.run.Steer(text)
+	return Steered
 }
 
 // Pump starts whatever the limits allow.
@@ -380,7 +391,7 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 	}
 	source := "agent:worker"
 	payload := kernel.Payload{"ok": run.OK, "durationMs": run.DurationMs, "toolCalls": run.ToolCalls,
-		"summary": clipRunes(run.Text, 8000), "error": errVal, "cancelled": run.Cancelled, "blocked": blocked, "policyBlocks": blocks}
+		"summary": clipNoted(run.Text, maxAnswerRunes), "error": errVal, "cancelled": run.Cancelled, "blocked": blocked, "policyBlocks": blocks}
 	if run.Lost {
 		source = "kernel:runtime"
 		payload["lost"] = true
@@ -494,6 +505,19 @@ func (p *WorkerPool) CancelTree(ctx context.Context, workItemID, reason, source 
 			}
 		}
 		cancelled = append(cancelled, node.ID)
+	}
+	// Stopping a tree stops its delegated parts too: an open child nobody
+	// will work on would keep its parent "delegated" forever. They close
+	// without settling their parents: every parent here is inside the tree
+	// that was just stopped, and a settlement invites its Manager to re-plan —
+	// one dispatched a fresh worker to "redo the missing results" against the
+	// person's cancel.
+	for _, node := range nodes[1:] {
+		if node.Status == kernel.StatusOpen {
+			if _, err := k.SetWorkItemStatus(ctx, node.ID, kernel.StatusClosed, source); err != nil {
+				return cancelled, err
+			}
+		}
 	}
 	return cancelled, nil
 }

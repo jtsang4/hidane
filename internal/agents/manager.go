@@ -52,7 +52,7 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 			}
 			lines = append(lines, "refused by policy: "+strings.Join(reasons, "; "))
 		}
-		lines = append(lines, "summary:\n"+clipRunes(p.Str("summary"), 6000))
+		lines = append(lines, "summary:\n"+clipNoted(p.Str("summary"), 20000))
 		return strings.Join(lines, "\n")
 	case "escalation.raised":
 		title := ""
@@ -98,6 +98,8 @@ type managerTurn struct {
 	item  kernel.WorkItem
 	batch []kernel.Event
 	cause kernel.Event
+	// refused: a budget stopped this turn's dispatch.
+	refused bool
 }
 
 func (t *managerTurn) reply(ctx context.Context, text string, of *kernel.Event) error {
@@ -105,7 +107,8 @@ func (t *managerTurn) reply(ctx context.Context, text string, of *kernel.Event) 
 	if of != nil {
 		anchor = *of
 	}
-	payload := kernel.Payload{"text": clipRunes(text, 8000), "of": anchor.ID, "root": kernel.RootOf(anchor)}
+	payload := kernel.Payload{"text": clipNoted(text, maxAnswerRunes), "of": anchor.ID, "root": kernel.RootOf(anchor)}
+	t.s.originOf(ctx, kernel.RootOf(anchor), payload)
 	// A child's answer is for its parent; the person reads the parent's summary.
 	if t.item.Parent() != "" {
 		payload["child"] = true
@@ -162,18 +165,23 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			return nil
 		}
 		*spawned = true
-		n, err := k.CountExecutions(ctx, item.ID)
+		// The budget is per stretch of autonomous work: whoever answers this
+		// item (the person, or a parent) starts a new one — which is what the
+		// escalation below promises.
+		n, err := k.CountExecutionsSinceInput(ctx, item.ID, kernel.ManagerAddress(item.ID))
 		if err != nil {
 			return err
 		}
 		if n >= k.Cfg.MaxExecutionsPerItem {
+			t.refused = true
 			_, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "escalation", ThreadID: "main", WorkItemID: item.ID,
-				CausedBy: t.cause.ID, Payload: kernel.Payload{"reason": "budget", "root": kernel.RootOf(t.cause),
-					"question": fmt.Sprintf("「%s」已经执行了 %d 次，已暂停。需要继续的话，直接回复这个任务。", item.Title, k.Cfg.MaxExecutionsPerItem)}})
+				CausedBy: t.cause.ID, Payload: kernel.Payload{"reason": "budget", "limit": "executions", "count": n, "root": kernel.RootOf(t.cause),
+					"question": fmt.Sprintf("「%s」自上次回复以来已经执行了 %d 次，已暂停。需要继续的话，直接回复这个任务。", item.Title, n)}})
 			return err
 		}
 		_, err = s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), instructions, Str(e["expect"]), t.cause)
 		if errors.Is(err, ErrBudget) {
+			t.refused = true
 			return nil
 		}
 		return err
@@ -219,7 +227,13 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 		for _, raw := range list {
 			c, _ := raw.(map[string]any)
 			title, brief := Str(c["title"]), Str(c["brief"])
-			if title == "" || brief == "" {
+			if strings.TrimSpace(title) == "" || strings.TrimSpace(brief) == "" {
+				// A part that is dropped must not vanish without a trace.
+				if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "agent.error", ThreadID: item.ThreadID,
+					WorkItemID: item.ID, CausedBy: t.cause.ID, Payload: kernel.Payload{
+						"error": "a child work item was skipped: it needs both a title and a brief", "title": title, "root": kernel.RootOf(t.cause)}}); err != nil {
+					return err
+				}
 				continue
 			}
 			child, err := k.CreateWorkItem(ctx, title, "agent:manager", kernel.CreateWorkItemOpts{ParentID: item.ID})
@@ -261,6 +275,27 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 	return nil
 }
 
+// lateWords are the person's words that reached an execution too late to be
+// given to it, keyed by execution: they ride with its outcome instead.
+func (s *System) lateWords(ctx context.Context, batch []kernel.Event) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, m := range batch {
+		if m.Kind != "execution.finished" || m.ExecutionID == "" {
+			continue
+		}
+		steered, err := s.K.ListEvents(ctx, kernel.ListFilter{Kind: "execution.steered", ExecutionID: m.ExecutionID, Limit: 50})
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range steered {
+			if e.Payload.Bool("late") {
+				out[m.ExecutionID] = append(out[m.ExecutionID], e.Payload.Str("text"))
+			}
+		}
+	}
+	return out, nil
+}
+
 type managerSession struct {
 	Agent     string `json:"agent"`
 	SessionID string `json:"sessionId"`
@@ -271,7 +306,8 @@ func managerSessionPath(item kernel.WorkItem) string {
 }
 
 // ManagerTurn: rules first. While its worker runs, the person's words are
-// steered straight into that worker (no model call); a cancelled run is
+// steered straight into that worker (no model call) or, if it is already
+// ending, kept for the turn that reads its outcome; a cancelled run is
 // acknowledged without one. Everything else is one model call that ends by
 // dispatching, never by waiting.
 func (s *System) ManagerTurn(ctx context.Context, address string, messages []kernel.Event) error {
@@ -295,25 +331,25 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	if hasActive && len(others) == 0 && len(personal) > 0 {
 		for _, m := range personal {
 			text := m.Payload.Str("text")
-			var steered bool
-			if active.Status == kernel.ExecRunning {
-				steered = s.Pool.Steer(item.ID, text)
-			} else {
-				steered = s.Pool.AmendQueued(item.ID, text)
+			d := s.Pool.Deliver(item.ID, text)
+			// `of` names the person's own message, so hiding it hides this copy too.
+			of := m.Payload.Str("of")
+			if of == "" {
+				of = m.ID
 			}
-			in := kernel.EventInput{Source: "agent:manager", ThreadID: item.ThreadID, WorkItemID: item.ID, ExecutionID: active.ID, CausedBy: m.ID}
-			if steered {
-				in.Kind = "execution.steered"
-				in.Payload = kernel.Payload{"text": text, "of": m.ID, "root": kernel.RootOf(m), "queued": active.Status == kernel.ExecQueued}
-			} else {
-				in.Kind = "agent.error"
-				in.Payload = kernel.Payload{"error": "could not deliver the message to the running execution", "of": m.ID, "root": kernel.RootOf(m)}
-			}
-			if _, err := k.Append(ctx, in); err != nil {
+			// Missed: the run is ending. Its outcome is on the way to this
+			// mailbox, and the turn that reads it is given these words too.
+			payload := kernel.Payload{"text": text, "of": of, "root": kernel.RootOf(m), "queued": d == Amended, "late": d == Missed}
+			if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "execution.steered", ThreadID: item.ThreadID,
+				WorkItemID: item.ID, ExecutionID: active.ID, CausedBy: m.ID, Payload: payload}); err != nil {
 				return err
 			}
 		}
 		return nil
+	}
+	late, err := s.lateWords(ctx, others)
+	if err != nil {
+		return err
 	}
 	cause := latest(messages)
 	t := &managerTurn{s: s, item: item, batch: messages, cause: cause}
@@ -323,7 +359,7 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 			onlyCancelled = false
 		}
 	}
-	if onlyCancelled {
+	if onlyCancelled && len(late) == 0 {
 		return t.reply(ctx, "执行已取消。", nil)
 	}
 	children, err := k.ListChildren(ctx, item.ID)
@@ -379,7 +415,11 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	}
 	var described []string
 	for _, m := range messages {
-		described = append(described, describeManager(m, children))
+		d := describeManager(m, children)
+		if words := late[m.ExecutionID]; m.Kind == "execution.finished" && len(words) > 0 {
+			d += "\nThe person said this while the run was ending; the worker never saw it:\n- " + strings.Join(words, "\n- ")
+		}
+		described = append(described, d)
 	}
 	historyBlock := ""
 	if len(hist) > 0 {
@@ -436,13 +476,6 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	if !thought.OK {
 		return t.reply(ctx, "manager planning failed: "+thought.Error, nil)
 	}
-	if thought.Effects == nil {
-		// Not the effect JSON: the text itself is the Manager's answer.
-		if strings.TrimSpace(thought.Raw) != "" {
-			return t.reply(ctx, thought.Raw, nil)
-		}
-		return nil
-	}
 	effects := thought.Effects
 	hasAction := func(list []Effect) bool {
 		for _, e := range list {
@@ -452,8 +485,10 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		}
 		return false
 	}
-	// A turn that only restates its understanding leaves the person waiting
-	// on a task that silently went idle. Ask once for the missing decision.
+	// A turn that only restates its understanding — or is not the effect list
+	// at all — leaves the person waiting on a task that silently went idle.
+	// Ask once for the missing decision. (Output that was not the effect list
+	// was once posted as the answer: "response." reached the person.)
 	if !hasAction(effects) {
 		retryOpts := opts
 		retryOpts.ResumeID = thought.SessionID
@@ -463,6 +498,19 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 			nudge = prompt + "\n\n" + nudge
 		}
 		retry := s.think(ctx, nudge, retryOpts)
+		if retry.Aborted {
+			return ctx.Err()
+		}
+		retried := []any{}
+		for _, e := range retry.Effects {
+			retried = append(retried, map[string]any(e))
+		}
+		// The follow-up is its own decision: what was decided must be on record.
+		if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "manager.decision", ThreadID: item.ThreadID,
+			WorkItemID: item.ID, CausedBy: cause.ID,
+			Payload: kernel.Payload{"ok": retry.OK, "durationMs": retry.DurationMs, "of": ofIDs, "effects": retried, "nudged": true}}); err != nil {
+			return err
+		}
 		if retry.OK && hasAction(retry.Effects) {
 			for _, e := range retry.Effects {
 				if Str(e["type"]) != "understanding" {
@@ -471,10 +519,32 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 			}
 		}
 	}
+	if !hasAction(effects) && thought.Effects == nil && strings.TrimSpace(thought.Raw) != "" {
+		// Twice not the effect list: the text is the only answer there is.
+		return t.reply(ctx, thought.Raw, nil)
+	}
+	// Replies come after everything else: one written as if its dispatch
+	// happened must not reach the person when a budget refused that dispatch —
+	// they get the escalation instead (a reply once announced a worker that
+	// never ran). `done` comes after the replies: closing a child tells its
+	// parent, with the child's last reply as its result, so that reply must
+	// already be written.
 	spawned := false
-	for _, e := range effects {
-		if err := t.apply(ctx, e, &spawned); err != nil {
-			return err
+	for _, phase := range []func(string) bool{
+		func(kind string) bool { return kind != "reply" && kind != "done" },
+		func(kind string) bool { return kind == "reply" },
+		func(kind string) bool { return kind == "done" },
+	} {
+		for _, e := range effects {
+			if !phase(Str(e["type"])) {
+				continue
+			}
+			if err := t.apply(ctx, e, &spawned); err != nil {
+				return err
+			}
+		}
+		if t.refused {
+			return nil
 		}
 	}
 	return nil

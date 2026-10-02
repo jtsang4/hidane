@@ -139,13 +139,29 @@ func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillRes
 	if err := s.reconcileMemoryLog(ctx, existing); err != nil {
 		return res, err
 	}
-	existingText := ""
-	if len(existing) > 0 {
-		var lines []string
-		for _, m := range existing {
-			lines = append(lines, "- "+m.Content)
+	var known []string
+	for _, m := range existing {
+		known = append(known, "- "+m.Content)
+	}
+	// A work item's own memories too: shown only the global layer, a
+	// replayed distillation re-promoted a work item's memories reworded.
+	seen := map[string]bool{}
+	for _, e := range meaningful {
+		if e.WorkItemID == "" || seen[e.WorkItemID] {
+			continue
 		}
-		existingText = "Existing memories (do not duplicate):\n" + strings.Join(lines, "\n")
+		seen[e.WorkItemID] = true
+		it, err := k.GetWorkItem(ctx, e.WorkItemID)
+		if err != nil || it.Workspace == "" {
+			continue
+		}
+		for _, m := range kernel.ParseMemories(kernel.ReadTextFile(kernel.WorkItemMemoryPath(it.Workspace))) {
+			known = append(known, fmt.Sprintf("- (work item %s) %s", it.ID, m.Content))
+		}
+	}
+	existingText := ""
+	if len(known) > 0 {
+		existingText = "Existing memories (do not duplicate, not even reworded):\n" + strings.Join(known, "\n")
 	}
 	var lines []string
 	for _, e := range meaningful {
@@ -208,10 +224,13 @@ func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillRes
 		if workspace != "" {
 			target = "work_item"
 		}
-		if _, err := k.PromoteToFile(ctx, kind, content, target, workspace, workItemID, "agent:distiller"); err != nil {
+		_, added, err := k.PromoteToFile(ctx, kind, content, target, workspace, workItemID, "agent:distiller")
+		if err != nil {
 			return res, err
 		}
-		res.Promoted++
+		if added {
+			res.Promoted++
+		}
 	}
 	res.Extracted = len(parsed.Memories)
 	res.Skipped = false
@@ -257,11 +276,34 @@ func (s *System) EnforceDeadlines(ctx context.Context) error {
 			note = "，正在进行的执行已停止"
 		}
 		if _, err := k.Append(ctx, kernel.EventInput{Source: "kernel:runtime", Kind: "escalation", ThreadID: "main", WorkItemID: item.ID,
-			Payload: kernel.Payload{"reason": "deadline", "question": fmt.Sprintf("「%s」已到截止时间%s。需要继续的话，直接回复这个任务。", item.Title, note)}}); err != nil {
+			Payload: kernel.Payload{"reason": "deadline", "root": s.itemRoot(ctx, item.ID),
+				"question": fmt.Sprintf("「%s」已到截止时间%s。需要继续的话，直接回复这个任务。", item.Title, note)}}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// itemRoot is what a notice about a whole work item answers: the message
+// that started it, or — opened directly, with no message — its creation.
+func (s *System) itemRoot(ctx context.Context, workItemID string) string {
+	k := s.K
+	created, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "work_item.created", WorkItemID: workItemID, Limit: 1})
+	if err != nil || len(created) == 0 {
+		return ""
+	}
+	of := created[0].Payload.Str("of")
+	if of == "" {
+		if att, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "message.attributed", WorkItemID: workItemID, Limit: 1}); err == nil && len(att) > 0 {
+			of = att[0].Payload.Str("of")
+		}
+	}
+	if of != "" {
+		if m, ok, err := k.GetEvent(ctx, of); err == nil && ok {
+			return kernel.RootOf(m)
+		}
+	}
+	return created[0].ID
 }
 
 // NewRuntime is the event loop with every role and housekeeping task wired in.

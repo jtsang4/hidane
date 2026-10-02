@@ -241,7 +241,12 @@ func (s *System) notifyParentIfSettled(ctx context.Context, child kernel.WorkIte
 		}
 		result := ""
 		if len(last) > 0 {
-			result = clipRunes(last[0].Payload.Str("text"), 3000)
+			text := last[0].Payload.Str("text")
+			result = clipRunes(text, 6000)
+			if result != text {
+				// A silent cut reads as the child's whole answer.
+				result += fmt.Sprintf("\n[truncated — the full answer is in work item %s; its files are in %s]", sib.ID, sib.Workspace)
+			}
 		}
 		results = append(results, map[string]any{"workItemId": sib.ID, "title": sib.Title, "status": sib.Status, "result": result})
 	}

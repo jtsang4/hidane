@@ -37,7 +37,10 @@ EOF
 
 echo "== agent-driven acceptance: spawning the tester agent =="
 cd "$repo"
-env -u CLAUDECODE claude -p --permission-mode bypassPermissions --append-system-prompt "$charter" \
+# Print mode otherwise ends the tester 10 minutes after its last turn while
+# its background sub-agents (the browser UI check) are still working, and no
+# report gets written.
+CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 env -u CLAUDECODE claude -p --permission-mode bypassPermissions --append-system-prompt "$charter" \
   "Run the acceptance now. The hidane binaries are at bin/hidane-nogui (headless) and bin/fake/{claude,codex,pi} (protocol-faithful fakes)."
 
 if [[ ! -f "$report" ]]; then

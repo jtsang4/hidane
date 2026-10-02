@@ -135,6 +135,9 @@ func brain(system, prompt string) string {
 	case strings.Contains(system, "connectivity check") || strings.Contains(prompt, "connectivity check"):
 		return "OK"
 	case strings.Contains(system, "Primary agent of hidane"):
+		if strings.Contains(prompt, "JUNK_PRIMARY") && !strings.Contains(prompt, "was not the JSON effect list") {
+			return "<reasoning_effort>5</reasoning_effort>"
+		}
 		var list []map[string]any
 		for _, m := range msgLine.FindAllStringSubmatch(section(prompt, "Messages this turn:"), -1) {
 			id, kind, text := m[1], m[2], m[3]
@@ -146,6 +149,10 @@ func brain(system, prompt string) string {
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "你好！我是 hidane 的主代理。"})
 			case kind == "recall":
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "查到了之前的记录。"})
+			case strings.Contains(text, "全部关闭"):
+				// A model announces the change before it is made.
+				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就全部关闭。"},
+					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"})
 			default:
 				list = append(list, map[string]any{"type": "create_work_item", "of": id, "title": firstRunes(text, 30),
 					"brief": text, "repo": nil, "dispatch": true})
@@ -155,14 +162,44 @@ func brain(system, prompt string) string {
 	case strings.Contains(system, "Manager of one work item"):
 		turn := section(prompt, "Messages this turn:")
 		if strings.Contains(turn, "(worker result") {
+			if late := section(turn, "the worker never saw it:\n- "); late != "" {
+				return effects(map[string]any{"type": "reply", "reply": "执行结束后才收到：" + firstRunes(late, 200)})
+			}
+			if strings.Contains(turn, ": blocked)") {
+				return effects(map[string]any{"type": "escalate", "question": firstRunes(section(turn, "blocked on: "), 200), "tried": "ran a worker"})
+			}
+			if strings.Contains(turn, ": ok)") && strings.Contains(prompt, "AGAIN") && !strings.Contains(turn, "again.txt") {
+				return effects(
+					map[string]any{"type": "spawn", "instructions": "WRITE again.txt: second round", "expect": "again.txt"},
+					map[string]any{"type": "reply", "reply": "已派出第二个 worker"},
+				)
+			}
 			if strings.Contains(turn, ": ok)") {
 				summary := section(turn, "summary:\n")
-				return effects(map[string]any{"type": "reply", "reply": "已完成：" + firstRunes(summary, 200)})
+				reply := map[string]any{"type": "reply", "reply": "已完成：" + firstRunes(summary, 200)}
+				if strings.Contains(prompt, "You are a CHILD work item") {
+					// done before reply: the order a model may well choose.
+					return effects(map[string]any{"type": "done"}, reply)
+				}
+				return effects(reply)
 			}
 			if strings.Contains(turn, ": cancelled)") {
 				return effects(map[string]any{"type": "reply", "reply": "执行已取消。"})
 			}
 			return effects(map[string]any{"type": "reply", "reply": "执行失败：" + firstRunes(section(turn, "error: "), 200)})
+		}
+		if strings.Contains(prompt, "JUNK_ONCE") && !strings.Contains(prompt, "Your answer contained no action") {
+			return "response."
+		}
+		if os.Getenv("FAKEAGENT_MANAGER_PLAIN") == "1" {
+			return "我直接回答：这是纯文本。"
+		}
+		if strings.Contains(turn, "LONG_REPLY") {
+			return effects(map[string]any{"type": "reply", "reply": "开头" + strings.Repeat("长", 11000) + "结尾"})
+		}
+		if strings.Contains(prompt, "ONLY_UNDERSTAND") && !strings.Contains(prompt, "Your answer contained no action") {
+			// A model that restates the task and forgets to act.
+			return effects(map[string]any{"type": "understanding", "text": "目标：先理解一下"})
 		}
 		if strings.Contains(turn, "(all child work items finished)") {
 			return effects(map[string]any{"type": "reply", "reply": "子任务都完成了。"})
@@ -177,6 +214,16 @@ func brain(system, prompt string) string {
 			map[string]any{"type": "spawn", "instructions": workerInstructions(text), "expect": "result.txt exists"},
 		)
 	case strings.Contains(system, "memory distiller"):
+		if m := regexp.MustCompile(`\[user\.message (wi_\w+)\] 任务约定：(\S+)`).FindStringSubmatch(prompt); m != nil {
+			// A model words a memory afresh every time; only the existing list
+			// keeps it from promoting the same thing again.
+			existing, _, _ := strings.Cut(section(prompt, "Existing memories"), "Recent events:")
+			if strings.Contains(existing, m[2]) {
+				return `{"memories":[]}`
+			}
+			content := fmt.Sprintf("%s（进程 %d 记下）", m[2], os.Getpid())
+			return fmt.Sprintf(`{"memories":[{"kind":"decision","scope":"work_item","work_item_id":%q,"content":%q,"confidence":0.9}]}`, m[1], content)
+		}
 		if strings.Contains(prompt, "记住") {
 			return `{"memories":[{"kind":"preference","scope":"global","work_item_id":null,"content":"偏好简洁的回答","confidence":0.9}]}`
 		}
@@ -346,15 +393,41 @@ func runClaude(args []string) {
 		}
 		close(queue)
 	}()
+	// FAKEAGENT_CLAUDE_ABSORB mimics real claude: a message that arrives while
+	// a turn runs joins that turn (replayed, no result of its own).
+	absorb := os.Getenv("FAKEAGENT_CLAUDE_ABSORB") == "1"
 	n := 0
 	for prompt := range queue {
 		n++
 		emit(map[string]any{"type": "user", "isReplay": true, "session_id": session,
 			"message": map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": prompt}}}})
+		parts := []string{prompt}
+		if absorb {
+			delay()
+		drain:
+			for {
+				select {
+				case more, ok := <-queue:
+					if !ok {
+						break drain
+					}
+					emit(map[string]any{"type": "user", "isReplay": true, "session_id": session,
+						"message": map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": more}}}})
+					parts = append(parts, more)
+					prompt += "\n" + more
+				default:
+					break drain
+				}
+			}
+		}
 		var answer string
 		if toolsOn && strings.Contains(system, "Worker execution") {
 			var blocked, done []string
-			for i, call := range workerPlan(prompt, cwd) {
+			var plan []toolCall
+			for _, part := range parts {
+				plan = append(plan, workerPlan(part, cwd)...)
+			}
+			for i, call := range plan {
 				id := fmt.Sprintf("toolu_%d_%d", n, i)
 				emit(map[string]any{"type": "assistant", "session_id": session, "message": map[string]any{"role": "assistant",
 					"content": []any{map[string]any{"type": "tool_use", "id": id, "name": call.tool, "input": call.input}}}})

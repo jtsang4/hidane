@@ -41,7 +41,7 @@ Usage:
   hidane distill [--min N]    run one memory distillation pass
   hidane model [--ping] [--role R]  show which CLI/provider/model each role uses; --ping calls it once
   hidane agents               detect the local claude / codex / pi CLIs
-  hidane memories [--ids]     print the global memory file
+  hidane memories [--ids]     print the memory files (global, then each work item's)
   hidane forget <id>          remove a memory entry (the expiry channel)
   hidane version
 `
@@ -199,7 +199,11 @@ func chatCmd(args []string) error {
 func follow(ctx context.Context, a *app.App, messageID string, timeout time.Duration) error {
 	seen := map[string]bool{}
 	started := time.Now()
-	lastActivity := time.Now()
+	// Quiet means nothing could still produce an answer: no execution, no
+	// unread mail, no turn in flight. Each is briefly empty in the hand-offs
+	// between them (an execution ends before its outcome is posted), so the
+	// whole system must stay quiet for a while, not just the root's events.
+	quietSince := time.Now()
 	wake, cancel := a.K.Hub.Subscribe()
 	defer cancel()
 	for time.Since(started) < timeout {
@@ -220,7 +224,7 @@ func follow(ctx context.Context, a *app.App, messageID string, timeout time.Dura
 				continue
 			}
 			seen[e.ID] = true
-			lastActivity = time.Now()
+			quietSince = time.Now()
 			label := e.Kind
 			if e.Kind == "message.attributed" {
 				label = "→ " + e.Payload.Str("workItemId")
@@ -237,12 +241,18 @@ func follow(ctx context.Context, a *app.App, messageID string, timeout time.Dura
 		}
 		active, _ := a.K.ActiveExecutions(ctx)
 		pending, _ := a.K.MailboxesWithPending(ctx)
-		if answered && len(active) == 0 && len(pending) == 0 && time.Since(lastActivity) > 1500*time.Millisecond {
+		// Without a runtime here (the app or `serve` holds it), the other
+		// process's turns still show as pending mail until they commit.
+		turning := a.Runtime != nil && len(a.Runtime.ActiveTurns()) > 0
+		if len(active) > 0 || len(pending) > 0 || turning {
+			quietSince = time.Now()
+		}
+		if answered && time.Since(quietSince) > 2*time.Second {
 			return nil
 		}
 		select {
 		case <-wake:
-		case <-time.After(2 * time.Second):
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
 	fmt.Println("\n(still working — follow it in the app or with `hidane events`)")
@@ -445,16 +455,39 @@ func memoriesCmd(args []string) error {
 	}
 	defer k.Close()
 	text := kernel.ReadTextFile(k.GlobalMemoryPath())
-	if strings.TrimSpace(text) == "" {
+	items, err := k.WorkItemMemories(context.Background())
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(text) == "" && len(items) == 0 {
 		fmt.Println("(empty)", k.GlobalMemoryPath())
 		return nil
 	}
-	if !*ids {
-		fmt.Print(text)
-		return nil
-	}
-	for _, m := range kernel.ParseMemories(text) {
-		fmt.Printf("%s  [%s] (%s) %s\n", m.ID, m.Kind, m.Date, m.Content)
+	layers := append([]kernel.MemoryLayer{{Scope: "global", Path: k.GlobalMemoryPath(), Entries: kernel.ParseMemories(text)}}, items...)
+	printed := 0
+	for _, l := range layers {
+		if l.Scope == "global" && strings.TrimSpace(text) == "" {
+			continue
+		}
+		if printed > 0 {
+			fmt.Println()
+		}
+		printed++
+		if !*ids {
+			if l.Scope != "global" {
+				fmt.Printf("<!-- %s: %s -->\n", l.WorkItemID, l.Path)
+			}
+			fmt.Print(kernel.ReadTextFile(l.Path))
+			continue
+		}
+		label := "global"
+		if l.Scope != "global" {
+			label = l.WorkItemID + " " + l.Title
+		}
+		fmt.Printf("# %s (%s)\n", label, l.Path)
+		for _, m := range l.Entries {
+			fmt.Printf("%s  [%s] (%s) %s\n", m.ID, m.Kind, m.Date, m.Content)
+		}
 	}
 	return nil
 }
@@ -468,14 +501,13 @@ func forgetCmd(args []string) error {
 		return err
 	}
 	defer k.Close()
-	ok, err := k.ForgetMemory(context.Background(), k.GlobalMemoryPath(), args[0], "cli")
+	ok, err := k.Forget(context.Background(), args[0], "cli")
 	if err != nil {
 		return err
 	}
-	if ok {
-		fmt.Println("forgot", args[0])
-	} else {
-		fmt.Println("not found:", args[0])
+	if !ok {
+		return fmt.Errorf("not found: %s", args[0])
 	}
+	fmt.Println("forgot", args[0])
 	return nil
 }

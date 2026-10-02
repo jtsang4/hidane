@@ -154,10 +154,65 @@ func ParseMemories(text string) []MemoryEntry {
 	return out
 }
 
+// MemoryLayer is one memory file and what it holds.
+type MemoryLayer struct {
+	Scope      string        `json:"scope"` // "global" | "work_item"
+	WorkItemID string        `json:"workItemId,omitempty"`
+	Title      string        `json:"title,omitempty"`
+	Path       string        `json:"path"`
+	Entries    []MemoryEntry `json:"entries"`
+}
+
+// WorkItemMemories are the work-item layers that hold anything, newest item
+// first. Every promoted memory must be findable to be forgettable.
+func (k *Kernel) WorkItemMemories(ctx context.Context) ([]MemoryLayer, error) {
+	items, err := k.ListWorkItems(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	out := []MemoryLayer{}
+	for i := len(items) - 1; i >= 0; i-- {
+		it := items[i]
+		if it.Workspace == "" {
+			continue
+		}
+		path := WorkItemMemoryPath(it.Workspace)
+		entries := ParseMemories(ReadTextFile(path))
+		if len(entries) == 0 {
+			continue
+		}
+		out = append(out, MemoryLayer{Scope: "work_item", WorkItemID: it.ID, Title: it.Title, Path: path, Entries: entries})
+	}
+	return out, nil
+}
+
+// Forget removes a memory from whichever layer holds it.
+func (k *Kernel) Forget(ctx context.Context, memoryID, source string) (bool, error) {
+	if ok, err := k.ForgetMemory(ctx, k.GlobalMemoryPath(), memoryID, source); ok || err != nil {
+		return ok, err
+	}
+	layers, err := k.WorkItemMemories(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, l := range layers {
+		for _, e := range l.Entries {
+			if e.ID == memoryID {
+				return k.forgetIn(ctx, l.Path, l.WorkItemID, memoryID, source)
+			}
+		}
+	}
+	return false, nil
+}
+
 // ForgetMemory removes a memory line. Memory must be able to expire: a lesson
 // distilled from a since-fixed bug becomes an actively wrong instruction, so
 // removal is as first-class as promotion, and equally recorded.
 func (k *Kernel) ForgetMemory(ctx context.Context, path, memoryID, source string) (bool, error) {
+	return k.forgetIn(ctx, path, "", memoryID, source)
+}
+
+func (k *Kernel) forgetIn(ctx context.Context, path, workItemID, memoryID, source string) (bool, error) {
 	text := ReadTextFile(path)
 	if text == "" {
 		return false, nil
@@ -176,12 +231,13 @@ func (k *Kernel) ForgetMemory(ctx context.Context, path, memoryID, source string
 	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
 		return false, err
 	}
-	_, err := k.Append(ctx, EventInput{Source: source, Kind: "memory.forgotten", Payload: Payload{"memoryId": memoryID, "path": path}})
+	_, err := k.Append(ctx, EventInput{Source: source, Kind: "memory.forgotten", WorkItemID: workItemID, Payload: Payload{"memoryId": memoryID, "path": path}})
 	return true, err
 }
 
 // PromoteToFile writes a memory into its layer file and records the fact.
-func (k *Kernel) PromoteToFile(ctx context.Context, kind, content, scope, workspace, workItemID, source string) (MemoryEntry, error) {
+// added is false when the layer already held it (nothing was promoted).
+func (k *Kernel) PromoteToFile(ctx context.Context, kind, content, scope, workspace, workItemID, source string) (entry MemoryEntry, added bool, err error) {
 	path := k.GlobalMemoryPath()
 	scopeLabel := "global"
 	if scope == "work_item" && workspace != "" {
@@ -191,15 +247,22 @@ func (k *Kernel) PromoteToFile(ctx context.Context, kind, content, scope, worksp
 		scope = "global"
 		workItemID = ""
 	}
+	// Replay re-reads what was already distilled: the same memory must not
+	// be promoted twice under two ids, or forgetting one leaves the other.
+	for _, e := range ParseMemories(ReadTextFile(path)) {
+		if e.Kind == kind && e.Content == strings.TrimSpace(content) {
+			return e, false, nil
+		}
+	}
 	saved, err := k.AppendMemory(path, scopeLabel, kind, content)
 	if err != nil {
-		return saved, err
+		return saved, false, err
 	}
 	_, err = k.Append(ctx, EventInput{
 		Source: source, Kind: "memory.promoted", WorkItemID: workItemID,
 		Payload: Payload{"memoryId": saved.ID, "kind": kind, "scope": scope, "content": content, "path": path},
 	})
-	return saved, err
+	return saved, err == nil, err
 }
 
 // Today is the local date.

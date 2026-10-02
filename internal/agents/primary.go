@@ -89,6 +89,9 @@ type primaryTurn struct {
 	all     []kernel.WorkItem
 	busy    []string
 	covered map[string]bool
+	// confirmed: a status change or cancel already told the person what
+	// happened; the model's own reply would say it a second time.
+	confirmed map[string]bool
 }
 
 func (t *primaryTurn) message(of any) (kernel.Event, bool) {
@@ -129,6 +132,16 @@ func (t *primaryTurn) find(list []kernel.WorkItem, id string) (kernel.WorkItem, 
 		}
 	}
 	return kernel.WorkItem{}, false
+}
+
+// confirm reports what a status change or cancel actually did — the model's
+// reply was written before it happened.
+func (t *primaryTurn) confirm(ctx context.Context, m kernel.Event, text string) error {
+	if t.confirmed == nil {
+		t.confirmed = map[string]bool{}
+	}
+	t.confirmed[m.ID] = true
+	return t.reply(ctx, m, text)
 }
 
 func (t *primaryTurn) reply(ctx context.Context, m kernel.Event, text string) error {
@@ -214,6 +227,9 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 
 	case "reply":
 		t.cover(m, e["also_of"])
+		if t.confirmed[m.ID] {
+			return nil
+		}
 		return t.reply(ctx, m, Str(e["reply"]))
 
 	case "ambiguous", "route":
@@ -353,7 +369,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			}
 		}
 		if !kernel.ValidStatus(status) || malformed || (e["all_open"] != nil && !aoBad) || (e["all_items"] != nil && !aiBad) || selectors != 1 {
-			return t.reply(ctx, m, "无法执行工作项状态变更：需要从工作项清单中选择 ID，或使用 all_open/all_items，并指定 open、done 或 closed。")
+			return t.confirm(ctx, m, "无法执行工作项状态变更：需要从工作项清单中选择 ID，或使用 all_open/all_items，并指定 open、done 或 closed。")
 		}
 		targets := ids
 		if allOpen {
@@ -374,7 +390,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			}
 		}
 		if len(unknown) > 0 {
-			return t.reply(ctx, m, fmt.Sprintf("无法变更这些工作项：%s。只能操作当前工作项清单中的 ID。", strings.Join(unknown, "、")))
+			return t.confirm(ctx, m, fmt.Sprintf("无法变更这些工作项：%s。只能操作当前工作项清单中的 ID。", strings.Join(unknown, "、")))
 		}
 		// Re-read: another channel may have changed an item while the model thought.
 		var current []kernel.WorkItem
@@ -393,7 +409,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 				}
 			}
 			if len(gone) > 0 {
-				return t.reply(ctx, m, fmt.Sprintf("无法变更这些工作项：%s 已不再是开放状态。", strings.Join(gone, "、")))
+				return t.confirm(ctx, m, fmt.Sprintf("无法变更这些工作项：%s 已不再是开放状态。", strings.Join(gone, "、")))
 			}
 		}
 		var changed []string
@@ -407,9 +423,9 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			changed = append(changed, it.ID)
 		}
 		if len(changed) > 0 {
-			return t.reply(ctx, m, fmt.Sprintf("已将 %d 个工作项的状态设为 %s：%s", len(changed), status, strings.Join(changed, "、")))
+			return t.confirm(ctx, m, fmt.Sprintf("已将 %d 个工作项的状态设为 %s：%s", len(changed), status, strings.Join(changed, "、")))
 		}
-		return t.reply(ctx, m, fmt.Sprintf("没有工作项需要变更（目标状态：%s）。", status))
+		return t.confirm(ctx, m, fmt.Sprintf("没有工作项需要变更（目标状态：%s）。", status))
 
 	case "cancel":
 		t.cover(m, nil)
@@ -424,7 +440,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			n++
 		}
 		if malformed || (e["all_running"] != nil && !arIsBool) || n != 1 {
-			return t.reply(ctx, m, "无法中止执行：需要从正在运行的执行清单中选择 ID，或使用 all_running:true。")
+			return t.confirm(ctx, m, "无法中止执行：需要从正在运行的执行清单中选择 ID，或使用 all_running:true。")
 		}
 		targets := ids
 		if allRunning {
@@ -437,7 +453,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			}
 		}
 		if len(unknown) > 0 {
-			return t.reply(ctx, m, fmt.Sprintf("无法中止这些工作项：%s 不在工作项清单中。", strings.Join(unknown, "、")))
+			return t.confirm(ctx, m, fmt.Sprintf("无法中止这些工作项：%s 不在工作项清单中。", strings.Join(unknown, "、")))
 		}
 		var cancelled []string
 		for _, id := range targets {
@@ -448,9 +464,9 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			cancelled = append(cancelled, got...)
 		}
 		if len(cancelled) > 0 {
-			return t.reply(ctx, m, fmt.Sprintf("已请求中止 %d 个正在运行的执行：%s", len(cancelled), strings.Join(cancelled, "、")))
+			return t.confirm(ctx, m, fmt.Sprintf("已请求中止 %d 个正在运行的执行：%s", len(cancelled), strings.Join(cancelled, "、")))
 		}
-		return t.reply(ctx, m, "没有可中止的正在运行的执行。")
+		return t.confirm(ctx, m, "没有可中止的正在运行的执行。")
 	}
 	return nil
 }
@@ -549,10 +565,11 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 		recentConv.Text,
 		"Messages this turn:\n" + strings.Join(described, "\n"),
 	}, "\n\n")
-	thought := s.think(ctx, prompt, thinkOpts{
+	opts := thinkOpts{
 		Role: "primary", Charter: PrimaryCharter, Cwd: roleDir(k, "primary"), SessionDir: k.Cfg.SessionsDir(),
 		Images: imagesOf(batch), LiveThreadID: "main",
-	})
+	}
+	thought := s.think(ctx, prompt, opts)
 	if thought.Aborted {
 		return ctx.Err()
 	}
@@ -560,16 +577,38 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	for _, m := range batch {
 		ofIDs = append(ofIDs, m.ID)
 	}
-	recorded := []any{}
-	for _, e := range thought.Effects {
-		recorded = append(recorded, map[string]any(e))
-	}
-	if thought.Effects == nil {
-		recorded = []any{map[string]any{"type": "reply", "raw": clipRunes(thought.Raw, 500)}}
-	}
-	if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:primary", Kind: "route.decision", ThreadID: "main",
-		Payload: kernel.Payload{"ok": thought.OK, "durationMs": thought.DurationMs, "of": ofIDs, "effects": recorded}}); err != nil {
+	record := func(th Thought, nudged bool) error {
+		recorded := []any{}
+		for _, e := range th.Effects {
+			recorded = append(recorded, map[string]any(e))
+		}
+		if th.Effects == nil {
+			recorded = []any{map[string]any{"type": "reply", "raw": clipRunes(th.Raw, 500)}}
+		}
+		payload := kernel.Payload{"ok": th.OK, "durationMs": th.DurationMs, "of": ofIDs, "effects": recorded}
+		if nudged {
+			payload["nudged"] = true
+		}
+		_, err := k.Append(ctx, kernel.EventInput{Source: "agent:primary", Kind: "route.decision", ThreadID: "main", Payload: payload})
 		return err
+	}
+	if err := record(thought, false); err != nil {
+		return err
+	}
+	if thought.OK && thought.Effects == nil {
+		// Not the effect list — sometimes stray markup ("<reasoning_effort>5…"),
+		// which once went to the person as the reply. Ask once more, as the
+		// Manager does, before the text is taken as the answer.
+		retry := s.think(ctx, prompt+"\n\nYour previous answer was not the JSON effect list. Answer again with only the effect list.", opts)
+		if retry.Aborted {
+			return ctx.Err()
+		}
+		if err := record(retry, true); err != nil {
+			return err
+		}
+		if retry.OK && retry.Effects != nil {
+			thought = retry
+		}
 	}
 	if thought.Effects == nil {
 		text := thought.Raw
@@ -583,9 +622,15 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 		}
 		return nil
 	}
-	for _, e := range thought.Effects {
-		if err := t.apply(ctx, e); err != nil {
-			return err
+	// Replies last, so a confirmation of what really happened can stand in for them.
+	for _, last := range []bool{false, true} {
+		for _, e := range thought.Effects {
+			if (Str(e["type"]) == "reply") != last {
+				continue
+			}
+			if err := t.apply(ctx, e); err != nil {
+				return err
+			}
 		}
 	}
 	// A message the model skipped would otherwise sit "routing…" forever.

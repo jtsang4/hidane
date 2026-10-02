@@ -177,6 +177,109 @@ func TestGreetingIsAnsweredWithoutAWorkItem(t *testing.T) {
 	}
 }
 
+// A status change answers for itself; the model's reply would say it twice.
+func TestStatusChangeIsConfirmedOnce(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	m(w.k.CreateWorkItem(ctx, "a", "test", kernel.CreateWorkItemOpts{}))
+	m(w.k.CreateWorkItem(ctx, "b", "test", kernel.CreateWorkItemOpts{}))
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "把工作项全部关闭", Source: "connector:web"}))
+	w.settle()
+	var replies []string
+	for _, r := range w.events("agent.reply") {
+		if r.Payload.Str("root") == msg.ID {
+			replies = append(replies, r.Payload.Str("text"))
+		}
+	}
+	if len(replies) != 1 || !strings.Contains(replies[0], "已将 2 个工作项的状态设为 closed") {
+		t.Fatalf("one factual confirmation: %q", replies)
+	}
+}
+
+// A Manager turn that only restates its understanding is asked once more for
+// a decision, rather than leaving the task silently idle.
+func TestUnderstandingOnlyTurnIsNudgedOnce(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "nudge", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "ONLY_UNDERSTAND 写一个文件 nudged", Source: "connector:web", Target: item.ID}))
+	w.settle()
+	decisions := w.events("manager.decision")
+	if len(decisions) < 2 || decisions[0].Payload.Bool("nudged") || !decisions[1].Payload.Bool("nudged") {
+		t.Fatalf("the follow-up is recorded as its own decision: %+v", decisions)
+	}
+	if started := w.events("execution.started"); len(started) != 1 {
+		t.Fatalf("the nudge must produce the missing dispatch: %v", w.kinds())
+	}
+}
+
+// A long answer reaches the person whole: a silent cut reads as the full answer.
+func TestLongManagerReplyIsNotCut(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "long", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "LONG_REPLY please", Source: "connector:web", Target: item.ID}))
+	w.settle()
+	for _, r := range w.events("agent.reply") {
+		if r.WorkItemID == item.ID {
+			if text := r.Payload.Str("text"); !strings.HasSuffix(text, "结尾") || len([]rune(text)) != 11004 {
+				t.Fatalf("reply was cut: %d runes", len([]rune(text)))
+			}
+			return
+		}
+	}
+	t.Fatalf("no reply: %v", w.kinds())
+}
+
+// Output that is not the effect list gets the same single follow-up as an
+// understanding-only turn; it reaches the person only if the retry fails too.
+func TestNonEffectOutputIsRetriedBeforeItIsAnswered(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	junk := m(w.k.CreateWorkItem(ctx, "junk", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "JUNK_ONCE 写一个文件", Source: "connector:web", Target: junk.ID}))
+	w.settle()
+	// A Manager that answers in plain text every time.
+	pw := newWorld(t, settings.Claude, "FAKEAGENT_MANAGER_PLAIN=1")
+	plain := m(pw.k.CreateWorkItem(ctx, "plain", "test", kernel.CreateWorkItemOpts{}))
+	m(pw.s.SubmitMessage(ctx, agents.InboundMessage{Text: "问一句", Source: "connector:web", Target: plain.ID}))
+	pw.settle()
+	started := 0
+	for _, e := range w.events("execution.started") {
+		if e.WorkItemID == junk.ID {
+			started++
+		}
+	}
+	for _, r := range w.events("agent.reply") {
+		if r.Payload.Str("text") == "response." {
+			t.Fatal("junk output reached the person")
+		}
+	}
+	var plainReplies []string
+	for _, r := range pw.events("agent.reply") {
+		if r.WorkItemID == plain.ID {
+			plainReplies = append(plainReplies, r.Payload.Str("text"))
+		}
+	}
+	if started != 1 {
+		t.Fatalf("the retry's dispatch must run: %v", w.kinds())
+	}
+	if len(plainReplies) != 1 || plainReplies[0] != "我直接回答：这是纯文本。" {
+		t.Fatalf("plain text twice is the answer: %q", plainReplies)
+	}
+}
+
+// The Primary, too, asks once more before stray output becomes the answer.
+func TestPrimaryRetriesOutputThatIsNotTheEffectList(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "你好 JUNK_PRIMARY", Source: "connector:web"}))
+	w.settle()
+	replies := w.events("agent.reply")
+	if len(replies) != 1 || replies[0].Payload.Str("of") != msg.ID || replies[0].Payload.Str("text") != "你好！我是 hidane 的主代理。" {
+		t.Fatalf("replies: %+v", replies)
+	}
+	decisions := w.events("route.decision")
+	if len(decisions) != 2 || !decisions[1].Payload.Bool("nudged") {
+		t.Fatalf("both answers are on record: %+v", decisions)
+	}
+}
+
 func TestExplicitTargetSkipsThePrimary(t *testing.T) {
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "notes", "test", kernel.CreateWorkItemOpts{}))
@@ -220,8 +323,93 @@ func TestSteeringReachesTheRunningWorker(t *testing.T) {
 	if len(finished) != 1 || !strings.Contains(finished[0].Payload.Str("summary"), "also add a footer") {
 		t.Fatalf("the worker read the steered words: %+v", finished)
 	}
-	if _, err := os.Stat(filepath.Join(item.Workspace, ".hidane", "pending-input")); !os.IsNotExist(err) {
-		t.Fatal("the pending-input flag is cleared once the input is read")
+	// Hiding the person's words hides the steered copy as well.
+	msgs := w.events("user.message")
+	steeredFrom := steered[0].Payload.Str("of")
+	var original kernel.Event
+	for _, e := range msgs {
+		if e.ID == steeredFrom {
+			original = e
+		}
+	}
+	if original.ThreadID != "main" {
+		t.Fatalf("execution.steered names the person's own message: %+v", steered[0].Payload)
+	}
+	m(w.s.RedactMessage(ctx, original.ID, "test"))
+	if again := w.events("execution.steered"); again[0].Payload.Str("text") != "" || !again[0].Payload.Bool("redacted") {
+		t.Fatalf("the steered copy must be masked: %+v", again[0].Payload)
+	}
+}
+
+// Words that reach an execution as it ends are not an error: they ride with
+// its outcome to the Manager.
+func TestWordsForAnEndingRunReachTheManagerWithItsOutcome(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "ending job", "test", kernel.CreateWorkItemOpts{}))
+	// Recorded as running, but no longer held by the pool: the run has ended
+	// and its outcome is not posted yet.
+	if err := w.k.CreateExecution(ctx, "ex_ending", item.ID, kernel.ManagerAddress(item.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.k.SetExecutionStatus(ctx, "ex_ending", kernel.ExecRunning); err != nil {
+		t.Fatal(err)
+	}
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "also add a footer", Source: "connector:web", Target: item.ID}))
+	if err := w.rt.Drain(20); err != nil {
+		t.Fatal(err)
+	}
+	steered := w.events("execution.steered")
+	if len(steered) != 1 || !steered[0].Payload.Bool("late") || steered[0].Payload.Str("root") != msg.ID {
+		t.Fatalf("steered: %+v (kinds %v)", steered, w.kinds())
+	}
+	if errs := w.events("agent.error"); len(errs) != 0 {
+		t.Fatalf("an ending run is not a delivery error: %+v", errs)
+	}
+	if err := w.k.SetExecutionStatus(ctx, "ex_ending", kernel.ExecDone); err != nil {
+		t.Fatal(err)
+	}
+	m2, _, err := w.k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{Source: "agent:worker", Kind: "execution.finished",
+		Mailbox: kernel.ManagerAddress(item.ID), ThreadID: item.ThreadID, WorkItemID: item.ID, ExecutionID: "ex_ending",
+		Payload: kernel.Payload{"ok": true, "summary": "done", "root": msg.ID}}, AlwaysDeliver: true})
+	if err != nil || m2.ID == "" {
+		t.Fatal(err)
+	}
+	w.settle()
+	replies := w.events("agent.reply")
+	if len(replies) == 0 || !strings.Contains(replies[len(replies)-1].Payload.Str("text"), "also add a footer") {
+		t.Fatalf("the manager was given the late words with the outcome: %+v", replies)
+	}
+}
+
+// A child that answers and closes in one turn hands its parent that answer,
+// whatever order the model listed the two in.
+func TestParentHearsTheChildsFinalAnswer(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	parent := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
+	child := m(w.k.CreateWorkItem(ctx, "child", "test", kernel.CreateWorkItemOpts{ParentID: parent.ID}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写一个文件 child-answer", Source: "connector:web", Target: child.ID}))
+	w.settle()
+	if c := m(w.k.GetWorkItem(ctx, child.ID)); c.Status != kernel.StatusDone {
+		t.Fatalf("child status: %s", c.Status)
+	}
+	settled := w.events("children.settled")
+	if len(settled) != 1 {
+		t.Fatalf("settled: %+v", settled)
+	}
+	list, _ := settled[0].Payload["children"].([]any)
+	first, _ := list[0].(map[string]any)
+	if result, _ := first["result"].(string); !strings.Contains(result, "已完成") {
+		t.Fatalf("the parent gets the child's final reply, not an earlier one: %+v", first)
+	}
+	var childReply, settledAt int64
+	for _, r := range w.events("agent.reply") {
+		if r.WorkItemID == child.ID {
+			childReply = r.Seq
+		}
+	}
+	settledAt = settled[0].Seq
+	if childReply == 0 || childReply > settledAt {
+		t.Fatalf("the child's reply precedes children.settled: reply %d, settled %d", childReply, settledAt)
 	}
 }
 
@@ -248,9 +436,21 @@ func TestCancelTreeStopsARunningWorker(t *testing.T) {
 	if len(stopped) != 1 || stopped[0] != child.ID {
 		t.Fatalf("cancel flows down the tree: %v", stopped)
 	}
+	for len(w.events("execution.finished")) == 0 {
+		if time.Since(start) > 10*time.Second {
+			t.Fatal("a cancel must not wait out the run")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	w.settle()
-	if time.Since(start) > 15*time.Second {
-		t.Fatal("a cancel must not wait out the run")
+	if c := m(w.k.GetWorkItem(ctx, child.ID)); c.Status != kernel.StatusClosed {
+		t.Fatalf("a cancelled tree closes its open parts: %s", c.Status)
+	}
+	if settled := w.events("children.settled"); len(settled) != 0 {
+		t.Fatalf("a stopped tree does not settle into a re-plan: %+v", settled)
+	}
+	if started := w.events("execution.started"); len(started) != 1 {
+		t.Fatalf("nothing is dispatched after the person stopped the tree: %v", w.kinds())
 	}
 	finished := w.events("execution.finished")
 	if len(finished) != 1 || !finished[0].Payload.Bool("cancelled") {
@@ -260,9 +460,14 @@ func TestCancelTreeStopsARunningWorker(t *testing.T) {
 	if len(cancelled) != 1 || cancelled[0].Payload.Str("via") != parent.ID || cancelled[0].Seq > finished[0].Seq {
 		t.Fatalf("intent before effect: %+v", cancelled)
 	}
-	last := w.events("agent.reply")
-	if len(last) == 0 || last[len(last)-1].Payload.Str("text") != "执行已取消。" {
-		t.Fatalf("a cancelled run is acknowledged without a model call: %+v", last)
+	cancelledAck := false
+	for _, r := range w.events("agent.reply") {
+		if r.WorkItemID == child.ID && r.Payload.Str("text") == "执行已取消。" {
+			cancelledAck = true
+		}
+	}
+	if !cancelledAck {
+		t.Fatalf("a cancelled run is acknowledged without a model call: %+v", w.events("agent.reply"))
 	}
 }
 
@@ -331,6 +536,60 @@ func TestDistillerPromotesDurableMemory(t *testing.T) {
 	again := m(w.s.RunDistillation(ctx, 1))
 	if !again.Skipped || again.Scanned != 0 && again.Meaningful != 0 {
 		t.Fatalf("the cursor advanced past distilled material: %+v", again)
+	}
+}
+
+// Replay (a reset cursor) must not promote a work item's memories again, even
+// when the model words them differently the second time.
+func TestDistillerReplayDoesNotDuplicateWorkItemMemory(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "acme", "test", kernel.CreateWorkItemOpts{}))
+	m(w.k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "user.message", ThreadID: item.ThreadID, WorkItemID: item.ID,
+		Payload: kernel.Payload{"text": "任务约定：部署走main分支"}}))
+	first := m(w.s.RunDistillation(ctx, 1))
+	if first.Promoted != 1 {
+		t.Fatalf("first pass: %+v", first)
+	}
+	if err := w.k.ResetCursor(ctx, "distiller", 0); err != nil {
+		t.Fatal(err)
+	}
+	replay := m(w.s.RunDistillation(ctx, 1))
+	if replay.Promoted != 0 {
+		t.Fatalf("the replay promoted again: %+v", replay)
+	}
+	if entries := kernel.ParseMemories(kernel.ReadTextFile(kernel.WorkItemMemoryPath(item.Workspace))); len(entries) != 1 {
+		t.Fatalf("work item memories after replay: %+v", entries)
+	}
+}
+
+// Every answer names the message it is about — a passed deadline included.
+func TestDeadlineEscalationCarriesItsRoot(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "report", "test", kernel.CreateWorkItemOpts{}))
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写一个文件 deadline", Source: "connector:web", Target: item.ID}))
+	w.settle()
+	m(w.k.SetWorkItemDeadline(ctx, item.ID, kernel.FormatTime(time.Now().Add(-time.Minute)), "test"))
+	if err := w.s.EnforceDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var esc []kernel.Event
+	for _, e := range w.events("escalation") {
+		if e.Payload.Str("reason") == "deadline" {
+			esc = append(esc, e)
+		}
+	}
+	if len(esc) != 1 || esc[0].Payload.Str("root") != msg.ID {
+		t.Fatalf("deadline escalation root: %+v (message %s)", esc, msg.ID)
+	}
+	direct := m(w.k.CreateWorkItem(ctx, "opened directly", "test", kernel.CreateWorkItemOpts{}))
+	m(w.k.SetWorkItemDeadline(ctx, direct.ID, kernel.FormatTime(time.Now().Add(-time.Minute)), "test"))
+	if err := w.s.EnforceDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range w.events("escalation") {
+		if e.WorkItemID == direct.ID && e.Payload.Str("root") == "" {
+			t.Fatalf("an item with no message still roots its notice: %+v", e)
+		}
 	}
 }
 
@@ -434,5 +693,33 @@ func TestDistillerReadsPastNoise(t *testing.T) {
 	res := m(w.s.RunDistillation(ctx, 10))
 	if res.Skipped || res.Meaningful < 10 || res.Promoted != 1 {
 		t.Fatalf("material beyond the first window must be reached: %+v", res)
+	}
+}
+
+func TestTheExecutionBudgetResumesWhenAnswered(t *testing.T) {
+	w := newWorld(t, settings.Claude)
+	w.k.Cfg.MaxExecutionsPerItem = 1
+	item := m(w.k.CreateWorkItem(ctx, "two rounds", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "do it AGAIN", Source: "connector:web", Target: item.ID}))
+	w.settle()
+	var budget []kernel.Event
+	for _, e := range w.events("escalation") {
+		if e.Payload.Str("reason") == "budget" {
+			budget = append(budget, e)
+		}
+	}
+	if len(budget) != 1 || m(w.k.CountExecutions(ctx, item.ID)) != 1 {
+		t.Fatalf("the second dispatch must be refused: %+v", budget)
+	}
+	for _, r := range w.events("agent.reply") {
+		if strings.Contains(r.Payload.Str("text"), "已派出第二个 worker") {
+			t.Fatal("a reply announcing a refused dispatch must not reach the person")
+		}
+	}
+	// Answering the escalation starts a new stretch of work.
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "继续", Source: "connector:web", ReplyTo: budget[0].ID}))
+	w.settle()
+	if n := m(w.k.CountExecutions(ctx, item.ID)); n != 2 {
+		t.Fatalf("replying to the budget escalation must let the item continue: %d executions", n)
 	}
 }

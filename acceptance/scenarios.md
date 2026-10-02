@@ -37,6 +37,7 @@
   `execution.started` → `execution.finished`（ok=true，mailbox=`manager:<wi>`）→ 第二个 `manager.decision` → `agent.reply`
 - 所有回复的 `payload.root` 都指向最初那条 `user.message` 的 id（界面靠它把回复放在问题下面）
 - 最终回复内容与实际产物一致（不是编造的）
+- `hidane chat` 等到 Manager 的最终回复（「已完成…」一类）打印出来才退出，不会停在「已安排执行」
 
 ## 场景 2：后台车道与分诊
 
@@ -61,7 +62,8 @@
 
 `hidane serve` 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-secret` 启动。期望：
 
-- `/api/*` 无 token 或错 token 返回 401；正确 Bearer token 返回 200；SSE 的 `?token=` 查询参数同样有效
+- `/api/*` 无 token 或错 token 返回 401；正确 Bearer token 返回 200；SSE（`/api/events/stream`）的 `?token=` 查询参数同样有效，
+  其它端点不接受 URL 里的 token（401）：URL 会进日志与历史
 - `/webhook/:name` 无签名或错签名返回 401，事件**不**落日志；正确的 `x-hidane-signature`（sha256= 前缀的 HMAC-SHA256）返回 200 且事件落日志
 - `/health` 始终开放
 
@@ -72,12 +74,16 @@
 - 偏好被提取并晋升进 `~/.hidane/memory/MEMORY.md`（带日期与 id 注释）
 - `memory.candidate` 与 `memory.promoted` 事件落日志
 - 之后的新 `chat` 提问相关话题时，Primary 的回答引用了该偏好（跨进程召回）
+- 召回里的日期是本地日期（晚上说的话不会被说成前一天）
+- 蒸馏若写进了某个工作项的 `MEMORY.md`：`hidane memories --ids`、`GET /api/memories`（`workItems`）与
+  「记忆」页都能看到它；`hidane forget <id>` 或 `DELETE /api/memories/:id` 能删掉它，并落 `memory.forgotten`（带 `workItemId`）；
+  `hidane forget` 一个不存在的 id 以非零状态退出
 
 ## 场景 4C：飞书连接器（长连接，无公开回调）
 
 桌面应用没有公网地址，飞书入站改为官方 Go SDK 的长连接：连接用 App 凭证认证，不再有需要校验 token 的公开写口。期望：
 
-- `POST /feishu/events` 返回 404：不存在任何未鉴权、能触发执行的飞书端点
+- `POST /feishu/events` 返回 404：不存在任何未鉴权、能触发执行的飞书端点；任何未知路径的非 GET 请求都是 404（界面外壳只回应 GET/HEAD）
 - 入站捕获、去重、图片下载失败的诚实描述、贴纸不唤醒模型、工作项话题的归属、出站分块与卡片格式
   由 `go test ./internal/feishu/ -v` 覆盖（假 Messenger）——运行它并把通过的用例名作为证据
 - 若环境里有真实的 `FEISHU_APP_ID`/`FEISHU_APP_SECRET`（或 settings.json 的 `feishu` 段），启动 serve 后日志
@@ -115,7 +121,8 @@
 - 通过主会话 `chat` 请求“把当前所有打开的工作项关停/关闭”时，Primary 应直接执行
   批量状态变更，不再回复“没有相应能力”；当时所有 open 工作项均变为 closed，
   每个变更都有 `work_item.status_changed`（source 为 `agent:primary`），主线程收到
-  一条包含变更数量的确认回复。该操作不是删除，也不应启动 Manager/Worker。
+  **一条**包含变更数量的确认回复（系统按实际结果写的确认，不再加上模型自己的那句）。
+  该操作不是删除，也不应启动 Manager/Worker。用主会话让 Primary 停止一个运行中的任务同理：只有一条确认。
 - 通过主会话请求将一个已完成或已归档的工作项重新打开时，Primary 应使用其真实 ID
   将状态改回 open；请求“所有已有工作项”时可用批量状态操作，不能凭空编造 ID。
 
@@ -152,6 +159,11 @@ runtime 内置 5s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - **长回复**：`ChunkText`（`internal/feishu`）把超长文本按段落切块而非截断。构造一段 >8000 字的文本，
   确认切块后**每块不超上限、拼回来内容不丢**（真实事故：8000 字回复在飞书被 `slice(0,4000)`
   砍掉一半，用户读到半截以为系统卡死，在执行早已成功 80 分钟后问「你是不是卡住了？」）
+  回复本身也不被截断：Manager 的 >8000 字回复（以及 worker 的长总结）原样落进 `agent.reply`；
+  只有超过 20 万字的极端情况才截，并且文末注明省略了多少字
+- 模型输出不是效果列表（例如只回了一句「response.」或 `<reasoning_effort>5</reasoning_effort>`）时，
+  Primary 与 Manager 都不把它当回复发给人：先自动追问一次（追问单独记一条 `route.decision` /
+  `manager.decision`，带 `nudged: true`），追问仍拿不到效果列表才把原文作为回复
 - **中止执行**：让一个工作项跑起来（要求它做几十次工具调用），在执行中
   `POST /api/work-items/:id/cancel`。期望：先落 `execution.cancelled`（意图在前），
   执行**数秒内**结束并落 `execution.finished`，且 `cancelled: true` / `ok: false`
@@ -208,7 +220,8 @@ runtime 内置 5s 调度循环。通过 `/api/schedules` 定义、管理、触�
 ## 场景 4M：飞书回复以卡片 2.0 下发
 
 飞书 msg_type=text 会把 Markdown 当字面文本显示（一堆 `#` 和 `**`）。
-出站形态由 `internal/feishu` 的 `MarkdownCard`/`OutboxOnce` 决定（`go test ./internal/feishu/` 覆盖）。期望：
+出站形态由 `internal/feishu` 的 `MarkdownCard`/`OutboxOnce` 决定（`go test ./internal/feishu/` 覆盖；
+`TestSDKSendsCardsAsInteractive` 用假的飞书 API 检查 SDK 真正发出的请求体）。期望：
 
 - 出站 `msg_type` 为 `interactive`（不是 `text`）
 - 卡片 JSON 的 `schema` 为 `"2.0"`（**1.0 只支持 Markdown 子集**，列表与表格会退化成
@@ -264,7 +277,9 @@ SSE 曾在并发下出现「200 头 + 空 body」——首次写入前先查库�
 
 - 落一条 `message.redacted`（`of` 指向原消息）；原消息那一行**不被改写**（数据库里原文仍在——日志只追加），
   但之后所有读取方都看不到原文：`/api/events`（含 SSE）、搜索、工作日志投影、Primary 的上下文、记忆蒸馏。
-  转给工作项 Manager 的那份副本同样被遮住
+  转给工作项 Manager 的那份副本、以及执行中转给 worker 的 `execution.steered` 原话同样被遮住。
+  隐藏不追溯 agent 已经读到后**自己写出**的内容（工作项标题、brief、执行指令、理解）——这与
+  「Manager 已经读到的不召回」一致；验收时把它们当作已知边界记录，而不是判失败
 - 被隐藏的消息在读取结果里 `payload.redacted = true`、`text` 为空，`root`/`target` 等结构字段保留，对话仍能正确分组
 - 重复隐藏不再落事件；非人说的话（如 `agent.reply`）或不存在的 id → 404
 
@@ -295,8 +310,12 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 - worker 运行中收到的话被**直接转给正在运行的执行**（`execution.steered`，不产生新的 `manager.decision`）
 - 最终产物体现了补充的要求（例如补充「支持 --dry-run」，脚本里就有这个参数）
+- 用真实 `claude` 当 worker 时，补充之后执行照常结束（不会挂到超时）：真实 claude 会把补充并进当前这一轮
 - 在 Manager 规划期间（尚未派出 worker）到达的几句话，下一个 turn 一次取走：
-  只有一个 `manager.decision` 的 `of` 同时包含这几条消息
+  只有一个 `manager.decision` 的 `of` 同时包含这几条消息；或刚派出、执行还在排队时到达的，记为
+  `execution.steered`（`queued: true`）并写进 worker 的指令
+- 任何情况下都**不**出现「could not deliver」之类的 `agent.error`：执行正要结束、送不进去的话记为
+  `execution.steered`（`late: true`），随该执行的结果一起交给 Manager，Manager 的下一次回复要处理它
 
 ## 场景 5C：归属有歧义时不瞎猜，可改派
 
@@ -312,7 +331,8 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 提一个缺信息就做不了的任务（如「把 register.html 部署到我的服务器」，不给地址）。期望：
 
-- Manager 不会静默停住：要么派 worker，要么回复，要么上报；只写「当前理解」的 turn 会被自动追问一次
+- Manager 不会静默停住：要么派 worker，要么回复，要么上报；只写「当前理解」的 turn 会被自动追问一次，
+  追问的结果单独记一条 `manager.decision`（`nudged: true`）
 - 上报路径：`escalation.raised`（投给父级收件箱，顶层即 primary）→ primary 按规则（不调模型）
   在主线程落 `escalation`，带 `question`、`path`（每层写明已尝试过什么）与 `workItemId`
 - 看板 `/api/board` 中该卡片 `state = waiting`，`escalation.question` 即该问题
@@ -327,6 +347,7 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 - 文件仍在；落 `policy.blocked`（payload 含 `rule` 与规则原文 `reason`，不含守卫的英文前缀）
 - 该执行的 `execution.finished.payload.policyBlocks` 非空，Manager 据此回复或上报
 - 规则只做匹配，不经过模型；删除规则后同样的操作可以执行
+- 不写 `tools` 的规则只管修改：只读命令（`ls`、`cat`、`grep` 及其 `;`/`&&`/`|` 组合）提到被禁的文件不会被拦
 - 结束后删除你加的规则
 
 ## 场景 5F：扇出成子任务，取消沿树向下
@@ -335,10 +356,15 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 - Manager 用子工作项扇出（`work_items.parent_id` 指向父项），每个子项有自己的工作区与 Manager
 - 子项完成后 `done`；全部结束时父项收到一条 `children.settled`（含每个子项的结果），随后给出汇总
+- 模型给出缺标题或缺说明的子项时不会静默丢弃：落一条 `agent.error` 说明跳过了哪一项
+- `children.settled` 在子项的最终回复**之后**落日志，结果就是那条最终回复；超长时注明截断，
+  并指出完整内容所在的工作项与目录
 - 子项的回复带 `payload.child = true`，不在主对话里出现；父项的汇总以最初的消息为 root
 - 看板上父项在子项运行时为 `delegated`
 - 另起一次扇出，在子项运行时 `POST /api/work-items/<父项>/cancel`：每个仍在执行的子项都落
-  `execution.cancelled`（payload.via 为父项 id），随后各自的 `execution.finished` 带 `cancelled: true`
+  `execution.cancelled`（payload.via 为父项 id），随后各自的 `execution.finished` 带 `cancelled: true`；
+  仍开着的子项被关闭（`closed`），父项**不**收到 `children.settled`，取消之后不再派出任何新的执行
+  （人已经叫停了，Manager 不能把它当成「结果缺失」去补跑）
 
 ## 场景 5G：重启不丢事
 
@@ -354,32 +380,36 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 把 `HIDANE_MAX_HOPS` 调小（如 3）启动 `hidane serve`，让一个会多轮执行的任务跑起来。期望：
 
 - 超过上限时消息不再投递，改为主线程上的一条 `escalation`（`reason: budget`）
-- 同理 `HIDANE_MAX_EXECUTIONS_PER_ITEM` 用尽后不再派 worker，而是上报
-- 人回复该工作项后可以继续（新的因果链从 0 开始）
+- 同理 `HIDANE_MAX_EXECUTIONS_PER_ITEM` 用尽后不再派 worker，而是上报；这个上限按「自上次有人回复这个工作项以来」计数
+- 人回复该工作项（或回答那条上报）后可以继续：跳数从 0 开始，执行次数重新计算，确实会再派出 worker
+- 被预算拦下的那个 turn 里，Manager 预先写好的「已派出 worker」之类回复**不得**发给人
 
 ## 场景 5I：界面（需真实浏览器）
 
-打开界面（`hidane serve` 打印的链接；桌面应用里同一套界面），验证：
+用 Playwright（chromium 与 webkit）打开 `hidane serve` 的界面。桌面形态可拦截 `/boot.js` 返回
+`window.hidaneBoot = {desktop:true, auth:false, version:"acc"}`（token 仍放在 localStorage，请求照常鉴权；
+`/wails/runtime.js` 不存在时实时通道自动回退到 SSE）——两种形态都要看。界面交互应是桌面应用的，不是网页的。验证：
 
-- 对话流里每条消息下方有归属标签（归入「X」· 自动判断 / 你指定的 / 按当前聚焦 · 改）
-- 新建的任务以卡片出现在创建它的那条消息下方，状态原位更新（规划中 → 运行中 → 空闲 / 等你回答）
-- 迟到的回复出现在它所回答的消息下面；若该位置不在视野内，底部出现一行通知，点「查看」跳过去
-  （只滚动对话区，外层页面不跟着动），超过 3 条时合并为「还有 N 条更新」
-- 顶部「进行中」栏列出运行中、等回答和有新进展的任务；点击打开右侧聚焦面板（移动端全屏），
-  输入框自动变为「发给「X」」，面板内有对话、产物、执行时间线
-- 「回答」按钮把输入框切到「回答「X」的问题」，发送后问题关闭
-- 规则页可以增删规则；中英文切换后界面文案全部翻译（任务标题等内容保持原文）
-- 顶部搜索框搜的是全部历史：结果列出匹配的工作项与对话（高亮命中词、带时间），点一条对话结果会打开
-  以它为中心的一段历史（地址带 `?at=`，可复制分享），该消息在视野内并短暂高亮；顶部提示「正在查看较早的对话」，
-  往下滚会继续加载更新的内容，接上最新时自动回到实时模式；「返回搜索」能回到刚才的结果
-- 只要不在最新位置（往上翻了，或正在看较早的一段历史），输入框正上方就出现「回到最新」按钮；
-  在底部时不出现。点击后回到最新消息并贴底：往上翻的情况下已加载的历史保留，看历史窗口的情况下地址里的 `?at=` 被清掉；
-  它与底部的「有新回复」通知上下叠放，互不遮挡
-- 「按日期」列出有对话的日子（按月分组、带条数），选一天跳到那天的第一条；对话流里每天之间有日期分隔线
-- 用户消息下有「复制链接」「隐藏」两个小按钮；隐藏前有确认说明（原始记录仍在日志中），隐藏后显示「这条消息已隐藏」
-- 工作项面板里「在对话中查看来源」跳到创建它的那条消息，即使那条消息很久以前、当前没有加载
-- 很久以前、没有被关联上回答的旧消息不显示「正在判断归属…」
-- 宽屏下对话内容居中限宽；宽表格可横向滚动且有可见滚动条
+- 布局：左侧边栏（新任务、搜索、会话/任务/定时/记忆/工作日志、「进行中」任务列表、底部设置齿轮），每页顶部 52px
+  工具栏；⌘B 收起侧边栏并在刷新后保持；桌面形态下收起时工具栏左侧给红绿灯留空；整个窗口不滚动，只有内容区滚动
+- 设置是替换整个主布局的独立界面（不是弹窗、不在主导航里）：⌘, / 侧边栏齿轮打开，Esc / 再按 ⌘, / 「← 返回」都回到
+  进入前的那一页；分区：通用、快捷键、关于、角色、模型服务、Agent CLI、安全规则、运行状态、事件日志；
+  旧地址 `/settings`、`/policies`、`/status`、`/events` 会跳到对应分区
+- 单项设置改了就生效（语言、开关、角色的下拉；模型名与 CLI 路径失焦或回车保存，行内显示保存中/已保存/错误）；
+  不兼容的角色组合留在屏幕上、不保存并给出警告；模型服务表单与新规则用显式保存
+- 破坏性操作（停止任务、隐藏消息、删除模型服务/规则/记忆/定时、归档）都弹应用内确认框：取消不发生任何事，确认才执行；
+  页面里不存在原生 `confirm/alert/prompt`
+- ⌘K 命令面板：顶部居中浮层，列出命令（跳转页面、新任务、各设置分区）与全部历史中的对话/任务搜索结果，
+  ↑↓ 回车 Esc 可用；从搜索结果打开一条对话会定位到以它为中心的历史（`?at=`），回到最新后地址里的 `?at=` 被清掉
+- ⌘N 新任务对话框能直接建工作项并打开它；⌘L 聚焦输入框
+- 右键菜单与「⋯」按钮给出同一组操作：消息（复制文本、隐藏；浏览器形态额外有复制链接），任务卡片与侧边栏任务
+  （打开、停止、标记完成、归档；桌面形态额外有在访达中显示工作区）
+- 对话流：归属标签（自动判断/你指定的/按当前聚焦 · 改）；新建的任务卡片在原消息下原位更新；迟到的回复出现在它所回答的
+  消息下面；停在底部时新回复到来视图保持贴底（不会差几十像素、不会被「回到最新」或「有新回复」盖住）；
+  往上翻时出现「回到最新」；侧边栏「进行中」列出运行中/等你回答/有新进展的任务，点开在会话旁打开聚焦面板
+- 图片可拖进会话作为下一条消息的附件；在会话区外放下文件不会让窗口跳转
+- 预算/截止类上报按界面语言显示，且都带 `payload.root`（截止上报指向开启该工作项的那条消息）；中英文切换后界面文案全部翻译（任务标题等内容保持原文）；`1 tool call` 单复数正确
+- 浏览器形态有 token 门与退出；桌面形态没有，且 `/api/desktop/*` 在 serve 下 404 不会弹错误提示
 
 ## 场景 4：事件不灭与重放
 
@@ -388,6 +418,9 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 - 事件被消费后依然留在日志里（append-only）
 - 把某个消费者的游标重置后，能重新读到历史事件（重放语义）。
   可直接用 sqlite3 操作 cursors 表验证，注意别破坏 triage 消费者的现网状态（可用一个临时消费者名验证）。
+- 重放蒸馏器（重置它的游标再 `hidane distill`）不会把已有的记忆再晋升一遍：同一条记忆不出现两个 id，
+  模型换个说法也不行（全局与相关工作项的已有记忆都作为「不要重复」交给蒸馏器）；`distill.run` 的
+  `promoted` 只计真正新增的条数
 
 
 ## 场景 6A：本机 agent CLI 与 LLM Provider 配置
@@ -411,17 +444,26 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 让任务「创建 hello.txt 与 forbidden.txt」。期望：
 
 - 三次都只有 `workspaces/<wi>/hello.txt`；`forbidden.txt` 不存在；各有 `policy.blocked`（rule 为该规则 id）
-- 文件都落在该工作项自己的工作区里，**不会**写进 `HIDANE_HOME` 根目录（闸门拒绝工作区外的写入，
-  且禁止 shell 命令改动 hidane 自己的数据目录）
+- 文件都落在该工作项自己的工作区里，**不会**写进 `HIDANE_HOME` 根目录或 `/tmp` 等其他位置：闸门拒绝
+  文件工具写工作区外的路径，也拒绝 shell 命令写出工作区（重定向 `>`/`>>`、`tee`、`touch`/`mkdir`/`rm`、
+  `cp`/`mv` 的目标、`cd` 到工作区外再写），并禁止改动 hidane 自己的数据目录与工作区里的 `.hidane`。
+  可直接用 `hidane guard --format claude` 喂入 `{"tool_name":"Bash","tool_input":{"command":"echo x > /tmp/y"}}` 验证
+- 只读的命令不被误拦：引号里的 `>`、`;` 是文字不是语法（`sed 's/=.*/=<set>/' f`、`echo 'a > /etc/x'` 放行），
+  用 `;`/`&&`/`|` 串起来的只读命令仍算只读（`cat a; ls -R .hidane` 放行，`cat a; rm -rf .hidane` 被拒）
 - 把 `POLICY.json` 改成非法 JSON 后再派一次写操作：被拒（「policy file … is unreadable」），而不是规则静默失效
 - 最终回复如实说明哪个成功、哪个被策略阻止
 
 ## 场景 6C：桌面应用
 
 - `make smoke-gui`：真实的 Wails 窗口加载内嵌界面，界面经 Wails 事件（而不是 SSE 回退）收到实时帧后自动退出 0；
-  输出含 `ui ready (live transport: wails)`
-- `make app` 产出 `bin/hidane.app`（含图标与 Info.plist），双击可打开；再次打开不会起第二个实例
-- 桌面模式下 `/boot.js` 为 `desktop: true, auth: false`：不出现 token 输入框
+  输出含 `ui ready (live transport: wails)`；`make app` 产出的 `bin/hidane.app` 同样通过
+  （`HIDANE_GUI_SMOKE=1 bin/hidane.app/Contents/MacOS/hidane`）
+- 原生菜单（hidane / File / Edit / View / Window）存在且带快捷键：Settings… ⌘,、New Task… ⌘N、New Message ⌘L、
+  会话/任务/定时/记忆/日志 ⌘1–⌘5、Search ⌘K、Toggle Sidebar ⌘B——可用 `osascript` 读取应用菜单栏验证（若无辅助功能权限则 BLOCKED）
+- 隐藏式标题栏：窗口大小与位置在移动/缩放后写入 `$HIDANE_HOME/runtime/window.json`，下次启动恢复
+- 桌面专用端点（`/api/desktop/open-url`、`clipboard`、`notify`、`badge`、`open-data-dir`、`/api/work-items/:id/reveal`）
+  在 `hidane serve` 下一律 404；`open-url` 只接受 http(s)/mailto
+- 再次打开不会起第二个实例；桌面模式下 `/boot.js` 为 `desktop: true, auth: false`：不出现 token 输入框
 
 ## 场景 6D：自动化测试全绿
 

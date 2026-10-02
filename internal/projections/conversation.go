@@ -368,11 +368,13 @@ func DescribeRecall(events []kernel.Event) string {
 		if e.WorkItemID != "" {
 			who += " (" + e.WorkItemID + ")"
 		}
-		day := e.TS
-		if len(day) > 10 {
-			day = day[:10]
+		// Local time, like the "Now:" line the model reads it against: a UTC
+		// date put an evening message on the previous day.
+		when := e.TS
+		if t, err := kernel.ParseTime(e.TS); err == nil {
+			when = t.Local().Format("2006-01-02 15:04")
 		}
-		lines = append(lines, fmt.Sprintf("- %s %s: %s", day, who, clip(words, 400)))
+		lines = append(lines, fmt.Sprintf("- %s %s: %s", when, who, clip(words, 400)))
 	}
 	return strings.Join(lines, "\n")
 }
