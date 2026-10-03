@@ -44,7 +44,7 @@
   <div id={anchored ? `ev-${event.id}` : undefined} class={cn("flex", event.kind === "user.message" ? "justify-end" : "justify-start")}>
     <div class={cn("max-w-[85%] rounded-lg px-3 py-1.5 text-sm break-words",
       // Only what arrives while watched rises in; history loads still.
-      (ghost || streaming) && "animate-rise-in", redacted ? "border border-dashed border-border text-muted italic" : event.kind === "user.message" ? "bg-linear-to-b from-primary/22 to-primary/14 text-foreground shadow-[inset_0_0_0_1px_oklch(0.72_0.16_55/0.22)]" : "bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border)]", ghost && "opacity-60")}>
+      (ghost || streaming) && "animate-rise-in", redacted ? "border border-dashed border-border text-muted italic" : event.kind === "user.message" ? "bg-linear-to-b from-primary/22 to-primary/14 text-foreground shadow-ember-edge" : "bg-surface-2 shadow-hairline", ghost && "opacity-60")}>
       {#if redacted}
         <span>{$t("chat.hidden")}</span>
       {:else if event.kind === "user.message"}

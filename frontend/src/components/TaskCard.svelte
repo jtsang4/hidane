@@ -62,7 +62,7 @@
   class={cn(
     "relative w-full rounded-lg border bg-surface px-3 py-2.5 text-sm",
     !headless && "max-w-[85%]",
-    card.state === "waiting" ? "border-danger/40" : focused ? "border-primary/35 shadow-[0_0_24px_-10px_oklch(0.72_0.16_55/0.45)]" : "border-border",
+    card.state === "waiting" ? "border-danger/40" : focused ? "border-primary/35 shadow-ember-glow" : "border-border",
   )}
   aria-label={card.item.title}
   oncontextmenu={(event) => {
@@ -76,7 +76,7 @@
   <!-- While it runs the card smolders; when it stops, the light cools away. -->
   {#if busy}
     <span class="pointer-events-none absolute inset-x-0 -top-px h-px overflow-hidden rounded-t-lg" aria-hidden="true" out:fade={{ duration: prefersReducedMotion.current ? 0 : 700 }}>
-      <span class="absolute inset-y-0 left-0 w-2/5 animate-smolder bg-linear-to-r from-transparent via-primary to-transparent shadow-[0_0_10px_1px_oklch(0.72_0.16_55/0.6)]"></span>
+      <span class="absolute inset-y-0 left-0 w-2/5 animate-smolder bg-linear-to-r from-transparent via-primary to-transparent shadow-ember-spark"></span>
     </span>
   {/if}
   {#if headless}
@@ -157,7 +157,7 @@
     <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
       <span class="text-muted">{$t("task.children")}</span>
       {#each children as child (child.item.id)}
-        <button class="flex h-5 items-center gap-1 rounded-md bg-accent px-1.5 hover:bg-white/10 hover:text-foreground" onclick={() => onfocus(child.item.id)}>
+        <button class="flex h-5 items-center gap-1 rounded-md bg-accent px-1.5 hover:bg-accent-strong hover:text-foreground" onclick={() => onfocus(child.item.id)}>
           <span aria-hidden="true" class={cn("h-1.5 w-1.5 rounded-full", dot[child.state])}></span>
           {child.item.title}
           <span class="sr-only">{$t(`task.state.${child.state}`)}</span>

@@ -78,11 +78,11 @@
       {#if contentQuery.data?.reason === "too-large"}<p class="text-xs text-muted">{$t("item.tooLarge")}</p>{/if}
       {#if contentQuery.data?.text !== undefined}
         {#if file.path.endsWith(".md")}
-          <div class="max-h-96 overflow-auto rounded bg-background p-2 text-xs">
+          <div class="max-h-96 overflow-auto rounded-sm bg-background p-2 text-xs">
             <Markdown content={contentQuery.data.text} />
           </div>
         {:else}
-          <pre class="max-h-96 overflow-auto rounded bg-background p-2 text-xs whitespace-pre-wrap">{contentQuery.data.text}</pre>
+          <pre class="max-h-96 overflow-auto rounded-sm bg-background p-2 text-xs whitespace-pre-wrap">{contentQuery.data.text}</pre>
         {/if}
       {/if}
     </div>

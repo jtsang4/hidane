@@ -11,10 +11,10 @@
       variants: {
         variant: {
           // Dimmed with opacity, a primary turns brown on the dark theme: disabled, it is drawn as its own outline.
-          default: "bg-primary bg-linear-to-b from-white/12 to-transparent font-medium text-primary-foreground shadow-primary hover:bg-primary/92 disabled:bg-transparent disabled:bg-none disabled:text-primary/55 disabled:opacity-100 disabled:shadow-[inset_0_0_0_1px_oklch(0.72_0.16_55/0.3)]",
+          default: "bg-primary bg-linear-to-b from-sheen to-transparent font-medium text-primary-foreground shadow-primary hover:bg-primary/92 disabled:bg-transparent disabled:bg-none disabled:text-primary/55 disabled:opacity-100 disabled:shadow-primary-outline",
           soft: "bg-primary/12 text-primary hover:bg-primary/20",
-          danger: "bg-danger bg-linear-to-b from-white/10 to-transparent font-medium text-white shadow-[inset_0_1px_0_0_oklch(1_0_0/0.2)] hover:bg-danger/90",
-          secondary: "bg-accent text-foreground hover:bg-white/10",
+          danger: "bg-danger bg-linear-to-b from-sheen to-transparent font-medium text-danger-foreground shadow-danger hover:bg-danger/90",
+          secondary: "bg-accent text-foreground hover:bg-accent-strong",
           ghost: "text-foreground/85 hover:bg-accent hover:text-foreground",
         },
         size: {

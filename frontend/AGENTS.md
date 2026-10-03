@@ -45,6 +45,13 @@
 
 ## UI and i18n
 
+- Read `DESIGN.md` before any visible change and build from it: tokens from
+  `src/styles.css` (`@theme`), primitives from `src/components/ui/`, patterns
+  from `src/lib/styles.ts`. Tailwind's default palette, shadows and radii do
+  not exist here. Never use an arbitrary color, shadow, radius or text size
+  (`bg-[…]`, `shadow-[…]`, `text-[13px]`) or a literal color; add a token to
+  `@theme` and to `DESIGN.md` instead. `test/design-system.test.ts` fails on
+  any of them.
 - All visible UI text belongs in `src/i18n/resources.ts` and must exist in both
   `zh` and `en`.
 - Preserve the current dark theme, responsive navigation, scroll-container

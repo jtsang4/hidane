@@ -283,7 +283,7 @@
   {#if !authed}
     <div class="drag-region relative flex h-full items-center justify-center overflow-hidden p-6">
       <!-- The ember: one warm light in a dark room, behind the only thing to do here. -->
-      <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_44%_38%_at_50%_40%,oklch(0.72_0.16_55/0.09),transparent)]" aria-hidden="true"></div>
+      <div class="pointer-events-none absolute inset-0 ember-light" aria-hidden="true"></div>
       <div class="grain pointer-events-none absolute inset-0" aria-hidden="true"></div>
       <div class="relative w-full max-w-[340px] animate-dialog-in">
         <div class="mb-6 flex flex-col items-center text-center">

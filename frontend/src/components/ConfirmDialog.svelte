@@ -27,7 +27,7 @@
 <!-- Mounted per request by ConfirmHost: open for as long as it exists; any way of closing it is a "no". -->
 <AlertDialog.Root bind:open={() => true, (open) => { if (!open) onresult(false); }}>
   <AlertDialog.Portal>
-    <AlertDialog.Overlay class="fixed inset-0 z-[70] animate-fade-in bg-black/50 backdrop-blur-[2px]" />
+    <AlertDialog.Overlay class="fixed inset-0 z-[70] animate-fade-in bg-overlay backdrop-blur-[2px]" />
     <AlertDialog.Content
       class={cn("fixed top-1/2 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 animate-dialog-in rounded-xl border border-border bg-popover p-4 shadow-dialog outline-none", sheetOnPhone)}
       interactOutsideBehavior="close"

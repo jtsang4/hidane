@@ -59,7 +59,7 @@
     </button>
     <span class="hidden sm:inline">· {$t(`attribution.by.${by === "explicit" || by === "focus" || by === "user" ? by : "model"}`)}</span>
     <DropdownMenu.Root bind:open>
-      <DropdownMenu.Trigger class="-mr-1 rounded px-1 text-primary hover:bg-primary/10 data-[state=open]:bg-primary/10" aria-label={$t("attribution.changeLabel")}>
+      <DropdownMenu.Trigger class="-mr-1 rounded-sm px-1 text-primary hover:bg-primary/10 data-[state=open]:bg-primary/10" aria-label={$t("attribution.changeLabel")}>
         {$t("attribution.change")}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>

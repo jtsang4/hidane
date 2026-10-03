@@ -156,7 +156,7 @@
 <!-- Mounted while open by App; Esc or a click outside closes it. -->
 <Dialog.Root bind:open={() => true, (open) => { if (!open) onclose(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-black/45 backdrop-blur-[2px]" />
+    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-overlay backdrop-blur-[2px]" />
     <Dialog.Content
       aria-label={$t("palette.label")}
       class="fixed top-[12vh] left-1/2 z-[60] flex max-h-[70vh] w-[640px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden animate-dialog-in rounded-xl border border-border bg-popover shadow-dialog outline-none"

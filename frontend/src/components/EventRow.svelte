@@ -27,7 +27,7 @@
 <!-- A row of the event list: the list draws the frame and the dividers. -->
 <div class="px-3 py-2 text-sm">
   <div class="flex flex-wrap items-center gap-2">
-    <button class="flex items-center gap-2 rounded text-left focus-visible:outline-2 focus-visible:outline-primary/70" aria-expanded={open} onclick={() => (open = !open)}>
+    <button class="flex items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-primary/70" aria-expanded={open} onclick={() => (open = !open)}>
       <span class="w-9 font-mono text-xs text-muted tabular-nums">#{event.seq}</span>
       <Badge tone="muted" class="font-mono text-foreground/85">{event.kind}</Badge>
       <span class="text-xs text-muted">{event.source}</span>
@@ -40,7 +40,7 @@
   </div>
   {#if open}
     <div class="mt-2 space-y-1">
-      <pre class="overflow-x-auto rounded bg-background p-2 text-xs select-text">{json}</pre>
+      <pre class="overflow-x-auto rounded-sm bg-background p-2 text-xs select-text">{json}</pre>
       <Button variant="ghost" size="sm" onclick={() => void copy()}>{copied ? $t("common.copied") : $t("common.copy")}</Button>
     </div>
   {/if}

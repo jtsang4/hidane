@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** hidane's ember (the favicon's flame), lit from the top: amber at the tip, deep orange at the base. */
+  /** The ember (the favicon's flame), lit from the top; its colors are the --color-ember-* tokens. */
   let { size = 24, class: className = "" }: { size?: number; class?: string } = $props();
 
   // Several marks can share a page; each needs its own gradient id.
@@ -9,8 +9,8 @@
 <svg width={size} height={size} viewBox="1.5 2 21 21" class={className} aria-hidden="true">
   <defs>
     <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="oklch(0.84 0.15 78)" />
-      <stop offset="1" stop-color="oklch(0.66 0.19 42)" />
+      <stop offset="0" style:stop-color="var(--color-ember-tip)" />
+      <stop offset="1" style:stop-color="var(--color-ember-base)" />
     </linearGradient>
   </defs>
   <path

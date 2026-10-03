@@ -17,7 +17,7 @@
 
 <span
   {...rest}
-  class={cn("inline-flex h-[18px] items-center gap-1 rounded px-1.5 text-2xs font-medium whitespace-nowrap", tones[tone], className)}
+  class={cn("inline-flex h-[18px] items-center gap-1 rounded-sm px-1.5 text-2xs font-medium whitespace-nowrap", tones[tone], className)}
 >
   {@render children?.()}
 </span>

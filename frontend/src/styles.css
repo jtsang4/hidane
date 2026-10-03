@@ -1,10 +1,19 @@
 @import "tailwindcss";
 
-/* The design system. Components use these names, never raw sizes or colors:
-   layers differ by small lightness steps and translucent lines, not by heavy
-   borders or saturated fills; the primary color is kept for the one action or
-   state that needs the eye. */
+/* The design system (see DESIGN.md). Components use these names, never raw
+   sizes or colors: layers differ by small lightness steps and translucent
+   lines, not by heavy borders or saturated fills; the primary color is kept
+   for the one action or state that needs the eye. */
 @theme {
+  /* Tailwind's own palette, shadows and radii are switched off: only the tokens
+     below exist, so an off-system class renders nothing and
+     test/design-system.test.ts names it. */
+  --color-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --radius-*: initial;
+
   /* Layers, darkest first. Popovers float one step above the surface they open on. */
   --color-background: oklch(0.165 0.006 260);
   --color-surface: oklch(0.19 0.007 260);
@@ -16,6 +25,18 @@
   --color-input: oklch(1 0 0 / 0.11);
   --color-field: oklch(1 0 0 / 0.03);
   --color-accent: oklch(1 0 0 / 0.065);
+  /* Hover on something already filled with accent. */
+  --color-accent-strong: oklch(1 0 0 / 0.1);
+  /* A field's border under the pointer. */
+  --color-input-strong: oklch(1 0 0 / 0.15);
+  /* The groove of a switch that is off, a sheet's grab handle. */
+  --color-track: oklch(1 0 0 / 0.15);
+  /* The light falling across a raised button, from the top. */
+  --color-sheen: oklch(1 0 0 / 0.12);
+  /* Recessed below the surface: code, a segmented control's groove. */
+  --color-well: oklch(0 0 0 / 0.25);
+  /* What dims the app behind a dialog. */
+  --color-overlay: oklch(0 0 0 / 0.45);
 
   --color-foreground: oklch(0.93 0.005 260);
   --color-muted: oklch(0.64 0.008 260);
@@ -23,6 +44,12 @@
   --color-primary-foreground: oklch(0.15 0.02 55);
   --color-success: oklch(0.72 0.15 150);
   --color-danger: oklch(0.65 0.2 25);
+  --color-danger-foreground: oklch(1 0 0);
+  /* The thumb of a switch. */
+  --color-knob: oklch(1 0 0);
+  /* The flame mark's gradient: amber at the tip, deep orange at the base. */
+  --color-ember-tip: oklch(0.84 0.15 78);
+  --color-ember-base: oklch(0.66 0.19 42);
 
   /* Latin in Geist; CJK falls through to each platform's own UI face. */
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
@@ -42,6 +69,16 @@
   --text-lg--line-height: 1.5rem;
   --text-xl: 1.25rem;
   --text-xl--line-height: 1.75rem;
+  /* Inline code, relative to the text around it. */
+  --text-code: 0.85em;
+
+  /* Controls and rows sm, menus and cards md/lg, dialogs xl, brand tiles 2xl.
+     A nested shape takes the outer radius minus the padding between them. */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
 
   /* Only floating layers cast a shadow. The inset top line is light catching
      the panel's upper edge: it separates a popover from a surface of nearly the
@@ -50,6 +87,18 @@
   --shadow-dialog: inset 0 1px 0 0 oklch(1 0 0 / 0.07), 0 0 0 1px oklch(0 0 0 / 0.3), 0 28px 64px -16px oklch(0 0 0 / 0.7);
   /* A raised primary: lit from above, resting on a soft shadow of its own hue. */
   --shadow-primary: inset 0 1px 0 0 oklch(1 0 0 / 0.25), inset 0 -1px 0 0 oklch(0 0 0 / 0.12), 0 1px 2px 0 oklch(0.4 0.12 50 / 0.5);
+  /* A disabled primary, drawn as its own outline (a dimmed fill turns brown). */
+  --shadow-primary-outline: inset 0 0 0 1px oklch(0.72 0.16 55 / 0.3);
+  --shadow-danger: inset 0 1px 0 0 oklch(1 0 0 / 0.2);
+  /* Edges drawn inside a shape, so they take no layout space. */
+  --shadow-hairline: inset 0 0 0 1px var(--color-border);
+  --shadow-ember-edge: inset 0 0 0 1px oklch(0.72 0.16 55 / 0.22);
+  /* The chosen segment of a segmented control, raised out of its groove. */
+  --shadow-segment: inset 0 1px 0 0 oklch(1 0 0 / 0.07), 0 1px 2px 0 oklch(0 0 0 / 0.4);
+  --shadow-knob: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 1px 2px -1px oklch(0 0 0 / 0.1);
+  /* Ember light: the focused task's halo, and the spark and smolder that move. */
+  --shadow-ember-glow: 0 0 24px -10px oklch(0.72 0.16 55 / 0.45);
+  --shadow-ember-spark: 0 0 10px 1px oklch(0.72 0.16 55 / 0.55);
 
   /* Motion: short and decelerating. Things arrive; nothing bounces. */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -139,6 +188,11 @@
   opacity: 0.05;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* The one warm light behind the sign-in form. */
+@utility ember-light {
+  background-image: radial-gradient(ellipse 44% 38% at 50% 40%, color-mix(in oklch, var(--color-primary) 9%, transparent), transparent);
 }
 
 /* Touch screens keep finger-sized targets however compact a control is drawn. */

@@ -105,6 +105,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 
 - `frontend` is a Svelte 5 + Vite SPA. Do not introduce React, JSX, SvelteKit, or a router migration without explicit authorization.
 - When changing `frontend`, also read `frontend/AGENTS.md`; it is the more specific rule layer when an agent starts in that directory.
+- **Every visible change follows the design system in `frontend/DESIGN.md`** (tokens in `frontend/src/styles.css` `@theme`, primitives in `frontend/src/components/ui/`, shared patterns in `frontend/src/lib/styles.ts`). Tailwind's default palette, shadows and radii are switched off; a missing value becomes a new token documented there, never an arbitrary value or literal color. `test/design-system.test.ts` enforces it.
 - Before editing Svelte files, use the project-local Svelte MCP/documentation workflow; after editing, run `pnpm -C frontend check`.
 - Preserve the existing API, bearer-token, SSE / desktop live-frame, pending-state, pagination, notification, dark-theme, responsive-navigation, accessibility, and sanitized-Markdown contracts.
 - Before handoff, run `pnpm -C frontend check`, `pnpm -C frontend test`, and `pnpm -C frontend build` in addition to the root checks.

@@ -29,7 +29,7 @@
   <div class="flex max-w-full justify-center" role="status" aria-live="polite">
     <div class="pointer-events-auto flex max-w-full animate-rise-in flex-col gap-1 rounded-lg border border-border bg-popover/95 p-1 text-xs shadow-popover backdrop-blur">
       {#each view.shown as notice (notice.root)}
-        <button class="flex items-center gap-2 rounded-[5px] px-2 py-1 text-left hover:bg-accent" onclick={() => onjump(notice)}>
+        <button class="flex items-center gap-2 rounded-sm px-2 py-1 text-left hover:bg-accent" onclick={() => onjump(notice)}>
           <span aria-hidden="true" class={notice.kind === "reply" ? "h-1.5 w-1.5 rounded-full bg-primary" : "h-1.5 w-1.5 rounded-full bg-danger"}></span>
           <span class="truncate">{label(notice)}</span>
           <span class="ml-auto shrink-0 text-primary">{$t("notice.jump")}</span>

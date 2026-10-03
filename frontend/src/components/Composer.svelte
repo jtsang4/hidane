@@ -192,7 +192,7 @@
     </div>
   {/if}
   <!-- One field: the text on top, what it is sent with along its bottom edge. -->
-  <div class="rounded-lg border border-input bg-field transition-colors hover:border-white/15 focus-within:border-primary/50 focus-within:ring-3 focus-within:ring-primary/10">
+  <div class="rounded-lg border border-input bg-field transition-colors hover:border-input-strong focus-within:border-primary/50 focus-within:ring-3 focus-within:ring-primary/10">
     <input bind:this={fileRef} type="file" accept="image/*" multiple class="hidden" onchange={(event) => { const el = event.currentTarget as HTMLInputElement; void attach([...(el.files ?? [])]); el.value = ""; }} />
     <Textarea
       bind:ref={input}
@@ -217,7 +217,7 @@
         {/key}
       </div>
       <span class="relative flex">
-      {#key sparks}{#if sparks > 0}<span class="pointer-events-none absolute inset-0 animate-spark rounded-md border-[1.5px] border-primary/70 shadow-[0_0_10px_oklch(0.72_0.16_55/0.5)]" aria-hidden="true"></span>{/if}{/key}
+      {#key sparks}{#if sparks > 0}<span class="pointer-events-none absolute inset-0 animate-spark rounded-md border-[1.5px] border-primary/70 shadow-ember-spark" aria-hidden="true"></span>{/if}{/key}
       <Button size="icon" onclick={submit} disabled={send.isPending || (text.trim().length === 0 && attached.length === 0)} aria-label={$t("common.send")}><ArrowUp /></Button>
       </span>
     </div>

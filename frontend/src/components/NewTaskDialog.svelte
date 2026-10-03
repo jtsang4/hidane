@@ -56,7 +56,7 @@
 <!-- Mounted while open by App; any way of closing it (Esc, a click outside) is Cancel. -->
 <Dialog.Root bind:open={() => true, (open) => { if (!open) onclose(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-black/45 backdrop-blur-[2px]" />
+    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-overlay backdrop-blur-[2px]" />
     <Dialog.Content
       class={cn("fixed top-[12vh] left-1/2 z-[60] w-[520px] max-w-[calc(100%-2rem)] -translate-x-1/2 animate-dialog-in rounded-xl border border-border bg-popover p-4 shadow-dialog outline-none", sheetOnPhone)}
       onOpenAutoFocus={(event) => {

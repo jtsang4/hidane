@@ -71,7 +71,7 @@
     <div class="min-w-0 space-y-1">
       <p class="font-medium text-danger">{$t("policies.broken")}</p>
       <p class="text-xs text-muted">{$t("policies.brokenHint")}</p>
-      <pre class="mt-1 overflow-x-auto rounded bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words text-danger select-text">{broken}</pre>
+      <pre class="mt-1 overflow-x-auto rounded-sm bg-background p-2 font-mono text-xs whitespace-pre-wrap break-words text-danger select-text">{broken}</pre>
     </div>
   </div>
 {/if}
@@ -97,7 +97,7 @@
       <div class="flex items-start gap-3 px-3.5 py-2.5">
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
-            <code class="rounded bg-accent px-1.5 py-px text-xs break-all select-text">{rule.pattern}</code>
+            <code class="rounded-sm bg-accent px-1.5 py-px text-xs break-all select-text">{rule.pattern}</code>
             <Badge tone="muted">{rule.tools && rule.tools.length > 0 ? rule.tools.join(", ") : $t("policies.toolsAll")}</Badge>
             <span class="font-mono text-xs text-muted">{rule.id}</span>
           </div>

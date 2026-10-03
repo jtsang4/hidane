@@ -25,7 +25,7 @@
 </script>
 
 {#snippet keys(text: string)}
-  <kbd class="rounded border border-border bg-accent px-1.5 py-px font-sans text-2xs text-foreground">{text}</kbd>
+  <kbd class="rounded-sm border border-border bg-accent px-1.5 py-px font-sans text-2xs text-foreground">{text}</kbd>
 {/snippet}
 
 <p class="text-xs text-muted">{$t("settings.shortcuts.hint")}</p>

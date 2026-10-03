@@ -155,7 +155,7 @@
   const trigger =
     "flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs text-foreground/85 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70 data-[state=open]:bg-accent coarse:min-h-9";
   const pill = "h-6 rounded-md px-2 text-xs transition-colors disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-primary/70 coarse:min-h-9";
-  const pillOff = "bg-accent text-foreground/85 hover:bg-white/10 hover:text-foreground";
+  const pillOff = "bg-accent text-foreground/85 hover:bg-accent-strong hover:text-foreground";
 </script>
 
 {#snippet face()}
@@ -189,7 +189,7 @@
             <button
               type="button"
               class={cn(
-                "flex min-w-0 flex-1 items-center gap-1.5 rounded-[5px] px-2 py-1 text-left text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary/70 disabled:opacity-60 disabled:hover:bg-transparent",
+                "flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-2 py-1 text-left text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary/70 disabled:opacity-60 disabled:hover:bg-transparent",
               )}
               aria-current={current ? "true" : undefined}
               disabled={reason !== null}
@@ -308,7 +308,7 @@
   <Dialog.Root bind:open {onOpenChange}>
     <Dialog.Trigger bind:ref={triggerRef} class={trigger} aria-label={triggerLabel} title={problem ?? scopeNote}>{@render face()}</Dialog.Trigger>
     <Dialog.Portal>
-      <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-black/45 backdrop-blur-[2px]" />
+      <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-overlay backdrop-blur-[2px]" />
       <Dialog.Content
         id={`${ids}-panel`}
         aria-labelledby={`${ids}-title`}
