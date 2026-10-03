@@ -14,8 +14,9 @@
 //   desktop  the desktop app's UI (boot.js says desktop) at a window size
 //   browser  `hidane serve` in a browser at the same size (token gate, sign out)
 //   phone    the browser at phone width
-import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -28,6 +29,7 @@ const token = "e2e-token";
 const pages = [
   ["conversation", "/"],
   ["items", "/items"],
+  ["worktrees", "/items?view=worktrees"],
   ["schedules", "/schedules"],
   ["memory", "/memory"],
   ["log", "/log"],
@@ -91,6 +93,26 @@ try {
   for (let i = 0; i < 100; i++) {
     const { events } = await api("/api/events?kind=agent.reply&tail=5");
     if (events.some((e) => String(e.payload.text ?? "").startsWith("已完成"))) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  // A task in a repository, so its card names a branch and the Worktrees list has a row.
+  const repo = join(mkdtempSync(join(tmpdir(), "hidane-shot-repo-")), "blog");
+  mkdirSync(repo);
+  writeFileSync(join(repo, "README.md"), "# blog\n");
+  const gitEnv = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: join(repo, "..", "gitconfig"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "shot",
+    GIT_AUTHOR_EMAIL: "shot@example.com",
+    GIT_COMMITTER_NAME: "shot",
+    GIT_COMMITTER_EMAIL: "shot@example.com",
+  };
+  for (const args of [["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-qm", "init"]]) execFileSync("git", args, { cwd: repo, env: gitEnv });
+  await api("/api/chat", { method: "POST", body: JSON.stringify({ text: `给博客加 RSS REPO=${repo}` }) });
+  for (let i = 0; i < 100; i++) {
+    const { checkouts } = await api("/api/checkouts");
+    if (checkouts.length > 0) break;
     await new Promise((r) => setTimeout(r, 100));
   }
   // A second task left open, so the sidebar's in-progress list has something in it.

@@ -54,8 +54,12 @@ type Request struct {
 	ResumeID   string
 	SessionDir string
 	// Env is extra environment, e.g. the guard's policy files.
-	Env     []string
-	Timeout time.Duration
+	Env []string
+	// WritableRoots are directories besides Cwd a worker may change (its
+	// workspace, a worktree's repository metadata, a lent checkout); only a
+	// CLI with its own sandbox needs telling.
+	WritableRoots []string
+	Timeout       time.Duration
 
 	OnText func(delta string)
 	OnTool func(ToolEvent)

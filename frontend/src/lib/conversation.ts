@@ -11,8 +11,8 @@ export interface Turn {
   root: string;
   /** The person's message, when the root is one and it is loaded. */
   message: HidaneEvent | null;
-  /** Non-person roots (a webhook, a schedule) carry their own label. */
-  origin: { kind: "external" | "scheduled" | "unknown"; text: string } | null;
+  /** Non-person roots (a webhook, a schedule, a repository check) carry their own label. */
+  origin: { kind: "external" | "scheduled" | "repo" | "unknown"; text: string } | null;
   /** Where the message went: the newest attribution wins. */
   attribution: HidaneEvent | null;
   /** "Which task is this?" — open until an attribution follows it. */
@@ -129,7 +129,7 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
     if (!turn.message && !turn.origin) {
       const kind = str(e.payload["rootKind"]);
       const text = str(e.payload["rootText"]);
-      if (kind === "external" || kind === "scheduled") turn.origin = { kind, text: text ?? "" };
+      if (kind === "external" || kind === "scheduled" || kind === "repo") turn.origin = { kind, text: text ?? "" };
     }
   }
 

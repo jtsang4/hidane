@@ -56,6 +56,15 @@ describe("conversation turns", () => {
     expect(turn!.origin).toEqual({ kind: "external", text: "github push" });
   });
 
+  it("gives a missing-repository notice a turn of its own, not the last message's", () => {
+    const m = ev("user.message", { text: "早上好" }, { id: "m1" });
+    const notice = ev("escalation", { reason: "repo_missing", question: "仓库「blog」不在了", root: "repo:chk_1", rootKind: "repo", rootText: "blog" });
+    const turns = buildTurns([m, notice]);
+    expect(turns).toHaveLength(2);
+    expect(turns[1]!.origin).toEqual({ kind: "repo", text: "blog" });
+    expect(turns[1]!.answers).toEqual([notice]);
+  });
+
   it("reads history written before answers carried a root the old linear way", () => {
     const m = ev("user.message", { text: "旧消息" }, { id: "m_old" });
     const threadCopy = ev("agent.reply", { text: "旧回复" }, { threadId: "th_old", workItemId: "wi_old" });

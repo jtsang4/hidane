@@ -81,6 +81,7 @@ func Open(cfg *config.Config, o Options) (*App, error) {
 		return nil, err
 	}
 	a.Sys = agents.New(k, st, a.Launcher)
+	a.Sys.Repos.Env = env
 	if !st.Existed() {
 		a.chooseDefaultAgent()
 	}
@@ -199,6 +200,14 @@ func (a *App) Start() (int, error) {
 		cancel()
 		release()
 		return 0, err
+	}
+	// A repo moved or deleted while hidane was not running is noticed now,
+	// not when the next task trips over it.
+	if _, err := a.Sys.Repos.CheckAll(ctx, "kernel:repos"); err != nil {
+		log.Printf("checking repositories: %v", err)
+	}
+	if _, err := a.K.ResumeInterruptedSetups(ctx); err != nil {
+		log.Printf("resuming interrupted setups: %v", err)
 	}
 	a.Runtime = a.Sys.NewRuntime()
 	a.Runtime.Start()

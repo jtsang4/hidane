@@ -280,7 +280,7 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxT
 			}
 			t := turnFor(root, e)
 			label := e.Payload.Str("rootKind")
-			if t.said == nil && (label == "external" || label == "scheduled") {
+			if t.said == nil && (label == "external" || label == "scheduled" || label == "repo") {
 				t.origin = label + ": " + e.Payload.Str("rootText")
 			}
 			words := e.Payload.Str("text")

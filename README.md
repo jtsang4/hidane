@@ -87,6 +87,42 @@ session: each turn opens a fresh one and reads a bounded window of recent turns
 rebuilt from the log, and when a message refers to something older it emits a
 `recall`, whose search results come back as its next message.
 
+## Repositories and worktrees
+
+The person keeps talking in one conversation; which repository a task works in
+is settled by convention, not by a form.
+
+- **Repositories are the person's places**, registered the first time a path is
+  given (`hidane` remembers it by name from then on) and listed under Tasks →
+  Worktrees. A repo is known by its path; one whose `origin` matches a repo that
+  went missing is that repo moved, and keeps its identity. A name that fits two
+  repos, or a repo that is gone, is a question to the person — work never starts
+  on a guess.
+- **Every new task gets its own git worktree** of each repository it needs, on
+  branch `hidane/<work item>` from the repo's default branch, inside the task's
+  workspace (`workspaces/<wi>/<repo>`). Parallel tasks on one repo never share a
+  directory. A task can start from another task's branch (picking up archived
+  work), and a fanned-out task's children branch from their parent's. Only when
+  the person explicitly asks does a task work **in place** in their own
+  directory — one task at a time, and its commits stay theirs to make.
+- **Setup and teardown** come from the repo: `hidane.json`
+  (`{"worktree":{"setup":"pnpm install","teardown":"…"}}`, a script or a list of
+  commands), else the `worktree` block of an existing `paseo.json`; a file
+  `repos/<repo id>.json` in `HIDANE_HOME` overrides either for the person alone.
+  Setup runs before the first worker that needs it and is recorded as that
+  execution's side effect; scripts see `HIDANE_SOURCE_CHECKOUT_PATH`,
+  `HIDANE_WORKTREE_PATH`, `HIDANE_BRANCH` (and the `PASEO_*` equivalents).
+- **Nothing is cleaned up behind the person's back.** A finished task keeps its
+  worktree, so a follow-up — however long after — still reaches it. Tasks →
+  Worktrees shows each one with its task, what is on its branch and what is
+  uncommitted; archiving runs teardown, deletes the directory and keeps the
+  branch, and asks again before throwing away uncommitted changes. A directory
+  git can no longer read (its repository is gone) is never deleted — not by
+  archiving it, not by forgetting the repository.
+- **A repository that moves or disappears is noticed** — at start, when the list
+  is opened, and before it is used — recorded (`repo.missing`) and put to the
+  person as a question in the conversation.
+
 ## Agents, CLIs and LLM providers
 
 Every role runs on a local agent CLI as a subprocess — no SDK is embedded:
@@ -219,6 +255,7 @@ Settings, not in the environment.
 | `HIDANE_DISTILL_SEC` | `600` | memory distiller interval (runs when idle; forced after 3×) |
 | `HIDANE_ROUTE_TIMEOUT_SEC` | `180` | per reasoning call timeout |
 | `HIDANE_WORKER_TIMEOUT_SEC` | `600` | per execution timeout |
+| `HIDANE_SETUP_TIMEOUT_SEC` | `1200` | per worktree setup or teardown script (`hidane.json`) |
 | `HIDANE_MAX_WORKERS` | `3` | worker processes at once; further executions queue |
 | `HIDANE_MAX_TURNS` | `4` | agent turns running at once |
 | `HIDANE_MAX_HOPS` | `24` | longest causal chain of messages before a person is asked |

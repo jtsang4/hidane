@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/repos"
 )
 
 func describeManager(m kernel.Event, children []kernel.WorkItem) string {
@@ -68,6 +69,13 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 			for _, c := range list {
 				if cm, ok := c.(map[string]any); ok {
 					lines = append(lines, fmt.Sprintf("- %v %q [%v]: %v", cm["workItemId"], fmt.Sprint(cm["title"]), cm["status"], cm["result"]))
+					if branches, ok := cm["branches"].([]any); ok && len(branches) > 0 {
+						var bs []string
+						for _, b := range branches {
+							bs = append(bs, fmt.Sprint(b))
+						}
+						lines = append(lines, "  its branches: "+strings.Join(bs, ", "))
+					}
 				}
 			}
 		}
@@ -219,6 +227,23 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			}
 		}
 		return nil
+	case "attach_repo":
+		ref := Str(e["repo"])
+		if strings.TrimSpace(ref) == "" {
+			return nil
+		}
+		inPlace, _ := e["in_place"].(bool)
+		wanted, problem := s.resolveRepos(ctx, []RepoRequest{{Ref: ref, Spec: repos.AttachSpec{Base: Str(e["base"]), InPlace: inPlace}}}, "agent:manager")
+		if problem == "" {
+			if err := s.attachAll(ctx, item, wanted, "agent:manager"); err != nil {
+				problem = fmt.Sprintf("没能为这个任务准备仓库：%v", err)
+			}
+		}
+		if problem != "" {
+			// What the person must answer, not a silent failure the next spawn trips over.
+			return t.reply(ctx, problem, nil)
+		}
+		return nil
 	case "create_children":
 		list, _ := e["children"].([]any)
 		if len(list) > 8 {
@@ -251,9 +276,30 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			if err != nil {
 				return err
 			}
-			// The parts of a task run on what the task runs on.
+			// The parts of a task run on what the task runs on, in the repos it works in.
 			if item.RunAs != nil {
 				if child, err = k.SetWorkItemRunAs(ctx, child.ID, item.RunAs, "agent:manager"); err != nil {
+					return err
+				}
+			}
+			var only []string
+			if names, present := c["repos"]; present {
+				only = []string{}
+				if list, ok := names.([]any); ok {
+					for _, n := range list {
+						only = append(only, Str(n))
+					}
+				}
+			}
+			if _, errs := s.Repos.Inherit(ctx, item, child, only, "agent:manager"); len(errs) > 0 {
+				var msgs []string
+				for _, e := range errs {
+					msgs = append(msgs, e.Error())
+				}
+				if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "agent.error", ThreadID: item.ThreadID,
+					WorkItemID: item.ID, CausedBy: t.cause.ID, Payload: kernel.Payload{
+						"error": fmt.Sprintf("child %s (%q) did not get every repository: %s", child.ID, title, strings.Join(msgs, "; ")),
+						"root":  kernel.RootOf(t.cause)}}); err != nil {
 					return err
 				}
 			}
@@ -421,6 +467,14 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 			break
 		}
 	}
+	held, err := s.checkoutsOf(ctx, item.ID, "")
+	if err != nil {
+		return err
+	}
+	repoLines := ""
+	if l := held.long(); l != "" {
+		repoLines = "Repositories this work item works in (each worker is told these too):\n" + l
+	}
 	childLines := ""
 	if len(children) > 0 {
 		var cl []string
@@ -451,6 +505,8 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		fmt.Sprintf("Work item: %s — %s (status: %s)", item.ID, item.Title, item.Status),
 		parentLine, childLines,
 		"Workspace: " + item.Workspace,
+		repoLines,
+		"The person's registered repositories (for attach_repo):\n" + s.repoInventory(ctx),
 		activeLine, answeredLine, historyBlock,
 		"Messages this turn:\n" + strings.Join(described, "\n\n"),
 	}, "\n\n")
@@ -551,7 +607,9 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	// already be written.
 	spawned := false
 	for _, phase := range []func(string) bool{
-		func(kind string) bool { return kind != "reply" && kind != "done" },
+		// A repo attached in this turn is where this turn's worker runs.
+		func(kind string) bool { return kind == "attach_repo" },
+		func(kind string) bool { return kind != "reply" && kind != "done" && kind != "attach_repo" },
 		func(kind string) bool { return kind == "reply" },
 		func(kind string) bool { return kind == "done" },
 	} {

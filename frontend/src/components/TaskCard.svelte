@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Ban, Bot, CircleHelp, Maximize2, Square } from "@lucide/svelte";
+  import { Ban, Bot, CircleHelp, GitBranch, Maximize2, Square } from "@lucide/svelte";
   import { prefersReducedMotion } from "svelte/motion";
   import { fade } from "svelte/transition";
   import { t } from "../i18n/index.js";
@@ -46,6 +46,8 @@
   let live = $derived(liveRepliesFor(card.item.threadId, card.lastReply?.seq ?? 0));
   let question = $derived(card.escalation ? escalationText({ reason: card.escalation.reason, question: card.escalation.question }) : "");
   let children = $derived(card.childIds.map((id) => cards.get(id)).filter((c): c is BoardCard => c !== undefined));
+  /** Where the task's work lives: each repository and the branch it is on. */
+  let checkouts = $derived(card.checkouts.filter((c) => c.status === "active"));
   const dot: Record<string, string> = {
     waiting: "bg-danger",
     running: "animate-ember bg-primary",
@@ -113,6 +115,19 @@
       {/if}
     </div>
   </header>
+  {/if}
+
+  {#if checkouts.length > 0}
+    <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 first:mt-0">
+      {#each checkouts as c (c.id)}
+        <p class={cn("flex min-w-0 items-center gap-1 text-xs", c.missing ? "text-danger" : "text-muted")} title={$t("worktrees.branchOf", { repo: c.repo, branch: c.branch })}>
+          <GitBranch size={12} class="shrink-0" aria-hidden="true" /><span class="shrink-0">{c.repo}</span><span class="truncate font-mono">{c.branch}</span>
+          {#if c.continues}<span class="truncate">· {$t("worktrees.continues", { branch: c.continues })}</span>{/if}
+          {#if c.mode === "in_place"}<span class="shrink-0">· {$t("worktrees.inPlace")}</span>{/if}
+          {#if c.missing}<span class="shrink-0">· {$t("worktrees.status.repoMissing")}</span>{:else if c.setup === "running"}<span class="shrink-0">· {$t("worktrees.status.setup")}</span>{:else if c.setup === "failed"}<span class="shrink-0 text-danger">· {$t("worktrees.status.setupFailed")}</span>{/if}
+        </p>
+      {/each}
+    </div>
   {/if}
 
   {#if card.execution}

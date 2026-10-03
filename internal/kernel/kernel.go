@@ -142,6 +142,38 @@ var schema = []string{
 		updated_at TEXT NOT NULL
 	)`,
 	`CREATE INDEX IF NOT EXISTS schedules_due_idx ON schedules (enabled, next_run_at)`,
+	// Places the person keeps outside hidane: a directory work items draw
+	// checkouts from. The path is where it was last seen, not its identity.
+	`CREATE TABLE IF NOT EXISTS repos (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		path TEXT NOT NULL UNIQUE,
+		remote TEXT,
+		default_branch TEXT,
+		status TEXT NOT NULL DEFAULT 'present',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS repos_remote_idx ON repos (remote)`,
+	// A work item's access to a repo: its own copy (worktree) inside the work
+	// item's workspace, or the person's original directory lent to it.
+	`CREATE TABLE IF NOT EXISTS checkouts (
+		id TEXT PRIMARY KEY,
+		work_item_id TEXT NOT NULL,
+		repo_id TEXT NOT NULL,
+		mode TEXT NOT NULL,
+		path TEXT NOT NULL,
+		branch TEXT,
+		base TEXT,
+		status TEXT NOT NULL DEFAULT 'active',
+		setup TEXT NOT NULL DEFAULT 'none',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS checkouts_item_idx ON checkouts (work_item_id, created_at)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS checkouts_one_per_item ON checkouts (work_item_id, repo_id) WHERE status = 'active'`,
+	// One writer per original directory: the lease is the row.
+	`CREATE UNIQUE INDEX IF NOT EXISTS checkouts_in_place_lease ON checkouts (repo_id) WHERE mode = 'in_place' AND status = 'active'`,
 }
 
 // columns added after a table first shipped: created on databases that

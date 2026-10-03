@@ -16,6 +16,7 @@ import (
 
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/repos"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
@@ -27,6 +28,7 @@ type System struct {
 	Live     *LiveText
 	Pool     *WorkerPool
 	Runtime  *kernel.Runtime
+	Repos    *repos.Service
 
 	// statusMu makes a status change and the look at its siblings one step:
 	// two children finishing at once each saw the other done, and their
@@ -35,7 +37,7 @@ type System struct {
 }
 
 func New(k *kernel.Kernel, st *settings.Store, starter agentcli.Starter) *System {
-	s := &System{K: k, Settings: st, Agents: starter, Live: NewLiveText()}
+	s := &System{K: k, Settings: st, Agents: starter, Live: NewLiveText(), Repos: repos.New(k)}
 	s.Pool = newWorkerPool(s)
 	return s
 }

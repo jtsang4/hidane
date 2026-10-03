@@ -65,6 +65,13 @@ func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 		// only writable root.
 		cfg = append(cfg, "sandbox_workspace_write.network_access=true",
 			`hooks.PreToolUse=[{matcher="*",hooks=[{type="command",command=`+tomlString(hookCommand(l.GuardCommand, "codex"))+`,timeout=30}]}]`)
+		if len(req.WritableRoots) > 0 {
+			roots := make([]string, len(req.WritableRoots))
+			for i, r := range req.WritableRoots {
+				roots[i] = tomlString(r)
+			}
+			cfg = append(cfg, "sandbox_workspace_write.writable_roots=["+strings.Join(roots, ",")+"]")
+		}
 	}
 	if req.SystemPrompt != "" {
 		cfg = append(cfg, "developer_instructions="+tomlString(req.SystemPrompt))

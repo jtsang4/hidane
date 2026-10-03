@@ -349,3 +349,46 @@ func TestSettingsFileIsOffLimits(t *testing.T) {
 		}
 	}
 }
+
+// A directory the person lent to a work item is writable like its workspace;
+// everything else stays out of reach, and relative paths are relative to
+// where the worker runs.
+func TestLentDirectoriesAndTheWorkingDirectory(t *testing.T) {
+	ws := t.TempDir()
+	lent := t.TempDir()
+	other := t.TempDir()
+	tree := filepath.Join(ws, "blog")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := guard.Env{Workspace: ws, Writable: []string{lent}, Cwd: tree}
+	for _, call := range []guard.Call{
+		{Tool: "write", Subject: filepath.Join(lent, "a.txt")},
+		{Tool: "write", Subject: "src/a.txt"},
+		{Tool: "write", Subject: "../notes.md"},
+		{Tool: "bash", Subject: "echo x > " + filepath.Join(lent, "b.txt")},
+		{Tool: "bash", Subject: "cd " + lent + " && touch c.txt"},
+	} {
+		if d := guard.Evaluate(call, env); d.Block {
+			t.Errorf("%+v is inside what was lent: %s", call, d.Reason)
+		}
+	}
+	for _, call := range []guard.Call{
+		{Tool: "write", Subject: filepath.Join(other, "a.txt")},
+		{Tool: "write", Subject: "../../escape.txt"},
+		{Tool: "bash", Subject: "echo x > " + filepath.Join(other, "b.txt")},
+	} {
+		if d := guard.Evaluate(call, env); !d.Block {
+			t.Errorf("%+v is outside: it must be refused", call)
+		}
+	}
+	// Round trip through the environment the CLIs carry.
+	for _, kv := range env.Vars() {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
+	got := guard.EnvFromOS()
+	if got.Cwd != tree || len(got.Writable) != 1 || got.Writable[0] != lent {
+		t.Fatalf("env round trip: %+v", got)
+	}
+}

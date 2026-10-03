@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // ExecutionStatus is the lifecycle of one worker execution.
@@ -142,46 +140,18 @@ func (k *Kernel) CountExecutions(ctx context.Context, workItemID string) (int, e
 	return n, err
 }
 
-// WorkspaceResult describes the directory a work item was given.
-type WorkspaceResult struct {
-	Path     string
-	Provider string // "dir" | "worktree"
-	Branch   string
-	Error    string
-}
-
 // WorkspacePath: every work item owns exactly one workspace directory.
 func (k *Kernel) WorkspacePath(workItemID string) string {
 	return filepath.Join(k.Cfg.WorkspacesDir(), workItemID)
 }
 
-func isGitRepo(repo string) bool {
-	cmd := exec.Command("git", "-C", repo, "rev-parse", "--git-dir")
-	cmd.Stdin = nil
-	return cmd.Run() == nil
-}
-
-// EnsureWorkspace creates the workspace: a plain directory by default, a git
-// worktree on a dedicated branch when a local repo is given. The carrier
-// changes; the contract (one directory per work item) does not.
-func (k *Kernel) EnsureWorkspace(workItemID, repo string) WorkspaceResult {
+// EnsureWorkspace creates the work item's own directory. The repositories it
+// works on are checkouts attached to it later (internal/repos), so the
+// kernel never needs to know what carries them.
+func (k *Kernel) EnsureWorkspace(workItemID string) string {
 	dir := k.WorkspacePath(workItemID)
-	_ = os.MkdirAll(filepath.Dir(dir), 0o755)
-	if repo != "" && isGitRepo(repo) {
-		branch := "hidane/" + workItemID
-		out, err := exec.Command("git", "-C", repo, "worktree", "add", dir, "-b", branch).CombinedOutput()
-		_ = os.MkdirAll(filepath.Join(dir, ".hidane", "sessions"), 0o755)
-		if err == nil {
-			return WorkspaceResult{Path: dir, Provider: "worktree", Branch: branch}
-		}
-		msg := strings.TrimSpace(string(out))
-		if len(msg) > 300 {
-			msg = msg[:300]
-		}
-		return WorkspaceResult{Path: dir, Provider: "dir", Error: "worktree add failed: " + msg}
-	}
 	_ = os.MkdirAll(filepath.Join(dir, ".hidane", "sessions"), 0o755)
-	return WorkspaceResult{Path: dir, Provider: "dir"}
+	return dir
 }
 
 // ErrNotFound is returned for unknown ids.

@@ -95,6 +95,11 @@ func ListArtifacts(workspace string) []ArtifactEntry {
 			if strings.HasPrefix(name, ".") || skipDirs[name] {
 				return fs.SkipDir
 			}
+			// A checkout inside the workspace is a repository, not a work
+			// product: its changes are read through git, not listed file by file.
+			if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if skipDirs[name] || !d.Type().IsRegular() {

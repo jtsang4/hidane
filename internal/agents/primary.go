@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -84,10 +85,13 @@ func (s *System) surfaceEscalation(ctx context.Context, m kernel.Event) error {
 }
 
 type primaryTurn struct {
-	s       *System
-	batch   []kernel.Event
-	all     []kernel.WorkItem
-	busy    []string
+	s     *System
+	batch []kernel.Event
+	all   []kernel.WorkItem
+	busy  []string
+	// working: items holding an active checkout, which a follow-up can still
+	// reach however long ago they ended.
+	working map[string]bool
 	covered map[string]bool
 	// confirmed: what status changes and cancels actually did, per message.
 	// They answer together, once: the model's own reply would say it a
@@ -120,6 +124,18 @@ func (t *primaryTurn) open() []kernel.WorkItem {
 	var out []kernel.WorkItem
 	for _, i := range t.all {
 		if i.Status == kernel.StatusOpen {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// routable are the items a message may go to: open ones, and finished ones
+// whose worktree still holds their work.
+func (t *primaryTurn) routable() []kernel.WorkItem {
+	var out []kernel.WorkItem
+	for _, i := range t.all {
+		if i.Status == kernel.StatusOpen || t.working[i.ID] {
 			out = append(out, i)
 		}
 	}
@@ -269,7 +285,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		if typ == "route" && target != "" && isExcluded(target) {
 			return nil
 		}
-		item, found := t.find(t.open(), target)
+		item, found := t.find(t.routable(), target)
 		conf := 1.0
 		if confidence != nil {
 			conf = *confidence
@@ -295,7 +311,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 				candidates = append(candidates, map[string]any{"workItemId": "new", "title": ""})
 				continue
 			}
-			if it, ok := t.find(t.open(), id); ok && !isExcluded(it.ID) {
+			if it, ok := t.find(t.routable(), id); ok && !isExcluded(it.ID) {
 				candidates = append(candidates, map[string]any{"workItemId": it.ID, "title": it.Title})
 			}
 		}
@@ -328,9 +344,14 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		if title == "" {
 			title = clipRunes(subject.Payload.Str("text"), 60)
 		}
-		item, err := k.CreateWorkItem(ctx, title, "agent:primary", kernel.CreateWorkItemOpts{Repo: Str(e["repo"]), Of: subject.ID})
+		// Which repositories is settled before anything exists: a question
+		// goes to the person instead of work starting on a guess.
+		item, problem, err := s.StartWorkItem(ctx, title, "agent:primary", kernel.CreateWorkItemOpts{Of: subject.ID}, parseRepoRequests(e))
 		if err != nil {
 			return err
+		}
+		if problem != "" {
+			return t.reply(ctx, m, problem)
 		}
 		if r := runAsOf(subject); r != nil {
 			if item, err = k.SetWorkItemRunAs(ctx, item.ID, r, "agent:primary"); err != nil {
@@ -445,6 +466,28 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		}
 		return t.confirm(ctx, m, fmt.Sprintf("没有工作项需要变更（目标状态：%s）。", status))
 
+	case "update_repo":
+		t.cover(m, nil)
+		r, err := s.Repos.Relocate(ctx, Str(e["repo"]), Str(e["path"]), "agent:primary")
+		if err != nil {
+			return t.confirm(ctx, m, RepoProblem(Str(e["path"]), err))
+		}
+		return t.confirm(ctx, m, fmt.Sprintf("已记下：仓库「%s」现在在 %s。", r.Name, r.Path))
+
+	case "forget_repo":
+		t.cover(m, nil)
+		r, err := k.GetRepo(ctx, Str(e["repo"]))
+		if err != nil {
+			return t.confirm(ctx, m, "无法移除仓库：只能使用仓库清单里的 ID。")
+		}
+		if err := s.Repos.Forget(ctx, r.ID, "agent:primary"); err != nil {
+			if errors.Is(err, kernel.ErrRepoInUse) {
+				return t.confirm(ctx, m, fmt.Sprintf("仓库「%s」还有任务在用的工作树，先在任务页的「工作树」里归档它们。", r.Name))
+			}
+			return err
+		}
+		return t.confirm(ctx, m, fmt.Sprintf("已从仓库列表里移除「%s」。", r.Name))
+
 	case "cancel":
 		t.cover(m, nil)
 		present, ids, malformed := parseIDs(e["work_item_ids"])
@@ -523,9 +566,21 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	if err != nil {
 		return err
 	}
-	t := &primaryTurn{s: s, batch: batch, all: all, busy: busy, covered: map[string]bool{}}
+	held, err := s.checkoutsByItem(ctx)
+	if err != nil {
+		return err
+	}
+	working := map[string]bool{}
+	for id, ic := range held {
+		for _, c := range ic.list {
+			if c.Status == kernel.CheckoutActive {
+				working[id] = true
+			}
+		}
+	}
+	t := &primaryTurn{s: s, batch: batch, all: all, busy: busy, working: working, covered: map[string]bool{}}
 	var openIDs []string
-	for _, i := range t.open() {
+	for _, i := range t.routable() {
 		openIDs = append(openIDs, i.ID)
 	}
 	understanding, err := s.latestUnderstanding(ctx, openIDs)
@@ -547,6 +602,9 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 		l += ": " + i.Title
 		if u := understanding[i.ID]; u != "" {
 			l += " — " + u
+		}
+		if r := held[i.ID].short(); r != "" {
+			l += " — " + r
 		}
 		return l
 	}
@@ -577,7 +635,8 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	prompt := joinNonEmpty([]string{
 		kernel.NowLine(k.Now()),
 		s.RecallForPrimary(),
-		"Open work items (routing targets):\n" + list(t.open()),
+		"Work items you can route to (open, or finished but still holding a worktree):\n" + list(t.routable()),
+		"Repositories (the person's local git repos):\n" + s.repoInventory(ctx),
 		"All work items (status management):\n" + list(all),
 		"Running executions (cancellation targets):\n" + running,
 		recentConv.Text,

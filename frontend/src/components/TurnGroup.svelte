@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlarmClock, CircleHelp, CornerDownRight, Webhook } from "@lucide/svelte";
+  import { AlarmClock, CircleHelp, CornerDownRight, FolderGit2, Webhook } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import type { BoardCard, EscalationStep, HidaneEvent } from "../lib/api.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
@@ -87,7 +87,7 @@
     {/if}
   {:else if turn.origin}
     <p class="flex items-center justify-center gap-1.5 text-xs text-muted">
-      {#if turn.origin.kind === "scheduled"}<AlarmClock size={12} aria-hidden="true" />{$t("conversation.scheduled", { name: turn.origin.text })}{:else if turn.origin.kind === "external"}<Webhook size={12} aria-hidden="true" /><span class="max-w-[70vw] truncate">{$t("conversation.external")} · {turn.origin.text}</span>{:else}{$t("conversation.earlier")}{/if}
+      {#if turn.origin.kind === "scheduled"}<AlarmClock size={12} aria-hidden="true" />{$t("conversation.scheduled", { name: turn.origin.text })}{:else if turn.origin.kind === "external"}<Webhook size={12} aria-hidden="true" /><span class="max-w-[70vw] truncate">{$t("conversation.external")} · {turn.origin.text}</span>{:else if turn.origin.kind === "repo"}<FolderGit2 size={12} aria-hidden="true" /><span class="max-w-[70vw] truncate">{$t("conversation.repoCheck")} · {turn.origin.text}</span>{:else}{$t("conversation.earlier")}{/if}
     </p>
   {/if}
 
@@ -109,7 +109,7 @@
         <div class={cn("max-w-[85%] rounded-lg border px-3 py-2.5 text-sm", openEscalation.has(answer.id) ? "border-danger/40 bg-danger/5" : "border-border bg-surface")}>
           <p class="flex items-center gap-1.5 text-xs font-medium text-danger">
             <CircleHelp size={13} aria-hidden="true" />
-            {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "deadline" ? answer.payload["reason"] : "question"}`)}
+            {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "deadline" || answer.payload["reason"] === "repo_missing" ? answer.payload["reason"] : "question"}`)}
           </p>
           <p class="mt-1 whitespace-pre-wrap select-text">{escalationText(answer.payload)}</p>
           {#if path.some((step) => step.tried)}

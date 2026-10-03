@@ -26,6 +26,7 @@ type Config struct {
 	DistillInterval      time.Duration
 	RouteTimeout         time.Duration
 	WorkerTimeout        time.Duration
+	SetupTimeout         time.Duration
 	MaxHops              int
 	MaxWorkers           int
 	MaxConcurrentTurns   int
@@ -96,6 +97,7 @@ func Load() *Config {
 		DistillInterval:         envSec("HIDANE_DISTILL_SEC", 600),
 		RouteTimeout:            envSec("HIDANE_ROUTE_TIMEOUT_SEC", 180),
 		WorkerTimeout:           envSec("HIDANE_WORKER_TIMEOUT_SEC", 600),
+		SetupTimeout:            envSec("HIDANE_SETUP_TIMEOUT_SEC", 1200),
 		MaxHops:                 envInt("HIDANE_MAX_HOPS", 24),
 		MaxWorkers:              envInt("HIDANE_MAX_WORKERS", 3),
 		MaxConcurrentTurns:      envInt("HIDANE_MAX_TURNS", 4),

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   canonical,
   inSettings,
+  itemsHref,
+  itemsViewFrom,
   leaveSettings,
   navigate,
   openSettings,
@@ -70,5 +72,16 @@ describe("addresses that moved", () => {
     navigate("/events");
     expect(routerState.path).toBe("/settings/events");
     expect(window.location.pathname).toBe("/settings/events");
+  });
+});
+
+describe("the task page's two lists", () => {
+  it("keeps the worktree list in the address", () => {
+    navigate(itemsHref("worktrees"));
+    expect(routeFor(routerState.path)).toEqual({ name: "items" });
+    expect(itemsViewFrom()).toBe("worktrees");
+    navigate(itemsHref("tasks"));
+    expect(routerState.path + routerState.search).toBe("/items");
+    expect(itemsViewFrom()).toBe("tasks");
   });
 });

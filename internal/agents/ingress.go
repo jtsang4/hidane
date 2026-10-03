@@ -285,7 +285,20 @@ func (s *System) notifyParentIfSettled(ctx context.Context, child kernel.WorkIte
 				result += fmt.Sprintf("\n[truncated — the full answer is in work item %s; its files are in %s]", sib.ID, sib.Workspace)
 			}
 		}
-		results = append(results, map[string]any{"workItemId": sib.ID, "title": sib.Title, "status": sib.Status, "result": result})
+		entry := map[string]any{"workItemId": sib.ID, "title": sib.Title, "status": sib.Status, "result": result}
+		// Where the child's work is, for the parent to merge it back.
+		if held, err := s.checkoutsOf(ctx, sib.ID, ""); err == nil {
+			var branches []any
+			for _, c := range held.list {
+				if c.Mode == kernel.CheckoutWorktree && c.Branch != "" {
+					branches = append(branches, held.repos[c.RepoID].Name+": "+c.Branch)
+				}
+			}
+			if len(branches) > 0 {
+				entry["branches"] = branches
+			}
+		}
+		results = append(results, entry)
 	}
 	payload := kernel.Payload{"children": results}
 	if causedBy != nil {

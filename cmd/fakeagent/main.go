@@ -122,6 +122,14 @@ func emit(v any) {
 
 var msgLine = regexp.MustCompile(`(?m)^\[(ev_[0-9a-z]+)\] \(([a-z]+)[^)]*\)\s?(.*)$`)
 
+// Hints a test puts in a message to steer the fake Primary: REPO=<name or
+// path> (several allowed), FROM=<work item>, INPLACE, ROUTE=<work item>.
+var (
+	repoHint  = regexp.MustCompile(`REPO=(\S+)`)
+	fromHint  = regexp.MustCompile(`FROM=(wi_\w+)`)
+	routeHint = regexp.MustCompile(`ROUTE=(wi_\w+)`)
+)
+
 func effects(list ...map[string]any) string {
 	b, _ := json.Marshal(map[string]any{"effects": list})
 	return string(b)
@@ -171,9 +179,24 @@ func brain(system, prompt string) string {
 				// A model announces the change before it is made.
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就全部关闭。"},
 					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"})
+			case routeHint.MatchString(text):
+				list = append(list, map[string]any{"type": "route", "of": id, "work_item_id": routeHint.FindStringSubmatch(text)[1],
+					"message": text, "confidence": 1.0})
 			default:
-				list = append(list, map[string]any{"type": "create_work_item", "of": id, "title": firstRunes(text, 30),
-					"brief": text, "repo": nil, "dispatch": true})
+				effect := map[string]any{"type": "create_work_item", "of": id, "title": firstRunes(text, 30),
+					"brief": text, "repos": []any{}, "dispatch": true}
+				var repos []any
+				for _, m := range repoHint.FindAllStringSubmatch(text, -1) {
+					spec := map[string]any{"repo": m[1], "in_place": strings.Contains(text, "INPLACE")}
+					if f := fromHint.FindStringSubmatch(text); f != nil {
+						spec["from"] = f[1]
+					}
+					repos = append(repos, spec)
+				}
+				if repos != nil {
+					effect["repos"] = repos
+				}
+				list = append(list, effect)
 			}
 		}
 		return "```json\n" + effects(list...) + "\n```"
@@ -217,6 +240,12 @@ func brain(system, prompt string) string {
 				map[string]any{"title": "", "brief": "调研 A 的价格"},
 				map[string]any{"title": "调研 B", "brief": "调研 B 的价格"},
 			}}, map[string]any{"type": "reply", "reply": "已拆分"})
+		}
+		if strings.Contains(turn, "SPLIT_CHILDREN") {
+			return effects(map[string]any{"type": "create_children", "children": []any{
+				map[string]any{"title": "part A", "brief": "写 part A"},
+				map[string]any{"title": "part B", "brief": "写 part B"},
+			}}, map[string]any{"type": "reply", "reply": "已拆分成两个子任务"})
 		}
 		if strings.Contains(turn, "LONG_REPLY") {
 			return effects(map[string]any{"type": "reply", "reply": "开头" + strings.Repeat("长", 11000) + "结尾"})

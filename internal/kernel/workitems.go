@@ -63,7 +63,6 @@ func scanWorkItem(s scanner) (WorkItem, error) {
 }
 
 type CreateWorkItemOpts struct {
-	Repo     string
 	ParentID string
 	// Of is the message this work item was created for (its conversation anchor).
 	Of string
@@ -73,7 +72,7 @@ type CreateWorkItemOpts struct {
 func (k *Kernel) CreateWorkItem(ctx context.Context, title, source string, opts CreateWorkItemOpts) (WorkItem, error) {
 	id := GenID("wi", 6)
 	threadID := GenID("th", 6)
-	ws := k.EnsureWorkspace(id, opts.Repo)
+	ws := k.EnsureWorkspace(id)
 	now := k.stamp()
 	tx, err := k.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -85,17 +84,13 @@ func (k *Kernel) CreateWorkItem(ctx context.Context, title, source string, opts 
 		return WorkItem{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items (id, title, workspace, thread_id, parent_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, id, title, ws.Path, threadID, nullable(opts.ParentID), now, now); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, id, title, ws, threadID, nullable(opts.ParentID), now, now); err != nil {
 		return WorkItem{}, err
 	}
 	payload := Payload{
-		"title":          title,
-		"workspace":      ws.Path,
-		"provider":       ws.Provider,
-		"branch":         nilIfEmpty(ws.Branch),
-		"repo":           nilIfEmpty(opts.Repo),
-		"workspaceError": nilIfEmpty(ws.Error),
-		"parentId":       nilIfEmpty(opts.ParentID),
+		"title":     title,
+		"workspace": ws,
+		"parentId":  nilIfEmpty(opts.ParentID),
 	}
 	if opts.Of != "" {
 		payload["of"] = opts.Of

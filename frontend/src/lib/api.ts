@@ -90,6 +90,62 @@ export interface BoardCard {
   anchor: string | null;
   childIds: string[];
   lastSeq: number;
+  /** Repositories the task works in, as recorded (no live git state). */
+  checkouts: CardCheckout[];
+}
+
+export type CheckoutMode = "worktree" | "in_place";
+export type SetupState = "none" | "pending" | "running" | "done" | "failed";
+
+export interface CardCheckout {
+  id: string;
+  repo: string;
+  branch: string;
+  mode: CheckoutMode;
+  status: "active" | "archived";
+  setup: SetupState;
+  missing: boolean;
+  /** The branch it was started from, when that is earlier work rather than the repo's default. */
+  continues: string;
+}
+
+/** One of the person's local repositories. The path is where it was last seen. */
+export interface Repo {
+  id: string;
+  name: string;
+  path: string;
+  remote: string;
+  defaultBranch: string;
+  status: "present" | "missing";
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A task's checkout of a repository with its live state. */
+export interface CheckoutView {
+  id: string;
+  workItemId: string;
+  repoId: string;
+  mode: CheckoutMode;
+  path: string;
+  branch: string;
+  base: string;
+  status: "active" | "archived";
+  setup: SetupState;
+  createdAt: string;
+  updatedAt: string;
+  repoName: string;
+  repoPath: string;
+  repoStatus: "present" | "missing";
+  health: "ok" | "missing" | "repo_missing";
+  /** -1 when it cannot be read. */
+  ahead: number;
+  dirty: number;
+  head: string;
+  title: string;
+  itemStatus: WorkItemStatus | "";
+  running: boolean;
+  lastActivityAt: string;
 }
 
 export interface EscalationStep {
@@ -426,6 +482,7 @@ export const api = {
       running: boolean;
       execution: Execution | null;
       children: WorkItem[];
+      checkouts: CheckoutView[];
     }>(`/api/work-items/${id}${limit !== undefined ? `?limit=${limit}` : ""}`),
   /**
    * The one message door. `target` addresses a work item directly (no routing
@@ -482,6 +539,15 @@ export const api = {
       `/api/schedules/${id}/run`,
       { method: "POST" },
     ),
+  repos: () => apiFetch<{ repos: Repo[] }>(`/api/repos`),
+  forgetRepo: (id: string) => apiFetch<{ ok: boolean }>(`/api/repos/${id}`, { method: "DELETE" }),
+  checkouts: (all = false) => apiFetch<{ checkouts: CheckoutView[] }>(`/api/checkouts${all ? "?all" : ""}`),
+  /** Refused with 409 while the task runs, or with `dirty` when uncommitted work would be lost and `force` is not set. */
+  archiveCheckout: (id: string, force = false) =>
+    apiFetch<{ ok: boolean; checkout: CheckoutView }>(`/api/checkouts/${id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    }),
   createWorkItem: (input: { title: string; brief?: string; repo?: string; parentId?: string }) =>
     apiFetch<{ ok: boolean; item: WorkItem; dispatched: boolean }>(`/api/work-items`, {
       method: "POST",

@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,8 @@ import (
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/repos"
+	"github.com/jtsang4/hidane/internal/settings"
 )
 
 // WorkerPool runs executions — the runtime's I/O. They are dispatched from a
@@ -47,6 +50,8 @@ type job struct {
 	buffer    []string
 	cancelled bool
 	pending   string
+	// stopSetup ends a repo's setup script still running before the agent starts.
+	stopSetup context.CancelFunc
 }
 
 func newWorkerPool(s *System) *WorkerPool {
@@ -247,6 +252,82 @@ func (p *WorkerPool) runJob(j *job) {
 		}
 		hidaneDir := filepath.Join(it.Workspace, ".hidane")
 		_ = os.MkdirAll(hidaneDir, 0o755)
+		// A fresh worktree is set up before the first worker that needs it;
+		// the person's cancel stops the script as it would the agent.
+		held, err := p.s.checkoutsOf(ctx, it.ID, kernel.CheckoutActive)
+		if err != nil {
+			outcome.Error = err.Error()
+			return
+		}
+		setupCtx, stopSetup := context.WithCancel(p.ctx)
+		defer stopSetup()
+		j.mu.Lock()
+		j.stopSetup = stopSetup
+		cancelled := j.cancelled
+		j.mu.Unlock()
+		var setupNotes []string
+		for i, c := range held.list {
+			if cancelled || c.Setup != kernel.SetupPending {
+				continue
+			}
+			res := p.s.Repos.RunSetup(setupCtx, it, c, j.executionID)
+			if !res.Ran {
+				continue
+			}
+			held.list[i].Setup = kernel.SetupDone
+			if !res.OK {
+				held.list[i].Setup = kernel.SetupFailed
+				setupNotes = append(setupNotes, fmt.Sprintf("The setup script of %s failed (full log: %s). Its last output:\n%s",
+					held.repos[c.RepoID].Name, res.LogPath, res.Tail))
+			}
+			j.mu.Lock()
+			cancelled = j.cancelled
+			j.mu.Unlock()
+		}
+		r := p.s.Settings.Get().ResolveWith("worker", ownRun(it))
+		// The worker starts in its first repository, where that repo's own
+		// agent instructions are found; the workspace stays its home. Codex
+		// cannot: its sandbox makes the git metadata of a worktree it starts
+		// in read-only, so nothing could be committed — it starts in the
+		// workspace and is pointed at the repository instead.
+		startInRepo := r.Agent != settings.Codex
+		cwd := it.Workspace
+		roots := []string{it.Workspace}
+		var lent []string
+		for _, c := range held.list {
+			if !repos.Present(c.Path) {
+				continue
+			}
+			if cwd == it.Workspace && startInRepo {
+				cwd = c.Path
+			}
+			if c.Mode == kernel.CheckoutInPlace {
+				lent = append(lent, c.Path)
+				roots = append(roots, c.Path)
+			}
+			if dir := p.s.Repos.GitDir(ctx, c); dir != "" {
+				roots = append(roots, dir)
+			}
+		}
+		header := []string{"Work item workspace (TASK.md and MEMORY.md live here): " + it.Workspace}
+		if l := held.long(); l != "" {
+			start := "You start in " + cwd + "."
+			if cwd == it.Workspace {
+				start += " Run git and make changes inside the repository's own directory."
+			}
+			header = append(header, "Repositories you work in:\n"+l, start)
+			if cwd == it.Workspace {
+				// What the CLI would have read itself, had it started there.
+				for _, c := range held.list {
+					if doc := kernel.ReadTextFile(filepath.Join(c.Path, "AGENTS.md")); strings.TrimSpace(doc) != "" {
+						header = append(header, fmt.Sprintf("%s/AGENTS.md — the repository's own instructions for agents; follow them for work in it:\n%s",
+							c.Path, clipNoted(doc, 16000)))
+					}
+				}
+			}
+		}
+		header = append(header, setupNotes...)
+		instructions = strings.Join(header, "\n\n") + "\n\nInstructions:\n" + instructions
 		// The guard's own signals live outside the workspace, where the worker
 		// it governs cannot delete or forge them.
 		control := filepath.Join(k.Cfg.RuntimeDir(), "executions", j.executionID)
@@ -255,11 +336,10 @@ func (p *WorkerPool) runJob(j *job) {
 		pending := filepath.Join(control, "pending-input")
 		blocks := filepath.Join(control, "policy-blocks.jsonl")
 		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks,
-			Workspace: it.Workspace, Protected: k.Cfg.Home}
-		r := p.s.Settings.Get().ResolveWith("worker", ownRun(it))
+			Workspace: it.Workspace, Writable: lent, Cwd: cwd, Protected: k.Cfg.Home}
 		req := agentcli.Request{
-			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: it.Workspace, Tools: true,
-			Model: r.Model, Effort: r.Effort, Provider: r.Provider,
+			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: cwd, Tools: true,
+			Model: r.Model, Effort: r.Effort, Provider: r.Provider, WritableRoots: roots,
 			SessionDir: filepath.Join(hidaneDir, "sessions"), Env: genv.Vars(), Timeout: k.Cfg.WorkerTimeout,
 			// Two-phase side-effect trail: intent before the tool acts, result after.
 			OnTool: func(e agentcli.ToolEvent) {
@@ -277,7 +357,7 @@ func (p *WorkerPool) runJob(j *job) {
 		}
 		j.mu.Lock()
 		j.pending = pending
-		cancelled := j.cancelled
+		cancelled = j.cancelled
 		j.mu.Unlock()
 		if cancelled {
 			outcome.Cancelled, outcome.Error = true, "cancelled"
@@ -486,8 +566,11 @@ func (p *WorkerPool) CancelTree(ctx context.Context, workItemID, reason, source 
 			// The worker stops and its own completion reports the cancellation.
 			j.mu.Lock()
 			j.cancelled = true
-			run := j.run
+			run, stopSetup := j.run, j.stopSetup
 			j.mu.Unlock()
+			if stopSetup != nil {
+				stopSetup()
+			}
 			if run != nil {
 				run.Cancel()
 			}

@@ -48,18 +48,20 @@ fi
 # Which scenarios a path can break. Keep in step with acceptance/scenarios.md.
 scenarios_for() {
   case "$1" in
-    internal/guard/*) echo "5E 6B" ;;
+    internal/guard/*) echo "5E 6B 7F" ;;
+    internal/repos/*) echo "7A 7B 7C 7D 7E 7F 7G" ;;
     internal/agentcli/*) echo "1 5B 6A 6B 6E" ;;
-    internal/agents/*) echo "1 2 4B 4F 4I 4R 5A 5B 5C 5D 5F 5H 6E" ;;
+    internal/agents/*) echo "1 2 4B 4F 4I 4R 5A 5B 5C 5D 5F 5H 6E 7A 7B 7C 7E 7F 7G" ;;
     internal/kernel/*) echo "3 4 5G 5H" ;;
     internal/projections/*) echo "3 4O 4P 4R" ;;
-    internal/api/*) echo "4A 4E 4J 4K 4L 4N 4O 4P 4Q" ;;
+    internal/api/*) echo "4A 4E 4J 4K 4L 4N 4O 4P 4Q 7D 7E" ;;
     internal/connectors/*) echo "2 4H 4L" ;;
     internal/feishu/*) echo "4C 4D 4M" ;;
     internal/settings/*) echo "6A 6E" ;;
     internal/desktop/* | gui_on.go | gui_off.go | build/*) echo "6C" ;;
     internal/app/* | main.go) echo "1 6A 6C" ;;
     frontend/src/components/RunPicker.svelte | frontend/src/components/RunAsBar.svelte | frontend/src/components/Composer.svelte | frontend/src/lib/runAs.ts | frontend/src/lib/favorites.svelte.ts) echo "5I 6E" ;;
+    frontend/src/components/WorktreesView.svelte | frontend/src/pages/ItemsPage.svelte | frontend/src/lib/worktrees.ts) echo "5I 7D" ;;
     frontend/*) echo "5I" ;;
     cmd/fakeagent/* | Makefile | .github/*) echo "6D" ;;
   esac

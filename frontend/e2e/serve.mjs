@@ -44,6 +44,13 @@ const env = {
   HIDANE_HOME: home,
   HIDANE_API_TOKEN: "e2e-token",
   HIDANE_WEBHOOK_SECRET: "e2e-secret",
+  // Worktrees and the fakes' commits use git: never the developer's own configuration.
+  GIT_CONFIG_GLOBAL: join(home, "gitconfig"),
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_AUTHOR_NAME: "e2e",
+  GIT_AUTHOR_EMAIL: "e2e@example.com",
+  GIT_COMMITTER_NAME: "e2e",
+  GIT_COMMITTER_EMAIL: "e2e@example.com",
 };
 if (delayMs) env.FAKEAGENT_DELAY_MS = delayMs;
 // A developer's own session must not leak into the fakes the server spawns.

@@ -124,6 +124,17 @@ export function focusHref(id: string | null): string {
   return conversationHref({ focus: id });
 }
 
+export type ItemsView = "tasks" | "worktrees";
+
+/** Which list the task page shows, from `?view=`. */
+export function itemsViewFrom(search = routerState.search): ItemsView {
+  return new URLSearchParams(search).get("view") === "worktrees" ? "worktrees" : "tasks";
+}
+
+export function itemsHref(view: ItemsView): string {
+  return view === "worktrees" ? "/items?view=worktrees" : "/items";
+}
+
 /** The event the conversation is opened at, from `?at=` — a permalink. */
 export function atFrom(search = routerState.search): string | null {
   const id = new URLSearchParams(search).get("at");

@@ -394,7 +394,7 @@ func TestMemoryFilesPromoteParseForget(t *testing.T) {
 func TestWorkItemMemoryCanBeForgotten(t *testing.T) {
 	k := kerneltest.New(t)
 	item := m(k.CreateWorkItem(ctx, "site", "test", kernel.CreateWorkItemOpts{}))
-	k.EnsureWorkspace(item.ID, "")
+	k.EnsureWorkspace(item.ID)
 	entry := promoted(k.PromoteToFile(ctx, "decision", "deploy from main", "work_item", item.Workspace, item.ID, "test"))
 	layers := m(k.WorkItemMemories(ctx))
 	if len(layers) != 1 || layers[0].WorkItemID != item.ID || len(layers[0].Entries) != 1 || layers[0].Entries[0].ID != entry.ID {

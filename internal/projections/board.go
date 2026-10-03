@@ -26,6 +26,22 @@ type BoardCard struct {
 	Anchor          *string         `json:"anchor"`
 	ChildIDs        []string        `json:"childIds"`
 	LastSeq         int64           `json:"lastSeq"`
+	Checkouts       []CardCheckout  `json:"checkouts"`
+}
+
+// CardCheckout is a repository the work item works in, as recorded — the
+// card is polled often, so it never asks git.
+type CardCheckout struct {
+	ID      string `json:"id"`
+	Repo    string `json:"repo"`
+	Branch  string `json:"branch"`
+	Mode    string `json:"mode"`
+	Status  string `json:"status"`
+	Setup   string `json:"setup"`
+	Missing bool   `json:"missing"`
+	// Continues is the branch this one was started from when that is not the
+	// repo's default — earlier work it carries on.
+	Continues string `json:"continues"`
 }
 
 type CardReply struct {
@@ -176,6 +192,31 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 	for _, a := range activeTurns {
 		turns[a] = true
 	}
+	checkouts, err := k.ListCheckouts(ctx, kernel.CheckoutFilter{})
+	if err != nil {
+		return nil, err
+	}
+	repoList, err := k.ListRepos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	repoByID := map[string]kernel.Repo{}
+	for _, r := range repoList {
+		repoByID[r.ID] = r
+	}
+	held := map[string][]CardCheckout{}
+	for _, c := range checkouts {
+		r, ok := repoByID[c.RepoID]
+		if !ok {
+			r.Name = c.RepoID
+		}
+		card := CardCheckout{ID: c.ID, Repo: r.Name, Branch: c.Branch, Mode: c.Mode,
+			Status: c.Status, Setup: c.Setup, Missing: !ok || r.Status == kernel.RepoMissing}
+		if c.Base != "" && c.Base != c.Branch && c.Base != r.DefaultBranch {
+			card.Continues = c.Base
+		}
+		held[c.WorkItemID] = append(held[c.WorkItemID], card)
+	}
 	for _, item := range items {
 		latest := byItem[item.ID]
 		esc, hasEsc := latest["escalation"]
@@ -232,9 +273,12 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 		case item.Status == kernel.StatusOpen:
 			state = "idle"
 		}
-		card := BoardCard{Item: item, State: state, Execution: execView, ChildIDs: childIDs, LastSeq: maxSeq[item.ID]}
+		card := BoardCard{Item: item, State: state, Execution: execView, ChildIDs: childIDs, LastSeq: maxSeq[item.ID], Checkouts: held[item.ID]}
 		if card.ChildIDs == nil {
 			card.ChildIDs = []string{}
+		}
+		if card.Checkouts == nil {
+			card.Checkouts = []CardCheckout{}
 		}
 		if u, ok := latest["work_item.understanding"]; ok {
 			s := u.payload.Str("text")

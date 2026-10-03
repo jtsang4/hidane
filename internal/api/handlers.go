@@ -17,6 +17,7 @@ import (
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/projections"
+	"github.com/jtsang4/hidane/internal/repos"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
@@ -207,17 +208,30 @@ func (s *server) workItem(w http.ResponseWriter, r *http.Request) {
 	if running {
 		execution = ex
 	}
+	held, _ := s.K.ListCheckouts(ctx, kernel.CheckoutFilter{WorkItemID: item.ID})
+	checkouts, err := s.describeCheckouts(ctx, held)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"item": item, "events": nonNil(page), "hasMore": hasMore,
-		"running": running, "execution": execution, "children": children})
+		"running": running, "execution": execution, "children": children, "checkouts": checkouts})
 }
 
 // createWorkItem: not every task starts as a conversation. The brief enters
 // through the same door as any message, addressed explicitly.
 func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title    string `json:"title"`
-		Brief    string `json:"brief"`
-		Repo     string `json:"repo"`
+		Title string `json:"title"`
+		Brief string `json:"brief"`
+		// Repo is one repository by name or path; Repos says more about each.
+		Repo  string `json:"repo"`
+		Repos []struct {
+			Repo    string `json:"repo"`
+			Base    string `json:"base"`
+			From    string `json:"from"`
+			InPlace bool   `json:"inPlace"`
+		} `json:"repos"`
 		ParentID string `json:"parentId"`
 	}
 	if err := readJSON(r, &body); err != nil {
@@ -236,9 +250,22 @@ func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	item, err := s.K.CreateWorkItem(ctx, title, "connector:web", kernel.CreateWorkItemOpts{Repo: strings.TrimSpace(body.Repo), ParentID: body.ParentID})
+	var wanted []agents.RepoRequest
+	if strings.TrimSpace(body.Repo) != "" {
+		wanted = append(wanted, agents.RepoRequest{Ref: body.Repo})
+	}
+	for _, rq := range body.Repos {
+		if strings.TrimSpace(rq.Repo) != "" {
+			wanted = append(wanted, agents.RepoRequest{Ref: rq.Repo, Spec: repos.AttachSpec{Base: rq.Base, From: rq.From, InPlace: rq.InPlace}})
+		}
+	}
+	item, problem, err := s.Sys.StartWorkItem(ctx, title, "connector:web", kernel.CreateWorkItemOpts{ParentID: body.ParentID}, wanted)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	if problem != "" {
+		writeJSON(w, http.StatusBadRequest, errBody(problem))
 		return
 	}
 	brief := strings.TrimSpace(body.Brief)

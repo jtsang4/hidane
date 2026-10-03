@@ -6,10 +6,10 @@
   import { atPointer, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { plainClick } from "../lib/nav.js";
   import { matchesItem } from "../lib/search.js";
-  import { focusHref, navigate } from "../lib/router.svelte.js";
+  import { focusHref, itemsHref, itemsViewFrom, navigate, type ItemsView } from "../lib/router.svelte.js";
   import { openTaskMenu } from "../lib/taskActions.js";
   import { ui } from "../lib/ui.svelte.js";
-  import { toolbarButton, toolbarButtonOn } from "../lib/styles.js";
+  import { segment, segmented, segmentOff, segmentOn, toolbarButton, toolbarButtonOn } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
   import MoreButton from "../components/MoreButton.svelte";
   import EmptyState from "../components/EmptyState.svelte";
@@ -18,10 +18,13 @@
   import Button from "../components/ui/Button.svelte";
   import Input from "../components/ui/Input.svelte";
   import Time from "../components/Time.svelte";
+  import WorktreesView from "../components/WorktreesView.svelte";
 
   const queryClient = useQueryClient();
   let all = $state(false);
   let query = $state("");
+  let view = $derived(itemsViewFrom());
+  const views: ItemsView[] = ["tasks", "worktrees"];
 
   const itemsQuery = createQuery(() => ({
     queryKey: ["items", all],
@@ -44,10 +47,18 @@
 
 <Page title={$t("items.title")}>
   {#snippet actions()}
-    {#if query.trim()}<span class="text-xs text-muted">{$t("items.matched", { n: shown.length, total: items.length })}</span>{/if}
-    <button type="button" class={cn(toolbarButton, all && toolbarButtonOn)} aria-pressed={all} onclick={() => (all = !all)}><Archive aria-hidden="true" />{$t(all ? "items.onlyOpen" : "items.showArchived")}</button>
-    <Button variant="soft" onclick={() => (ui.newTaskOpen = true)}><Plus size={16} />{$t("items.new")}</Button>
+    {#if view === "tasks" && query.trim()}<span class="text-xs text-muted">{$t("items.matched", { n: shown.length, total: items.length })}</span>{/if}
+    <div class={segmented} role="group" aria-label={$t("items.title")}>
+      {#each views as v (v)}
+        <button type="button" class={cn(segment, view === v ? segmentOn : segmentOff)} aria-pressed={view === v} onclick={() => navigate(itemsHref(v), { replace: true })}>{$t(v === "tasks" ? "worktrees.tasks" : "worktrees.tab")}</button>
+      {/each}
+    </div>
+    <button type="button" class={cn(toolbarButton, all && toolbarButtonOn)} aria-pressed={all} onclick={() => (all = !all)}><Archive aria-hidden="true" />{$t(all ? "items.onlyOpen" : view === "tasks" ? "items.showArchived" : "worktrees.showArchived")}</button>
+    {#if view === "tasks"}<Button variant="soft" onclick={() => (ui.newTaskOpen = true)}><Plus size={16} />{$t("items.new")}</Button>{/if}
   {/snippet}
+  {#if view === "worktrees"}
+    <WorktreesView {all} />
+  {:else}
   <Input bind:value={query} placeholder={$t("items.search")} aria-label={$t("items.search")} />
   {#if itemsQuery.isLoading}
     <p class="flex items-center gap-2 text-sm text-muted"><span class="size-3 animate-spin rounded-full border-[1.5px] border-muted border-t-transparent"></span>{$t("common.loading")}</p>
@@ -92,5 +103,6 @@
     <EmptyState icon={ListTodo} text={$t("items.empty")}>
       <Button variant="secondary" onclick={() => (ui.newTaskOpen = true)}><Plus />{$t("shell.newTask")}</Button>
     </EmptyState>
+  {/if}
   {/if}
 </Page>

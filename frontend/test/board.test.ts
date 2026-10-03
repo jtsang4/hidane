@@ -26,6 +26,7 @@ function card(id: string, state: CardState, lastSeq = 10, status: "open" | "done
     lastPolicyBlock: null,
     anchor: null,
     childIds: [],
+    checkouts: [],
     lastSeq,
   };
 }
