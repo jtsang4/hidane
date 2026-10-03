@@ -19,10 +19,12 @@ type claudeRun struct {
 	req     Request
 	started time.Time
 
-	mu            sync.Mutex
-	sent          int
-	results       int
-	replays       int
+	mu      sync.Mutex
+	sent    int
+	results int
+	// unread: what was written to stdin and not yet replayed — the prompt
+	// first, then each steer.
+	unread        []string
 	cancelled     bool
 	finishing     bool
 	timedOut      bool
@@ -132,7 +134,7 @@ func startClaude(ctx context.Context, l *Launcher, bin string, req Request) (Run
 	}
 	// The prompt is counted before the reader starts: a result can arrive
 	// before writeJSON returns.
-	r := &claudeRun{p: p, req: req, started: time.Now(), tools: map[string]string{}, sent: 1}
+	r := &claudeRun{p: p, req: req, started: time.Now(), tools: map[string]string{}, sent: 1, unread: []string{req.Prompt}}
 	p.readLines(r.onLine)
 	if err := p.writeJSON(claudeUserMessage(req.Prompt, req.Images)); err != nil {
 		p.kill()
@@ -237,8 +239,7 @@ func (r *claudeRun) onLine(line []byte) {
 	case "user":
 		if m.IsReplay {
 			r.mu.Lock()
-			r.replays++
-			steered := r.replays > 1
+			steered := r.readReplay(blocksOf(m.Message))
 			r.mu.Unlock()
 			if steered && r.req.OnSteerConsumed != nil {
 				r.req.OnSteerConsumed()
@@ -273,7 +274,7 @@ func (r *claudeRun) onLine(line []byte) {
 			// A message steered in mid-turn joins that turn: it is replayed but
 			// gets no result of its own, so results alone would wait forever.
 			// One not yet replayed is still unread and will start a turn.
-			finished = *m.QueuedTurns == 0 && (r.results >= r.sent || r.replays >= r.sent)
+			finished = *m.QueuedTurns == 0 && (r.results >= r.sent || len(r.unread) == 0)
 		}
 		r.finishing = finished
 		r.mu.Unlock()
@@ -281,6 +282,39 @@ func (r *claudeRun) onLine(line []byte) {
 			r.p.closeStdin()
 		}
 	}
+}
+
+// readReplay strikes what a replayed user message carries off the unread
+// list, and says whether that included steered words. Messages queued while
+// a turn ends come back merged into one replay, so the replay is matched by
+// its text, not counted (counted, two such messages left the run waiting for
+// a third replay until it timed out).
+func (r *claudeRun) readReplay(blocks []claudeBlock) (steered bool) {
+	var text strings.Builder
+	for _, b := range blocks {
+		if b.Type == "text" {
+			text.WriteString(b.Text)
+			text.WriteString("\n")
+		}
+	}
+	replayed := text.String()
+	// Until the prompt is replayed it heads the list; everything else is steered.
+	promptUnread := len(r.unread) == r.sent
+	var kept []string
+	for i, u := range r.unread {
+		if strings.Contains(replayed, strings.TrimSpace(u)) {
+			steered = steered || !(i == 0 && promptUnread)
+			continue
+		}
+		kept = append(kept, u)
+	}
+	if len(kept) == len(r.unread) && len(kept) > 0 {
+		// Not recognisable: it stands for the oldest message, as it always has.
+		steered = !promptUnread
+		kept = kept[1:]
+	}
+	r.unread = kept
+	return steered
 }
 
 func (r *claudeRun) Steer(text string) bool {
@@ -293,6 +327,7 @@ func (r *claudeRun) Steer(text string) bool {
 		return false
 	}
 	r.sent++
+	r.unread = append(r.unread, text)
 	return true
 }
 

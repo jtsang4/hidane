@@ -330,6 +330,39 @@ func TestClaudeSteerAbsorbedIntoTheRunningTurn(t *testing.T) {
 	}
 }
 
+// Real claude takes the messages queued as a turn ends into the next turn
+// as ONE message: one replay, one result for two steers. The run must still
+// end (it once waited for a third replay until it timed out).
+func TestClaudeSteersMergedAtTheTurnEnd(t *testing.T) {
+	h := newHarness(t, "FAKEAGENT_DELAY_MS=400", "FAKEAGENT_CLAUDE_MERGE=1")
+	consumed := make(chan struct{}, 4)
+	req := h.req("WRITE a.txt: first")
+	req.SystemPrompt = workerCharter
+	req.Tools = true
+	req.Timeout = 10 * time.Second
+	req.OnSteerConsumed = func() { consumed <- struct{}{} }
+	run, err := h.l.Start(context.Background(), "claude", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if !run.Steer("WRITE b.txt: second") || !run.Steer("WRITE c.txt: third") {
+		t.Fatal("a running agent must accept steering")
+	}
+	res := run.Wait()
+	if !res.OK {
+		t.Fatalf("%+v", res)
+	}
+	for _, f := range []string{"b.txt", "c.txt"} {
+		if _, err := os.Stat(filepath.Join(h.cwd, f)); err != nil {
+			t.Fatalf("steered instruction was not carried out: %v (%s)", err, res.Text)
+		}
+	}
+	if len(consumed) == 0 {
+		t.Fatal("steered input was never reported as consumed")
+	}
+}
+
 // app-server skips a hook it does not trust without a word: a tool call the
 // guard never saw must stop the run, not pass unchecked.
 func TestCodexStopsWhenTheGuardDidNotRun(t *testing.T) {

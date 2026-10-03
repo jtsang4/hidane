@@ -451,13 +451,35 @@ func runClaude(args []string) {
 	}()
 	// FAKEAGENT_CLAUDE_ABSORB mimics real claude: a message that arrives while
 	// a turn runs joins that turn (replayed, no result of its own).
+	// FAKEAGENT_CLAUDE_MERGE mimics it at a turn's end: the messages queued by
+	// then make up the next turn together, as one user message.
 	absorb := os.Getenv("FAKEAGENT_CLAUDE_ABSORB") == "1"
+	merge := os.Getenv("FAKEAGENT_CLAUDE_MERGE") == "1"
 	n := 0
 	for prompt := range queue {
 		n++
-		emit(map[string]any{"type": "user", "isReplay": true, "session_id": session,
-			"message": map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": prompt}}}})
 		parts := []string{prompt}
+		if merge {
+		waiting:
+			for {
+				select {
+				case more, ok := <-queue:
+					if !ok {
+						break waiting
+					}
+					parts = append(parts, more)
+				default:
+					break waiting
+				}
+			}
+			prompt = strings.Join(parts, "\n")
+		}
+		var content []any
+		for _, part := range parts {
+			content = append(content, map[string]any{"type": "text", "text": part})
+		}
+		emit(map[string]any{"type": "user", "isReplay": true, "session_id": session,
+			"message": map[string]any{"role": "user", "content": content}})
 		if absorb {
 			delay()
 		drain:
