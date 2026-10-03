@@ -338,25 +338,30 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 	return nil
 }
 
-// lateWords are the person's words that reached an execution too late to be
-// given to it, keyed by execution: they ride with its outcome instead.
-func (s *System) lateWords(ctx context.Context, batch []kernel.Event) (map[string][]string, error) {
-	out := map[string][]string{}
+// steeredWords are the person's words handed to each finished execution while
+// it ran (given), and those that came too late to be given to it (late): the
+// latter ride with its outcome instead. Keyed by execution.
+func (s *System) steeredWords(ctx context.Context, batch []kernel.Event) (given, late map[string][]string, err error) {
+	given, late = map[string][]string{}, map[string][]string{}
 	for _, m := range batch {
 		if m.Kind != "execution.finished" || m.ExecutionID == "" {
 			continue
 		}
 		steered, err := s.K.ListEvents(ctx, kernel.ListFilter{Kind: "execution.steered", ExecutionID: m.ExecutionID, Limit: 50})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, e := range steered {
-			if e.Payload.Bool("late") {
-				out[m.ExecutionID] = append(out[m.ExecutionID], e.Payload.Str("text"))
+			text := e.Payload.Str("text")
+			switch {
+			case e.Payload.Bool("late"):
+				late[m.ExecutionID] = append(late[m.ExecutionID], text)
+			case text != "":
+				given[m.ExecutionID] = append(given[m.ExecutionID], text)
 			}
 		}
 	}
-	return out, nil
+	return given, late, nil
 }
 
 type managerSession struct {
@@ -410,7 +415,7 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		}
 		return nil
 	}
-	late, err := s.lateWords(ctx, others)
+	given, late, err := s.steeredWords(ctx, others)
 	if err != nil {
 		return err
 	}
@@ -490,6 +495,11 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	var described []string
 	for _, m := range messages {
 		d := describeManager(m, children)
+		if words := given[m.ExecutionID]; m.Kind == "execution.finished" && len(words) > 0 {
+			// Unsaid, the words read as a request still open: a result that had
+			// already carried them out was once handed to a second worker.
+			d += "\nThe person said this while the run was going and the worker received it; the result above should account for it:\n- " + strings.Join(words, "\n- ")
+		}
 		if words := late[m.ExecutionID]; m.Kind == "execution.finished" && len(words) > 0 {
 			d += "\nThe person said this while the run was ending; the worker never saw it:\n- " + strings.Join(words, "\n- ")
 		}

@@ -376,49 +376,62 @@ func TestExplicitTargetSkipsThePrimary(t *testing.T) {
 }
 
 func TestSteeringReachesTheRunningWorker(t *testing.T) {
-	w := newWorld(t, settings.Pi, "FAKEAGENT_DELAY_MS=1500")
-	item := m(w.k.CreateWorkItem(ctx, "long job", "test", kernel.CreateWorkItemOpts{}))
-	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "start", Source: "connector:web", Target: item.ID}))
-	if err := w.rt.Drain(20); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		ex, ok, _ := w.k.ActiveExecutionFor(ctx, item.ID)
-		if ok && ex.Status == kernel.ExecRunning {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("execution never started")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	time.Sleep(200 * time.Millisecond)
-	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "also add a footer", Source: "connector:web", Target: item.ID}))
-	w.settle()
-	steered := w.events("execution.steered")
-	if len(steered) != 1 || steered[0].Payload.Str("text") != "also add a footer" {
-		t.Fatalf("steered: %+v (kinds %v)", steered, w.kinds())
-	}
-	finished := w.events("execution.finished")
-	if len(finished) != 1 || !strings.Contains(finished[0].Payload.Str("summary"), "also add a footer") {
-		t.Fatalf("the worker read the steered words: %+v", finished)
-	}
-	// Hiding the person's words hides the steered copy as well.
-	msgs := w.events("user.message")
-	steeredFrom := steered[0].Payload.Str("of")
-	var original kernel.Event
-	for _, e := range msgs {
-		if e.ID == steeredFrom {
-			original = e
-		}
-	}
-	if original.ThreadID != "main" {
-		t.Fatalf("execution.steered names the person's own message: %+v", steered[0].Payload)
-	}
-	m(w.s.RedactMessage(ctx, original.ID, "test"))
-	if again := w.events("execution.steered"); again[0].Payload.Str("text") != "" || !again[0].Payload.Bool("redacted") {
-		t.Fatalf("the steered copy must be masked: %+v", again[0].Payload)
+	for _, agent := range settings.Agents {
+		t.Run(agent, func(t *testing.T) {
+			w := newWorld(t, agent, "FAKEAGENT_DELAY_MS=1500")
+			item := m(w.k.CreateWorkItem(ctx, "long job", "test", kernel.CreateWorkItemOpts{}))
+			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "start", Source: "connector:web", Target: item.ID}))
+			if err := w.rt.Drain(20); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				ex, ok, _ := w.k.ActiveExecutionFor(ctx, item.ID)
+				if ok && ex.Status == kernel.ExecRunning {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("execution never started")
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			time.Sleep(200 * time.Millisecond)
+			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "also add a footer", Source: "connector:web", Target: item.ID}))
+			w.settle()
+			steered := w.events("execution.steered")
+			if len(steered) != 1 || steered[0].Payload.Str("text") != "also add a footer" || steered[0].Payload.Bool("late") {
+				t.Fatalf("steered: %+v (kinds %v)", steered, w.kinds())
+			}
+			finished := w.events("execution.finished")
+			if len(finished) != 1 || !finished[0].Payload.Bool("ok") {
+				t.Fatalf("one execution, carrying the words: %+v", finished)
+			}
+			if agent == settings.Pi && !strings.Contains(finished[0].Payload.Str("summary"), "also add a footer") {
+				t.Fatalf("the worker read the steered words: %+v", finished)
+			}
+			// The Manager reading the outcome is told the worker had the words:
+			// unsaid, they read as a request still open.
+			replies := w.events("agent.reply")
+			if len(replies) == 0 || !strings.Contains(replies[len(replies)-1].Payload.Str("text"), "含执行中的补充：also add a footer") {
+				t.Fatalf("the Manager must know the worker received the words: %+v", replies)
+			}
+			// Hiding the person's words hides the steered copy as well.
+			msgs := w.events("user.message")
+			steeredFrom := steered[0].Payload.Str("of")
+			var original kernel.Event
+			for _, e := range msgs {
+				if e.ID == steeredFrom {
+					original = e
+				}
+			}
+			if original.ThreadID != "main" {
+				t.Fatalf("execution.steered names the person's own message: %+v", steered[0].Payload)
+			}
+			m(w.s.RedactMessage(ctx, original.ID, "test"))
+			if again := w.events("execution.steered"); again[0].Payload.Str("text") != "" || !again[0].Payload.Bool("redacted") {
+				t.Fatalf("the steered copy must be masked: %+v", again[0].Payload)
+			}
+		})
 	}
 }
 

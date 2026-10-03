@@ -206,6 +206,9 @@ func brain(system, prompt string) string {
 			if late := section(turn, "the worker never saw it:\n- "); late != "" {
 				return effects(map[string]any{"type": "reply", "reply": "执行结束后才收到：" + firstRunes(late, 200)})
 			}
+			if given := section(turn, "the result above should account for it:\n- "); given != "" && strings.Contains(turn, ": ok)") {
+				return effects(map[string]any{"type": "reply", "reply": "已完成，含执行中的补充：" + firstRunes(given, 200)})
+			}
 			if strings.Contains(turn, ": blocked)") {
 				return effects(map[string]any{"type": "escalate", "question": firstRunes(section(turn, "blocked on: "), 200), "tried": "ran a worker"})
 			}
@@ -545,7 +548,8 @@ type codexSteer struct{ clientID, text string }
 // PreToolUse hook given with -c runs only when the thread's config sets
 // bypass_hook_trust, a call the hook refuses leaves no tool item behind, and
 // steered input joins the running turn at its next step.
-// FAKEAGENT_CODEX_SKIP_HOOKS=1 plays a codex that ignores the hook anyway.
+// FAKEAGENT_CODEX_SKIP_HOOKS=1 plays a codex that ignores the hook anyway;
+// FAKEAGENT_CODEX_REFUSE_STEER=1 one whose turn is always just ending.
 func runCodex(args []string) {
 	if len(args) == 0 || args[0] != "app-server" {
 		fmt.Fprintln(os.Stderr, "fake codex: only app-server is supported")
@@ -748,7 +752,7 @@ func runCodex(args []string) {
 		case "turn/steer":
 			mu.Lock()
 			t := turn
-			ok := t != nil && t.id == req.Params.ExpectedTurnID && !t.interrupted
+			ok := t != nil && t.id == req.Params.ExpectedTurnID && !t.interrupted && os.Getenv("FAKEAGENT_CODEX_REFUSE_STEER") != "1"
 			if ok {
 				t.steers = append(t.steers, codexSteer{clientID: req.Params.ClientID, text: text})
 			}

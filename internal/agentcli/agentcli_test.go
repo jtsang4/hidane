@@ -352,6 +352,35 @@ func TestCodexSteerBeforeTheTurnStarts(t *testing.T) {
 	}
 }
 
+// Words the running turn no longer takes open the next turn on the same
+// thread, in the same run, instead of being lost.
+func TestCodexSteerThatMissesTheTurnOpensTheNext(t *testing.T) {
+	h := newHarness(t, "FAKEAGENT_DELAY_MS=300", "FAKEAGENT_CODEX_REFUSE_STEER=1")
+	consumed := make(chan struct{}, 4)
+	req := h.req("WRITE a.txt: first")
+	req.SystemPrompt = workerCharter
+	req.Tools = true
+	req.OnSteerConsumed = func() { consumed <- struct{}{} }
+	run, err := h.l.Start(context.Background(), "codex", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if !run.Steer("WRITE b.txt: second") {
+		t.Fatal("the words must be kept for the next turn")
+	}
+	res := run.Wait()
+	if !res.OK || len(consumed) != 1 {
+		t.Fatalf("%+v (consumed %d)", res, len(consumed))
+	}
+	if _, err := os.Stat(filepath.Join(h.cwd, "b.txt")); err != nil || strings.Contains(res.Text, "a.txt") {
+		t.Fatalf("a second turn carried the words out: %v (%s)", err, res.Text)
+	}
+	if invs := h.invocations(); len(invs) != 1 {
+		t.Fatalf("one server, one thread: %+v", invs)
+	}
+}
+
 func TestCancelAndTimeout(t *testing.T) {
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {

@@ -41,21 +41,37 @@ PY
 echo "== home: $home"
 if [[ -n "$steer" ]]; then
   # The person's words, sent to the task once its worker has made its first
-  # tool call (plus --steer-after seconds), so they land mid-run.
+  # tool call (plus --steer-after seconds), so they land mid-run. Nothing reads
+  # the database before the task's workspace exists: two processes creating a
+  # fresh database at once can fail with SQLITE_BUSY.
   (
     wi=""
     for _ in $(seq 1 540); do
-      wi="$(HIDANE_HOME="$home" "$bin" events --tail 200 2>/dev/null | grep -m1 "side_effect.intent" | grep -o '\[wi_[^]]*\]' | tr -d '[]' || true)"
-      [[ -n "$wi" ]] && break
+      if compgen -G "$home/workspaces/wi_*" >/dev/null; then
+        wi="$(HIDANE_HOME="$home" "$bin" events --tail 200 2>/dev/null | grep -m1 "side_effect.intent" | grep -o '\[wi_[^]]*\]' | tr -d '[]' || true)"
+        [[ -n "$wi" ]] && break
+      fi
       sleep 1
     done
+    if [[ -z "$wi" ]]; then
+      echo "== no worker tool call seen: nothing steered"
+      exit 0
+    fi
     sleep "$steer_after"
     echo
     echo "== steering $wi: $steer"
+    touch "$home/.steered"
     HIDANE_HOME="$home" "$bin" chat --item "$wi" --timeout 5 "$steer" >/dev/null || true
   ) &
+  steerer=$!
 fi
 HIDANE_HOME="$home" "$bin" chat --timeout 540 "$task" || true
+# A task that ended before its words were sent must not get them afterwards.
+if [[ -n "${steerer:-}" && ! -e "$home/.steered" ]] && kill -0 "$steerer" 2>/dev/null; then
+  pkill -P "$steerer" 2>/dev/null || true
+  kill "$steerer" 2>/dev/null || true
+  echo "== the task ended before the words could be steered in"
+fi
 wait
 echo
 echo "== decisions, executions, refusals, replies"
@@ -64,4 +80,4 @@ HIDANE_HOME="$home" "$bin" events --tail 200 \
 echo
 echo "== files produced (outside .hidane)"
 find "$home" -type f -not -path "*/.hidane/*" -not -path "$home/runtime/*" -not -path "$home/sessions/*" \
-  -not -name 'hidane.db*' -not -name settings.json -not -name POLICY.json -not -name runtime.lock | sed "s|$home/||"
+  -not -name 'hidane.db*' -not -name settings.json -not -name POLICY.json -not -name runtime.lock -not -name .steered | sed "s|$home/||"
