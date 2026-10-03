@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -95,9 +96,10 @@ func TestNormalizeAcrossCLIs(t *testing.T) {
 		{"edit", map[string]any{"path": "c.md"}, guard.Call{Tool: "edit", Subject: "c.md"}},
 		{"shell", map[string]any{"command": []any{"bash", "-lc", "echo hi"}}, guard.Call{Tool: "bash", Subject: "bash -lc echo hi"}},
 		{"apply_patch", map[string]any{"patch": "*** Begin Patch\n*** Add File: secrets/x\n+a\n*** End Patch"}, guard.Call{Tool: "edit", Subject: "secrets/x"}},
+		{"exec_command", map[string]any{"cmd": "ls", "workdir": "/w/sub"}, guard.Call{Tool: "bash", Subject: "ls", Dirs: []string{"/w/sub"}}},
 	}
 	for _, c := range cases {
-		if got := guard.Normalize(c.tool, c.input); got != c.want {
+		if got := guard.Normalize(c.tool, c.input); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %+v want %+v", c.tool, got, c.want)
 		}
 	}
@@ -252,6 +254,7 @@ func TestShellWritesStayInTheWorkspace(t *testing.T) {
 		"ls | tee /tmp/listing",
 		`/bin/zsh -lc "echo x > /tmp/y"`,
 		"date >> ../../outside.txt",
+		"cd $TMPDIR && echo x > y",
 	}
 	for _, cmd := range refused {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); !d.Block {
@@ -267,12 +270,26 @@ func TestShellWritesStayInTheWorkspace(t *testing.T) {
 		"cd " + ws + " && echo hi > " + filepath.Join(ws, "a.txt"),
 		"python3 script.py --out result.json",
 		"FOO=1 ./run.sh 2>&1",
+		"mkdir -p sub && cd sub && touch x && cd .. && touch y",
 	}
 	for _, cmd := range allowed {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); d.Block {
 			t.Errorf("%q must pass: %s", cmd, d.Reason)
 		}
 	}
+	// A shell the CLI reports elsewhere writes there.
+	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "echo x > y", Dirs: []string{"/tmp"}}, env); !d.Block {
+		t.Error("a relative write from a directory outside the workspace must be refused")
+	}
+}
+
+func mustHome(t *testing.T) string {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	return home
 }
 
 // Quoted text is data, not shell syntax; a chain of looks is still a look.
@@ -334,6 +351,14 @@ func TestSettingsFileIsOffLimits(t *testing.T) {
 		{Tool: "bash", Subject: "cat " + settingsFile},
 		{Tool: "bash", Subject: "cat ../../settings.json 2>/dev/null"},
 		{Tool: "grep", Subject: "apiKey " + settingsFile},
+		// Relative to where the command really is: a real worker read the key
+		// with the first of these.
+		{Tool: "bash", Subject: "mkdir -p sub && cd sub && cat ../../../settings.json"},
+		{Tool: "bash", Subject: "pushd sub >/dev/null; cat ../../../settings.json"},
+		{Tool: "bash", Subject: "cat ../../../settings.json", Dirs: []string{filepath.Join(ws, "sub")}},
+		{Tool: "read", Subject: "../../../settings.json", Dirs: []string{filepath.Join(ws, "sub")}},
+		{Tool: "bash", Subject: "cd ~ && cat " + strings.TrimPrefix(settingsFile, mustHome(t)+"/")},
+		{Tool: "bash", Subject: "cd $SOMEWHERE && cat settings.json"},
 	} {
 		if d := guard.Evaluate(c, env); !d.Block || !strings.Contains(d.Reason, "API keys") {
 			t.Errorf("%+v must be refused: %+v", c, d)
@@ -343,10 +368,17 @@ func TestSettingsFileIsOffLimits(t *testing.T) {
 		{Tool: "read", Subject: "settings.json"},
 		{Tool: "bash", Subject: "cat config/settings.json"},
 		{Tool: "bash", Subject: "cat " + filepath.Join(home, "memory", "MEMORY.md")},
+		{Tool: "bash", Subject: "cd sub && cat ../settings.json"},
+		{Tool: "bash", Subject: "cd sub && cd .. && cat settings.json"},
 	} {
 		if d := guard.Evaluate(c, env); d.Block {
 			t.Errorf("%+v is the workspace's own file: %s", c, d.Reason)
 		}
+	}
+	// The directory a CLI reports in its hook input counts as well.
+	input := map[string]any{"tool_name": "Bash", "tool_input": map[string]any{"command": "cat ../../../settings.json"}, "cwd": filepath.Join(ws, "sub")}
+	if code, _, stderr := hook(t, "codex", input, env); code != 2 || !strings.Contains(stderr, "API keys") {
+		t.Errorf("the hook's cwd must be used: %d %s", code, stderr)
 	}
 }
 

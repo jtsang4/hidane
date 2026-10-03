@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -203,6 +204,9 @@ func splitSpans(masked string, sep *regexp.Regexp) [][2]int {
 type Call struct {
 	Tool    string
 	Subject string
+	// Dirs are the directories the CLI says the call runs in (the hook's cwd,
+	// a command's workdir): relative paths are judged against them too.
+	Dirs []string
 }
 
 type Decision struct {
@@ -333,6 +337,96 @@ func fileTarget(target, workspace string) string {
 	return t
 }
 
+// bases are the directories a call's relative paths may be relative to: where
+// the worker was started, the directories the CLI names, and — for a shell
+// command — each one it changes into on the way, so `cd sub && cat
+// ../../../settings.json` is judged from sub, where it reaches hidane's own
+// settings. known is false when the command changes into a directory that
+// cannot be read off it.
+func bases(call Call, env Env) (dirs []string, known bool) {
+	starts := []string{env.base()}
+	for _, d := range call.Dirs {
+		if d != "" && !slices.Contains(starts, d) {
+			starts = append(starts, d)
+		}
+	}
+	dirs, known = slices.Clone(starts), true
+	if call.Tool != "bash" {
+		return dirs, known
+	}
+	moves := shellDirs(call.Subject)
+	for _, start := range starts {
+		cur := start
+		for _, arg := range moves {
+			next := cdTarget(arg, cur)
+			if next == "" {
+				known = false
+				continue
+			}
+			cur = next
+			if !slices.Contains(dirs, cur) {
+				dirs = append(dirs, cur)
+			}
+		}
+	}
+	return dirs, known
+}
+
+// cdTarget is where `cd arg` from cur lands, "" when that cannot be told.
+func cdTarget(arg, cur string) string {
+	switch {
+	case arg == "":
+		home, _ := os.UserHomeDir()
+		return home
+	case arg == "-":
+		// The previous directory is among those already collected.
+		return cur
+	}
+	for _, v := range []string{"${HOME}", "$HOME"} {
+		if rest, ok := strings.CutPrefix(arg, v); ok && (rest == "" || strings.HasPrefix(rest, "/")) {
+			arg = "~" + rest
+		}
+	}
+	if strings.ContainsAny(arg, "$`*?") {
+		return ""
+	}
+	return fileTarget(arg, cur)
+}
+
+// shellDirs lists, in order, the arguments of the cd / pushd commands in a
+// shell command ("" for a bare cd).
+func shellDirs(cmd string) []string {
+	if m := shellWrapper.FindStringSubmatch(cmd); m != nil {
+		cmd = unquote(strings.TrimSpace(m[1]))
+	}
+	masked := maskQuoted(cmd)
+	if masked == "" {
+		masked = cmd
+	}
+	var out []string
+	for _, span := range splitSpans(masked, segmentSep) {
+		fields := strings.Fields(cmd[span[0]:span[1]])
+		for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "-") {
+			fields = fields[1:]
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		if name := filepath.Base(strings.TrimLeft(fields[0], "(")); name != "cd" && name != "pushd" {
+			continue
+		}
+		arg := ""
+		for _, f := range fields[1:] {
+			if f == "-" || !strings.HasPrefix(f, "-") {
+				arg = unquote(strings.TrimRight(f, ")"))
+				break
+			}
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
 // secrets keeps every tool — reads included — away from settings.json, which
 // holds the provider API keys: a worker refused a write once went on to cat
 // it, and what a worker reads goes to the model. Commands are judged by the
@@ -352,11 +446,18 @@ func secrets(call Call, env Env) string {
 		return ""
 	}
 	target := resolved(settingsFile)
+	dirs, known := bases(call, env)
 	for _, field := range strings.FieldsFunc(call.Subject, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '"' || r == '\'' || r == '=' || r == ';' || r == '|' || r == '&' || r == '<' || r == '>'
 	}) {
-		if strings.Contains(field, "settings.json") {
-			if t := fileTarget(field, env.base()); t != "" && resolved(t) == target {
+		if !strings.Contains(field, "settings.json") {
+			continue
+		}
+		if !known && !filepath.IsAbs(field) {
+			return reason
+		}
+		for _, d := range dirs {
+			if t := fileTarget(field, d); t != "" && resolved(t) == target {
 				return reason
 			}
 		}
@@ -411,24 +512,26 @@ func confinement(call Call, env Env) string {
 	}
 	ws := resolved(env.Workspace)
 	roots := env.roots()
-	base := env.base()
 	control := filepath.Join(ws, ".hidane")
+	dirs, known := bases(call, env)
 	switch call.Tool {
 	case "write", "edit":
 		for _, raw := range strings.Split(call.Subject, "\n") {
 			if strings.TrimSpace(raw) == "" {
 				continue
 			}
-			target := fileTarget(raw, base)
-			if target == "" {
-				return fmt.Sprintf("blocked by hidane guard: cannot resolve %s; use a path inside this work item's workspace (%s)", strings.TrimSpace(raw), env.Workspace)
-			}
-			r := resolved(target)
-			if !insideAny(roots, r) {
-				return fmt.Sprintf("blocked by hidane guard: %s is outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
-			}
-			if inside(control, r) {
-				return "blocked by hidane guard: .hidane holds this workspace's policy and traces; it is not for work products"
+			for _, d := range dirs {
+				target := fileTarget(raw, d)
+				if target == "" {
+					return fmt.Sprintf("blocked by hidane guard: cannot resolve %s; use a path inside this work item's workspace (%s)", strings.TrimSpace(raw), env.Workspace)
+				}
+				r := resolved(target)
+				if !insideAny(roots, r) {
+					return fmt.Sprintf("blocked by hidane guard: %s is outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+				}
+				if inside(control, r) {
+					return "blocked by hidane guard: .hidane holds this workspace's policy and traces; it is not for work products"
+				}
 			}
 		}
 	case "bash":
@@ -459,10 +562,22 @@ func confinement(call Call, env Env) string {
 				}
 			}
 		}
+		// What a command changes without naming it (make, a script) lands where
+		// it runs: every directory it works in must be inside the workspace.
+		for _, d := range dirs {
+			if !insideAny(roots, resolved(d)) {
+				return fmt.Sprintf("blocked by hidane guard: this command works in %s, outside this work item's workspace (%s); keep every file inside it", d, env.Workspace)
+			}
+		}
 		for _, target := range shellWrites(call.Subject) {
-			resolvedTarget := fileTarget(target, base)
-			if resolvedTarget == "" || !insideAny(roots, resolved(resolvedTarget)) {
-				return fmt.Sprintf("blocked by hidane guard: this command writes to %s, outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+			if !known && !filepath.IsAbs(target) {
+				return fmt.Sprintf("blocked by hidane guard: this command changes into a directory that cannot be told from the command, then writes to %s; cd to a plain path inside this work item's workspace (%s)", target, env.Workspace)
+			}
+			for _, d := range dirs {
+				resolvedTarget := fileTarget(target, d)
+				if resolvedTarget == "" || !insideAny(roots, resolved(resolvedTarget)) {
+					return fmt.Sprintf("blocked by hidane guard: this command writes to %s, outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+				}
 			}
 		}
 	}
@@ -485,9 +600,9 @@ func unquote(s string) string {
 
 // shellWrites lists the paths a shell command writes to, as far as they can
 // be read off the command line: redirections, tee, the arguments of commands
-// that create or change files, a copy's destination, and directories cd'd
-// into (relative writes then land there). A heuristic — codex additionally
-// runs in its own sandbox — but it catches the plain cases a model writes.
+// that create or change files, and a copy's destination. A heuristic — codex
+// additionally runs in its own sandbox — but it catches the plain cases a
+// model writes.
 func shellWrites(cmd string) []string {
 	if m := shellWrapper.FindStringSubmatch(cmd); m != nil {
 		cmd = unquote(strings.TrimSpace(m[1]))
@@ -570,10 +685,6 @@ func shellWrites(cmd string) []string {
 		case "uniq":
 			if len(args) > 1 {
 				add(args[1])
-			}
-		case "cd", "pushd":
-			if len(args) > 0 && !IsReadOnly(cmd) {
-				add(args[0])
 			}
 		}
 	}
@@ -662,7 +773,11 @@ func Normalize(toolName string, input map[string]any) Call {
 				cmd = strings.Join(parts, " ")
 			}
 		}
-		return Call{Tool: "bash", Subject: cmd}
+		call := Call{Tool: "bash", Subject: cmd}
+		if dir := s("workdir", "cwd"); dir != "" {
+			call.Dirs = []string{dir}
+		}
+		return call
 	case "write", "create":
 		return Call{Tool: "write", Subject: s("file_path", "path")}
 	case "edit", "multiedit", "notebookedit", "str_replace":
@@ -733,6 +848,7 @@ func RunHook(format string, stdin io.Reader, stdout, stderr io.Writer, env Env) 
 	var in struct {
 		ToolName  string         `json:"tool_name"`
 		ToolInput map[string]any `json:"tool_input"`
+		Cwd       string         `json:"cwd"`
 	}
 	if err == nil {
 		err = json.Unmarshal(raw, &in)
@@ -749,6 +865,9 @@ func RunHook(format string, stdin io.Reader, stdout, stderr io.Writer, env Env) 
 		in.ToolInput = map[string]any{}
 	}
 	call := Normalize(in.ToolName, in.ToolInput)
+	if in.Cwd != "" {
+		call.Dirs = append(call.Dirs, in.Cwd)
+	}
 	d := Evaluate(call, env)
 	if d.Block {
 		// Recorded under the CLI's own name, matching its side_effect events.
