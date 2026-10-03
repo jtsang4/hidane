@@ -46,7 +46,7 @@
     {#if existing}
       <div class="space-y-1 text-xs text-muted">
         <span>{$t("settings.providers.idLabel")}</span>
-        <p class="flex h-9 items-center font-mono text-sm text-foreground">{existing.id}</p>
+        <p class="flex h-7 items-center font-mono text-sm text-foreground">{existing.id}</p>
       </div>
     {:else}
       <label class="space-y-1 text-xs text-muted" for={`${fieldId}-id`}>
@@ -69,7 +69,7 @@
     <div class="space-y-1 text-xs text-muted">
       <label for={`${fieldId}-key`}>{$t("settings.providers.apiKey")}</label>
       {#if draft.clearKey}
-        <div class="flex h-9 items-center gap-2">
+        <div class="flex h-7 items-center gap-2">
           <span class="text-danger">{$t("settings.providers.keyWillClear")}</span>
           <Button variant="ghost" size="sm" onclick={() => (draft.clearKey = false)}>{$t("settings.providers.undoClear")}</Button>
         </div>
@@ -84,7 +84,7 @@
             bind:value={draft.apiKey}
           />
           {#if existing?.hasApiKey}
-            <Button variant="outline" size="sm" class="h-9" onclick={() => { draft.apiKey = ""; draft.clearKey = true; }}>
+            <Button variant="secondary" onclick={() => { draft.apiKey = ""; draft.clearKey = true; }}>
               <KeyRound size={14} />{$t("settings.providers.clearKey")}
             </Button>
           {/if}
@@ -98,8 +98,8 @@
   </div>
   {#if problem}<p class="text-xs text-muted">{$t(problem)}</p>{/if}
   <div class="flex justify-end gap-2">
-    <Button variant="outline" size="sm" onclick={oncancel}>{$t("common.cancel")}</Button>
-    <Button size="sm" disabled={pending || problem !== null} onclick={onsubmit}>
+    <Button variant="secondary" onclick={oncancel}>{$t("common.cancel")}</Button>
+    <Button disabled={pending || problem !== null} onclick={onsubmit}>
       {existing ? $t("settings.providers.save") : $t("settings.providers.create")}
     </Button>
   </div>

@@ -112,7 +112,9 @@ try {
       if (desktop) await pretendDesktop(context);
       await context.addInitScript(
         ([t, l]) => {
-          localStorage.setItem("hidane-token", t);
+          // The sign-in capture clears the token for the rest of the tab's session.
+          if (sessionStorage.getItem("signed-out")) localStorage.removeItem("hidane-token");
+          else localStorage.setItem("hidane-token", t);
           localStorage.setItem("hidane-lang", l);
           // Every capture starts with the sidebar shown; the collapsed one sets it itself.
           if (!sessionStorage.getItem("keep-sidebar")) localStorage.removeItem("hidane-sidebar-collapsed");
@@ -155,6 +157,8 @@ try {
       }
       if (want("new-task")) {
         await page.keyboard.press("ControlOrMeta+n");
+        // With a title typed, so the dialog shows its primary action enabled.
+        await page.keyboard.type(lang === "zh" ? "整理本周会议纪要" : "Summarise this week's meetings");
         await shot("new-task");
         await page.keyboard.press("Escape");
       }
@@ -198,6 +202,18 @@ try {
           sessionStorage.removeItem("keep-sidebar");
           localStorage.removeItem("hidane-sidebar-collapsed");
         });
+      }
+      // A search with nothing to show: the empty state.
+      if (want("items-nomatch")) {
+        await settle("/items");
+        await page.getByRole("searchbox").or(page.locator("main input")).first().fill("zzz-nothing");
+        await shot("items-nomatch");
+      }
+      // The browser asks for the API token; the desktop app has none to ask for.
+      if (!desktop && want("signin")) {
+        await page.evaluate(() => sessionStorage.setItem("signed-out", "1"));
+        await settle("/");
+        await shot("signin");
       }
       await context.close();
     }

@@ -132,34 +132,34 @@
 {/snippet}
 
 <div class="space-y-2" role="group" aria-labelledby={`role-row-${role}`}>
-  <div class="flex items-end gap-3 px-1">
+  <div class="flex items-end gap-3">
     <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-      <h2 id={`role-row-${role}`} class="text-[13px] font-semibold">{$t(`settings.roles.${role}`)}</h2>
-      <span class="font-mono text-[11px] text-muted">{role}</span>
+      <h2 id={`role-row-${role}`} class="text-sm font-medium">{$t(`settings.roles.${role}`)}</h2>
+      <span class="font-mono text-2xs text-muted">{role}</span>
     </div>
     <SaveStatus {status} error={saveError ?? ""} />
-    <Button variant="outline" size="sm" disabled={testing || dirty || saving} title={dirty ? $t("settings.roles.testSaved") : undefined} onclick={() => void test()}>
+    <Button variant="secondary" disabled={testing || dirty || saving} title={dirty ? $t("settings.roles.testSaved") : undefined} onclick={() => void test()}>
       {#if testing}<LoaderCircle size={14} class="animate-spin" />{:else}<FlaskConical size={14} />{/if}
       {$t("settings.roles.test")}
     </Button>
   </div>
   <div class="divide-y divide-border rounded-lg border border-border bg-surface">
-    <SettingsRow label={$t("settings.roles.agent")} for={ids.agent}>
+    <SettingsRow wide label={$t("settings.roles.agent")} for={ids.agent}>
       <Select
         id={ids.agent}
-        class="w-56"
+        class="w-full sm:w-56"
         value={draft.agent}
         options={AGENT_KINDS.map((kind) => ({ value: kind, label: $t(`settings.kinds.${kind}`) }))}
         onchange={(next) => { const agent = next as AgentKind; change({ agent, ...(effortsFor(agent).includes(draft.effort) ? {} : { effort: "" }) }); }}
       />
     </SettingsRow>
-    <SettingsRow label={$t("settings.roles.provider")} for={ids.provider} below={issue ? warning : undefined}>
-      <Select id={ids.provider} class="w-56" value={draft.provider} options={providerOptions} onchange={(next) => change({ provider: next })} />
+    <SettingsRow wide label={$t("settings.roles.provider")} for={ids.provider} below={issue ? warning : undefined}>
+      <Select id={ids.provider} class="w-full sm:w-56" value={draft.provider} options={providerOptions} onchange={(next) => change({ provider: next })} />
     </SettingsRow>
-    <SettingsRow label={$t("settings.roles.model")} hint={$t("settings.roles.modelHint")} for={ids.model}>
+    <SettingsRow wide label={$t("settings.roles.model")} hint={$t("settings.roles.modelHint")} for={ids.model}>
       <Combobox
         id={ids.model}
-        class="w-56 font-mono"
+        class="w-full sm:w-56"
         emptyLabel={$t("runAs.defaultModel")}
         value={draft.model}
         suggestions={models.map((model) => ({ value: model }))}
@@ -167,31 +167,31 @@
         onchange={(next) => change({ model: next })}
       />
     </SettingsRow>
-    <SettingsRow label={$t("settings.roles.effort")} for={ids.effort}>
+    <SettingsRow wide label={$t("settings.roles.effort")} for={ids.effort}>
       <Select
         id={ids.effort}
-        class="w-56"
+        class="w-full sm:w-56"
         value={draft.effort}
         options={effortsFor(draft.agent).map((effort) => ({ value: effort, label: $t(`settings.effort.${effort || "default"}`) }))}
         onchange={(next) => change({ effort: next as Effort })}
       />
     </SettingsRow>
     {#if testing || result || testError}
-      <div class="px-4 py-3">
+      <div class="px-3.5 py-2.5">
         {#if testing}
           <p class="text-xs text-muted" role="status">{$t("settings.roles.testing")}</p>
         {:else if result}
           <div class="space-y-1 text-xs" role="status">
             {#if result.ok}
               <p class="text-success">{$t("settings.roles.testOk", { agent: result.agent, model: result.model || $t("status.defaultModel"), ms: result.durationMs })}</p>
-              {#if result.text}<pre class="max-h-40 overflow-auto rounded-md bg-surface-2 p-2 font-mono whitespace-pre-wrap break-words text-foreground select-text">{result.text}</pre>{/if}
+              {#if result.text}<pre class="max-h-40 overflow-auto rounded-md bg-background p-2 font-mono whitespace-pre-wrap break-words text-foreground select-text">{result.text}</pre>{/if}
             {:else}
               <p class="text-danger">{$t("settings.roles.testFailed", { ms: result.durationMs })}</p>
-              {#if result.error}<pre class="max-h-40 overflow-auto rounded-md bg-surface-2 p-2 font-mono whitespace-pre-wrap break-words text-danger select-text">{result.error}</pre>{/if}
+              {#if result.error}<pre class="max-h-40 overflow-auto rounded-md bg-background p-2 font-mono whitespace-pre-wrap break-words text-danger select-text">{result.error}</pre>{/if}
             {/if}
           </div>
         {:else if testError}
-          <pre class="max-h-40 overflow-auto rounded-md bg-surface-2 p-2 text-xs whitespace-pre-wrap break-words text-danger select-text" role="status">{testError}</pre>
+          <pre class="max-h-40 overflow-auto rounded-md bg-background p-2 text-xs whitespace-pre-wrap break-words text-danger select-text" role="status">{testError}</pre>
         {/if}
       </div>
     {/if}

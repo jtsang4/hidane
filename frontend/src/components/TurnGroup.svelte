@@ -81,7 +81,7 @@
     {#if routingKnown && turnRouting(turn)}
       <div class="flex justify-end" role="status" aria-live="polite">
         <span class="flex items-center gap-1.5 text-xs text-muted">
-          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>{$t("conversation.routing")}
+          <span class="size-1.5 animate-ember rounded-full bg-primary" aria-hidden="true"></span>{$t("conversation.routing")}
         </span>
       </div>
     {/if}
@@ -106,9 +106,9 @@
       {@const workItemId = answer.workItemId}
       {@const path = (answer.payload["path"] as EscalationStep[] | undefined) ?? []}
       <div class="flex justify-start">
-        <div class={cn("max-w-[85%] rounded-lg border p-3 text-sm", openEscalation.has(answer.id) ? "border-danger/50 bg-danger/5" : "border-border bg-surface")}>
+        <div class={cn("max-w-[85%] rounded-lg border px-3 py-2.5 text-sm", openEscalation.has(answer.id) ? "border-danger/40 bg-danger/5" : "border-border bg-surface")}>
           <p class="flex items-center gap-1.5 text-xs font-medium text-danger">
-            <CircleHelp size={14} aria-hidden="true" />
+            <CircleHelp size={13} aria-hidden="true" />
             {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "deadline" ? answer.payload["reason"] : "question"}`)}
           </p>
           <p class="mt-1 whitespace-pre-wrap select-text">{escalationText(answer.payload)}</p>
@@ -117,8 +117,8 @@
               {#each path.filter((step) => step.tried) as step (step.workItemId)}<li><span class="text-foreground/80">{step.title}</span> — {step.tried}</li>{/each}
             </ul>
           {/if}
-          <div class="mt-2 flex items-center gap-2 text-[10px] text-muted">
-            {#if workItemId && openEscalation.has(answer.id)}<Button size="sm" onclick={() => onanswerEscalation(answer.id, workItemId)}>{$t("task.answer")}</Button>{/if}
+          <div class="mt-2 flex items-center gap-2 text-2xs text-muted">
+            {#if workItemId && openEscalation.has(answer.id)}<Button onclick={() => onanswerEscalation(answer.id, workItemId)}>{$t("task.answer")}</Button>{/if}
             <Time iso={answer.ts} />
           </div>
         </div>
@@ -128,7 +128,7 @@
     {:else}
       <div class="group/answer relative space-y-0.5" role="presentation" oncontextmenu={(event) => { if (answer.kind === "agent.reply") contextMenu(event, answer); }}>
         {#if answer.kind === "agent.reply" && answer.workItemId}
-          <button class="ml-1 text-[10px] text-muted hover:text-foreground" onclick={() => answer.workItemId && onfocus(answer.workItemId)}>{titleOf(answer.workItemId)}</button>
+          <button class="text-2xs text-muted hover:text-foreground" onclick={() => answer.workItemId && onfocus(answer.workItemId)}>{titleOf(answer.workItemId)}</button>
         {/if}
         <ChatBubble event={answer} anchored />
         {#if answer.kind === "agent.reply"}

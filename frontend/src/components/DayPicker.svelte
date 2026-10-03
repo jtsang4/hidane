@@ -5,6 +5,7 @@
   import { language, t } from "../i18n/index.js";
   import { api } from "../lib/api.js";
   import { daysByMonth } from "../lib/history.js";
+  import { popover, popoverItem, popoverLabel, toolbarButton } from "../lib/styles.js";
   import { cn, fmtDay, fmtMonth } from "../lib/utils.js";
 
   let { onpick }: { onpick: (eventId: string) => void } = $props();
@@ -29,11 +30,11 @@
 
 <Popover.Root bind:open>
   <Popover.Trigger
-    class={cn("flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 text-xs text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary", open && "bg-surface-2 text-foreground")}
+    class={cn(toolbarButton, open && "bg-accent text-foreground")}
     aria-label={$t("chat.datesTitle")}
     title={$t("chat.datesTitle")}
   >
-    <CalendarDays size={14} aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.dates")}</span>
+    <CalendarDays aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.dates")}</span>
   </Popover.Trigger>
   <Popover.Portal>
     <Popover.Content
@@ -42,21 +43,21 @@
       collisionPadding={8}
       role="dialog"
       aria-label={$t("chat.datesTitle")}
-      class="z-[65] max-h-[min(60vh,var(--bits-popover-content-available-height))] w-64 overflow-y-auto rounded-lg border border-border bg-surface p-2 shadow-lg outline-none"
+      class={cn(popover, "max-h-[min(60vh,var(--bits-popover-content-available-height))] w-64 overflow-y-auto")}
     >
-      <p class="px-1 pb-1 text-xs font-medium text-muted">{$t("chat.datesTitle")}</p>
+      <p class={popoverLabel}>{$t("chat.datesTitle")}</p>
       {#if days.isPending}
-        <p class="px-1 py-2 text-xs text-muted">{$t("common.loading")}</p>
+        <p class="px-2 py-2 text-xs text-muted">{$t("common.loading")}</p>
       {:else if groups.length === 0}
-        <p class="px-1 py-2 text-xs text-muted">{$t("chat.datesEmpty")}</p>
+        <p class="px-2 py-2 text-xs text-muted">{$t("chat.datesEmpty")}</p>
       {:else}
         {#key $language}
           {#each groups as group (group.month)}
-            <p class="px-1 pt-2 text-[11px] font-medium text-muted">{fmtMonth(group.month)}</p>
+            <p class={popoverLabel}>{fmtMonth(group.month)}</p>
             <ul>
               {#each group.days as day (day.day)}
                 <li>
-                  <button class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary" onclick={() => pick(day.firstId)}>
+                  <button class={cn(popoverItem, "justify-between hover:bg-accent focus-visible:bg-accent")} onclick={() => pick(day.firstId)}>
                     <span>{fmtDay(day.day)}</span><span class="text-xs text-muted">{$t("chat.dayCount", { n: day.count })}</span>
                   </button>
                 </li>

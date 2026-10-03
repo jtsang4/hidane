@@ -141,7 +141,9 @@
             <h2 class="text-base font-semibold break-words">{item.title}</h2>
             {#if card}<Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>{:else}<Badge tone="muted">{item.status}</Badge>{/if}
           </div>
-          <p class="mt-1 truncate text-xs text-muted select-text" title={item.workspace}>{$t("item.meta", { id: item.id, time: fmtDateTime(item.createdAt), workspace: item.workspace })}</p>
+          <p class="mt-1 truncate text-xs text-muted select-text">{$t("item.meta", { id: item.id, time: fmtDateTime(item.createdAt) })}</p>
+          <!-- A long workspace path loses its start, not its end: the task's own folder is the part that tells them apart. -->
+          <p class="truncate text-left font-mono text-2xs text-muted/80 [direction:rtl] select-text" title={item.workspace}><bdi>{item.workspace}</bdi></p>
           {#if item.parentId}
             <button class="mt-1 flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => item.parentId && onfocus(item.parentId)}>
               <ArrowUpLeft size={12} />{$t("task.parent")} · {parent?.item.title ?? item.parentId}
@@ -156,9 +158,9 @@
         </div>
         <div class="flex shrink-0 items-center gap-1">
           {#if data.running}
-            <Button variant="outline" size="sm" aria-label={$t("task.stop")} onclick={() => onstop(id)}><Square size={12} /><span class="hidden sm:inline">{$t("task.stop")}</span></Button>
+            <Button variant="secondary" aria-label={$t("task.stop")} onclick={() => onstop(id)}><Square size={12} /><span class="hidden sm:inline">{$t("task.stop")}</span></Button>
           {/if}
-          <Button variant="outline" size="sm" aria-label={item.status === "open" ? $t("item.markDone") : $t("item.reopen")} disabled={setStatus.isPending} onclick={() => setStatus.mutate(item.status === "open" ? "done" : "open")}>{#if item.status === "open"}<Check size={12} />{:else}<RotateCcw size={12} />{/if}<span class="hidden sm:inline">{item.status === "open" ? $t("item.markDone") : $t("item.reopen")}</span></Button>
+          <Button variant="secondary" aria-label={item.status === "open" ? $t("item.markDone") : $t("item.reopen")} disabled={setStatus.isPending} onclick={() => setStatus.mutate(item.status === "open" ? "done" : "open")}>{#if item.status === "open"}<Check size={12} />{:else}<RotateCcw size={12} />{/if}<span class="hidden sm:inline">{item.status === "open" ? $t("item.markDone") : $t("item.reopen")}</span></Button>
           {#if desktop}
             <Button variant="ghost" size="icon" aria-label={$t("menu.revealWorkspace")} title={$t("menu.revealWorkspace")} onclick={() => void revealWorkspace(id)}><FolderOpen size={16} /></Button>
           {/if}
@@ -176,10 +178,10 @@
       {/if}
 
       <section class="space-y-2" aria-label={$t("task.thread")}>
-        <h3 class="text-sm font-medium text-muted">{$t("task.thread")}</h3>
+        <h3 class="text-xs font-medium text-muted">{$t("task.thread")}</h3>
         {#if hasOlder}
           <div class="text-center">
-            <Button variant="outline" size="sm" onclick={() => void loadOlder()} disabled={loadingOlder}>{loadingOlder ? $t("common.loading") : $t("chat.loadEarlier")}</Button>
+            <Button variant="secondary" onclick={() => void loadOlder()} disabled={loadingOlder}>{loadingOlder ? $t("common.loading") : $t("chat.loadEarlier")}</Button>
           </div>
         {/if}
         {#if thread.length === 0 && live.length === 0}<p class="text-xs text-muted">{$t("task.noThread")}</p>{/if}
@@ -200,7 +202,7 @@
 
       {#if executions.length > 0}
         <section class="space-y-2">
-          <h3 class="text-sm font-medium text-muted">{$t("item.timeline")}</h3>
+          <h3 class="text-xs font-medium text-muted">{$t("item.timeline")}</h3>
           {#each [...executions].reverse() as group (group.executionId)}<Execution {group} />{/each}
         </section>
       {/if}

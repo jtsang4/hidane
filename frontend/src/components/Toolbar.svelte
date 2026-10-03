@@ -22,7 +22,7 @@
 >
   {#if ui.sidebarCollapsed}
     <button
-      class="hidden h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary sm:flex"
+      class="hidden size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70 sm:flex"
       aria-label={$t("shell.expandSidebar")}
       title={`${$t("shell.expandSidebar")} (${formatShortcut("b", mac)})`}
       onclick={() => setSidebarCollapsed(false)}
@@ -30,11 +30,11 @@
       <PanelLeft size={16} aria-hidden="true" />
     </button>
   {/if}
-  <h1 class="min-w-0 truncate text-sm font-semibold">{title}</h1>
+  <h1 class="min-w-0 truncate text-base font-semibold tracking-tight">{title}</h1>
   <div class="ml-auto flex min-w-0 shrink-0 items-center gap-1.5">
     {@render actions?.()}
     <button
-      class="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary sm:hidden"
+      class="flex size-7 items-center justify-center rounded-md text-muted coarse:size-9 hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70 sm:hidden"
       aria-label={$t("shell.search")}
       onclick={() => (ui.paletteOpen = true)}
     >

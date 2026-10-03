@@ -8,6 +8,7 @@
     for: controlId = undefined,
     children,
     below,
+    wide = false,
     class: className = "",
   }: {
     label: string;
@@ -18,11 +19,13 @@
     children?: Snippet;
     /** Full-width content under the row (a warning, a result). */
     below?: Snippet | undefined;
+    /** A field rather than a toggle: on a phone it takes the row's full width under the label. */
+    wide?: boolean;
     class?: string;
   } = $props();
 </script>
 
-<div class={cn("px-4 py-3", className)}>
+<div class={cn("px-3.5 py-2.5", className)}>
   <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
     <div class="min-w-0 flex-1 basis-48">
       {#if controlId}
@@ -32,7 +35,7 @@
       {/if}
       {#if hint}<p class="mt-0.5 text-xs text-muted">{hint}</p>{/if}
     </div>
-    {#if children}<div class="flex max-w-full min-w-0 shrink-0 items-center justify-end gap-2">{@render children()}</div>{/if}
+    {#if children}<div class={cn("flex max-w-full min-w-0 shrink-0 items-center justify-end gap-2", wide && "max-sm:w-full")}>{@render children()}</div>{/if}
   </div>
   {#if below}<div class="mt-2">{@render below()}</div>{/if}
 </div>

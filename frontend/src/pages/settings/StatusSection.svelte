@@ -47,15 +47,20 @@
 
 {#snippet line(item: StatusLine)}
   <SettingsRow label={item.label}>
-    <span class="flex items-center gap-2 text-sm select-text">
-      {item.value}
-      {#if item.tone && item.value !== $t("status.ok")}<Badge tone={item.tone}>{item.tone === "success" ? $t("status.ok") : $t("status.attention")}</Badge>{/if}
+    <span class="flex items-center gap-2 text-sm tabular-nums select-text">
+      <!-- A value that is itself the verdict is shown as the badge alone. -->
+      {#if item.tone && item.value === $t("status.ok")}
+        <Badge tone={item.tone}>{item.value}</Badge>
+      {:else}
+        {item.value}
+        {#if item.tone}<Badge tone={item.tone}>{item.tone === "success" ? $t("status.ok") : $t("status.attention")}</Badge>{/if}
+      {/if}
     </span>
   </SettingsRow>
 {/snippet}
 
 {#if !data}
-  <p class="flex items-center gap-2 px-1 text-sm text-muted"><span class="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-transparent"></span>{$t("common.loading")}</p>
+  <p class="flex items-center gap-2 text-sm text-muted"><span class="size-3 animate-spin rounded-full border-[1.5px] border-muted border-t-transparent"></span>{$t("common.loading")}</p>
 {:else}
   {#if runtime.length > 0}
     <SettingsCard title={$t("status.runtime")}>
@@ -69,7 +74,7 @@
     <SettingsCard title={$t("status.agents")}>
       <ul class="divide-y divide-border">
         {#each data.agents as agent (agent.kind)}
-          <li class="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
+          <li class="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-sm">
             <span class="font-medium">{$t(`settings.kinds.${agent.kind}`)}</span>
             {#if agent.available}
               <Badge tone="success">{$t("settings.agents.available")}</Badge>
@@ -87,7 +92,7 @@
     <SettingsCard title={$t("status.roles")}>
       <ul class="divide-y divide-border">
         {#each roleRows as row (row.role)}
-          <li class="flex flex-wrap items-baseline gap-x-2 px-4 py-3 text-sm">
+          <li class="flex flex-wrap items-baseline gap-x-2 px-3.5 py-2.5 text-sm">
             <span class="font-medium">{$t(`settings.roles.${row.role}`)}</span>
             <span class="text-muted">{$t(`settings.kinds.${row.agent}`)} · {row.provider || $t("settings.ownLogin")} · <span class="font-mono">{row.model || $t("status.defaultModel")}</span></span>
           </li>

@@ -11,7 +11,7 @@
     return path === "/" ? route.name === "chat" : routerState.path === path;
   }
 
-  const item = "flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-muted hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary";
+  const item = "flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-muted hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary/70";
 </script>
 
 <!-- Phone-width browsers only: the desktop window's minimum width never reaches this. -->
@@ -20,7 +20,7 @@
     {@const Icon = entry.icon}
     <a
       href={entry.to}
-      class={cn(item, active(entry.to) && "bg-surface-2 text-foreground")}
+      class={cn(item, active(entry.to) && "bg-accent text-foreground")}
       aria-label={$t(entry.key)}
       aria-current={active(entry.to) ? "page" : undefined}
       onclick={(event) => {

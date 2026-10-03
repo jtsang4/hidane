@@ -21,6 +21,7 @@
   import { openTaskMenu, stopTask } from "../lib/taskActions.js";
   import { pushToast, toastError } from "../lib/toast.js";
   import { ui } from "../lib/ui.svelte.js";
+  import { toolbarButton, toolbarButtonOn } from "../lib/styles.js";
   import { cn, fmtDay } from "../lib/utils.js";
   import ChatBubble from "../components/ChatBubble.svelte";
   import Composer, { type ComposerTarget } from "../components/Composer.svelte";
@@ -29,6 +30,7 @@
   import NoticeBar from "../components/NoticeBar.svelte";
   import Toolbar from "../components/Toolbar.svelte";
   import TurnGroup from "../components/TurnGroup.svelte";
+  import EmptyState from "../components/EmptyState.svelte";
   import Button from "../components/ui/Button.svelte";
 
   /** Events per request; older pages load as the reader scrolls up. */
@@ -678,13 +680,13 @@
   {@const day = breaks.get(turn.root)}
   {#if day}
     {#key $language}
-      <div class="flex items-center gap-3 pt-2 text-[11px] text-muted" role="separator" aria-label={fmtDay(day)}>
+      <div class="flex items-center gap-3 pt-2 text-2xs text-muted" role="separator" aria-label={fmtDay(day)}>
         <span class="h-px flex-1 bg-border"></span><span>{fmtDay(day)}</span><span class="h-px flex-1 bg-border"></span>
       </div>
     {/key}
   {/if}
   {#if boundary === turn.root}
-    <p class="rounded-md border border-dashed border-border px-3 py-1.5 text-center text-[11px] text-muted" role="note">{$t("chat.contextBoundary")}</p>
+    <p class="rounded-md border border-dashed border-border px-3 py-1.5 text-center text-2xs text-muted" role="note">{$t("chat.contextBoundary")}</p>
   {/if}
   <TurnGroup
     {turn}
@@ -717,20 +719,23 @@
     {#snippet actions()}
       <DayPicker onpick={goTo} />
       <button
-        class={cn("flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs focus-visible:outline-2 focus-visible:outline-primary", personOnly ? "border-primary/60 bg-primary/10 text-foreground" : "border-border text-muted hover:text-foreground")}
+        class={cn(toolbarButton, personOnly && toolbarButtonOn)}
         aria-pressed={personOnly}
         aria-label={$t("chat.personOnly")}
         title={$t("chat.personOnlyHint")}
         onclick={() => setPersonOnly(!personOnly)}
       >
-        <UserRound size={14} aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.personOnly")}</span>
+        <UserRound aria-hidden="true" /><span class="hidden lg:inline" aria-hidden="true">{$t("chat.personOnly")}</span>
       </button>
     {/snippet}
   </Toolbar>
-  <div class="flex min-h-0 flex-1">
-    <div class={cn("relative flex min-w-0 flex-1 flex-col", focus && "hidden md:flex")}>
+  <!-- Wide: the composer belongs to the conversation column and the task panel
+       runs the full height beside both. Narrow: the panel replaces the
+       conversation, and the composer stays under it to address the task. -->
+  <div class={cn("grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]", focus && "md:grid-cols-[minmax(0,1fr)_min(46%,42rem)]")}>
+    <div class={cn("relative col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col", focus && "hidden md:flex")}>
       {#if mode === "window"}
-        <div class="border-b border-border bg-surface-2/60 px-3 py-1.5 text-center text-xs text-muted" role="status">
+        <div class="border-b border-border bg-accent px-3 py-1 text-center text-xs text-muted" role="status">
           {$t("chat.viewingHistory")}
         </div>
       {/if}
@@ -753,18 +758,18 @@
           <div bind:this={topSentinel} aria-hidden="true"></div>
           {#if hasOlder}
             <div class="text-center">
-              <Button variant="outline" size="sm" onclick={() => void loadOlder()} disabled={loadingOlder}>
+              <Button variant="secondary" onclick={() => void loadOlder()} disabled={loadingOlder}>
                 {loadingOlder ? $t("common.loading") : $t("chat.loadEarlier")}
               </Button>
             </div>
           {:else if turns.length > 0}
             <p class="text-center text-xs text-muted">{$t("chat.historyStart")}</p>
           {/if}
-          {#if turns.length === 0 && !showOptimistic && conversationQuery.data}<p class="pt-24 text-center text-sm text-muted">{$t("conversation.empty")}</p>{/if}
+          {#if turns.length === 0 && !showOptimistic && conversationQuery.data}<EmptyState ember text={$t("conversation.empty")} class="pt-28" />{/if}
           {#each turns as turn (turn.root)}{@render turnView(turn)}{/each}
           {#if mode === "window" && hasNewer}
             <div class="text-center">
-              <Button variant="outline" size="sm" onclick={() => void loadNewer()} disabled={loadingNewer}>
+              <Button variant="secondary" onclick={() => void loadNewer()} disabled={loadingNewer}>
                 {loadingNewer ? $t("common.loading") : $t("chat.loadNewer")}
               </Button>
             </div>
@@ -791,44 +796,46 @@
       <div class="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-2 px-3" bind:clientHeight={overlayHeight}>
         {#if showLatest}
           <button
-            class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs text-foreground shadow-lg backdrop-blur hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary"
+            class="pointer-events-auto flex h-7 animate-rise-in items-center gap-1.5 rounded-full border border-border bg-popover/95 px-3 text-xs text-foreground shadow-popover backdrop-blur hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary/70"
             onclick={goLatest}
           >
-            <ArrowDown size={14} aria-hidden="true" />{$t("chat.backToLatest")}
+            <ArrowDown size={13} aria-hidden="true" />{$t("chat.backToLatest")}
           </button>
         {/if}
         <NoticeBar {notices} {titleOf} onjump={jump} ondismiss={() => (notices = [])} />
       </div>
     </div>
     {#if focus}
-      <div class="flex min-h-0 w-full flex-col border-border md:w-[46%] md:max-w-2xl md:border-l">
+      <div class="col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col border-border md:col-start-2 md:row-span-2 md:border-l">
         {#key focus}
           <FocusPanel id={focus} cards={cardMap} onclose={closeFocus} onfocus={openFocus} onanswer={answer} onstop={stop} />
         {/key}
       </div>
     {/if}
+    <div class="col-start-1 row-start-2 min-w-0">
+      <Composer
+        bind:this={composer}
+        {target}
+        {targetRunAs}
+        onclear={clearTarget}
+        onsending={(text) => {
+          // Something new said belongs at the live edge, not inside old history.
+          if (mode === "window") backToLatest();
+          optimistic = { text, messageId: null };
+          follow = true;
+        }}
+        onsent={(messageId, sentTo) => {
+          if (optimistic) optimistic = { ...optimistic, messageId };
+          if (sentTo?.mode === "reply") replyTarget = null;
+          void queryClient.invalidateQueries({ queryKey: ["conversation"] });
+        }}
+        onfailed={() => (optimistic = null)}
+      />
+    </div>
   </div>
-  <Composer
-    bind:this={composer}
-    {target}
-    {targetRunAs}
-    onclear={clearTarget}
-    onsending={(text) => {
-      // Something new said belongs at the live edge, not inside old history.
-      if (mode === "window") backToLatest();
-      optimistic = { text, messageId: null };
-      follow = true;
-    }}
-    onsent={(messageId, sentTo) => {
-      if (optimistic) optimistic = { ...optimistic, messageId };
-      if (sentTo?.mode === "reply") replyTarget = null;
-      void queryClient.invalidateQueries({ queryKey: ["conversation"] });
-    }}
-    onfailed={() => (optimistic = null)}
-  />
   {#if dragging}
-    <div class="pointer-events-none absolute inset-2 z-30 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/70 bg-background/80 text-sm text-foreground backdrop-blur-sm">
-      <ImagePlus size={28} class="text-primary" aria-hidden="true" />{$t("chat.dropImages")}
+    <div class="pointer-events-none absolute inset-2 z-30 flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-primary/70 bg-background/85 text-sm text-foreground backdrop-blur-sm">
+      <ImagePlus size={24} class="text-primary" aria-hidden="true" />{$t("chat.dropImages")}
     </div>
   {/if}
 </div>

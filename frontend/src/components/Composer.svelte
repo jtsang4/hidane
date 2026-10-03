@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
-  import { ImagePlus, SendHorizontal, X } from "@lucide/svelte";
+  import { ImagePlus, ArrowUp, X } from "@lucide/svelte";
   import { onDestroy } from "svelte";
+  import { MediaQuery } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
   import i18n from "../i18n/index.js";
   import { api, type Effort, type RunAs } from "../lib/api.js";
@@ -90,6 +91,7 @@
     const body = text.trim();
     if ((!body && attached.length === 0) || send.isPending) return;
     onsending(body || $t("chat.imageOnly"));
+    sparks += 1;
     text = "";
     const images = attached;
     attached = [];
@@ -156,18 +158,24 @@
     }, refresh);
   }
 
+  /** Counts sends; each one replays the send button's spark. */
+  let sparks = $state(0);
+
+  // A phone has no Enter-to-send or paste to explain, and the long hint wrapped into an orphan line.
+  const narrow = new MediaQuery("max-width: 639px");
+
   onDestroy(() => {
     for (const image of attached) URL.revokeObjectURL(image.previewUrl);
   });
 </script>
 
-<div class="border-t border-border p-3">
+<div class="border-t border-border px-4 pt-3 pb-3">
   <div class="mx-auto max-w-3xl">
   {#if target}
     <div class="flex items-center gap-2 pb-2 text-xs">
-      <span class="flex min-w-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-primary">
+      <span class="flex h-6 min-w-0 items-center gap-1 rounded-md bg-primary/12 pr-1 pl-2 text-primary">
         <span class="truncate">{$t(target.mode === "reply" ? "conversation.replyTarget" : "conversation.target", { title: target.title })}</span>
-        <button class="shrink-0 rounded-full hover:text-foreground" aria-label={$t("conversation.clearTarget")} title={$t("conversation.clearTarget")} onclick={onclear}><X size={12} /></button>
+        <button class="flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-primary/20 coarse:size-7" aria-label={$t("conversation.clearTarget")} title={$t("conversation.clearTarget")} onclick={onclear}><X size={12} /></button>
       </span>
     </div>
   {/if}
@@ -175,37 +183,44 @@
     <div class="flex flex-wrap gap-2 pb-2">
       {#each attached as image, index (image.previewUrl)}
         <div class="relative">
-          <img src={image.previewUrl} alt={image.name} class="h-16 w-16 rounded-md border border-border object-cover" />
-          <button class="absolute -top-1.5 -right-1.5 rounded-full bg-surface-2 p-0.5 text-muted hover:text-foreground" aria-label={`${$t("chat.removeImage")} ${image.name}`} onclick={() => dropAttachment(index)}>
-            <X size={12} />
+          <img src={image.previewUrl} alt={image.name} class="size-14 rounded-md border border-border object-cover" />
+          <button class="absolute -top-1.5 -right-1.5 rounded-full border border-border bg-popover p-0.5 text-muted hover:text-foreground" aria-label={`${$t("chat.removeImage")} ${image.name}`} onclick={() => dropAttachment(index)}>
+            <X size={11} />
           </button>
         </div>
       {/each}
     </div>
   {/if}
-  <div class="flex gap-2">
+  <!-- One field: the text on top, what it is sent with along its bottom edge. -->
+  <div class="rounded-lg border border-input bg-field transition-colors hover:border-white/15 focus-within:border-primary/50 focus-within:ring-3 focus-within:ring-primary/10">
     <input bind:this={fileRef} type="file" accept="image/*" multiple class="hidden" onchange={(event) => { const el = event.currentTarget as HTMLInputElement; void attach([...(el.files ?? [])]); el.value = ""; }} />
-    <Button variant="outline" size="icon" aria-label={$t("chat.addImage")} onclick={() => fileRef?.click()}><ImagePlus size={16} /></Button>
     <Textarea
       bind:ref={input}
       rows={2}
       bind:value={text}
-      placeholder={target ? $t("conversation.placeholderTarget", { title: target.title }) : $t("conversation.placeholder")}
+      class="block border-0 bg-transparent px-3 pt-2.5 pb-1 hover:border-0 focus-visible:ring-0"
+      placeholder={target ? $t("conversation.placeholderTarget", { title: target.title }) : $t(narrow.current ? "conversation.placeholderShort" : "conversation.placeholder")}
       onpaste={(event) => { const files = [...(event.clipboardData?.files ?? [])]; if (files.length > 0) { event.preventDefault(); void attach(files); } }}
       onkeydown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); submit(); } }}
     />
-    <Button onclick={submit} disabled={send.isPending || (text.trim().length === 0 && attached.length === 0)} aria-label={$t("common.send")}><SendHorizontal size={16} /></Button>
-  </div>
-  <div class="pt-2 pl-11">
-    <!-- A choice still being saved belongs to the task it was made for, not the next one addressed. -->
-    {#key target?.id}
-      <RunAsBar
-        value={target ? targetRunAs : draftRunAs}
-        scope={target ? "task" : "new"}
-        onchange={chooseRunAs}
-        onconversation={target ? undefined : chooseConversation}
-      />
-    {/key}
+    <div class="flex items-center gap-1 px-1.5 pb-1.5">
+      <Button variant="ghost" size="icon" aria-label={$t("chat.addImage")} onclick={() => fileRef?.click()}><ImagePlus /></Button>
+      <div class="min-w-0 flex-1">
+        <!-- A choice still being saved belongs to the task it was made for, not the next one addressed. -->
+        {#key target?.id}
+          <RunAsBar
+            value={target ? targetRunAs : draftRunAs}
+            scope={target ? "task" : "new"}
+            onchange={chooseRunAs}
+            onconversation={target ? undefined : chooseConversation}
+          />
+        {/key}
+      </div>
+      <span class="relative flex">
+      {#key sparks}{#if sparks > 0}<span class="pointer-events-none absolute inset-0 animate-spark rounded-md border-[1.5px] border-primary/70 shadow-[0_0_10px_oklch(0.72_0.16_55/0.5)]" aria-hidden="true"></span>{/if}{/key}
+      <Button size="icon" onclick={submit} disabled={send.isPending || (text.trim().length === 0 && attached.length === 0)} aria-label={$t("common.send")}><ArrowUp /></Button>
+      </span>
+    </div>
   </div>
   </div>
 </div>

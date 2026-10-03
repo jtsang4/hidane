@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Pencil, Plus, Trash2 } from "@lucide/svelte";
+  import { KeyRound, Pencil, Plus, Trash2 } from "@lucide/svelte";
   import i18n, { t } from "../../i18n/index.js";
   import { api, type ProviderInput, type ProviderPatch, type ProviderView, type Role } from "../../lib/api.js";
   import { confirmAction } from "../../lib/confirm.svelte.js";
@@ -17,6 +17,7 @@
   import { pushToast } from "../../lib/toast.js";
   import ProviderForm from "../../components/settings/ProviderForm.svelte";
   import Badge from "../../components/ui/Badge.svelte";
+  import EmptyState from "../../components/EmptyState.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Select from "../../components/ui/Select.svelte";
 
@@ -110,15 +111,14 @@
   let providerPending = $derived(createProvider.isPending || updateProvider.isPending);
 </script>
 
-<div class="flex flex-wrap items-start gap-3 px-1">
+<div class="flex flex-wrap items-start gap-3">
   <p class="min-w-0 flex-1 basis-64 text-xs text-muted">{$t("settings.providers.hint")}</p>
   {#if editing === null}
     <div class="flex flex-wrap items-center gap-2">
       {#if presets.length > 0}
         <!-- A menu of starting points, not a setting: it never keeps a value. -->
         <Select
-          class="h-8 w-auto"
-          size="sm"
+          class="w-auto"
           label={$t("settings.providers.presetPlaceholder")}
           placeholder={$t("settings.providers.presetPlaceholder")}
           value=""
@@ -126,7 +126,7 @@
           onchange={(id) => startCreate(id)}
         />
       {/if}
-      <Button size="sm" onclick={() => startCreate()}><Plus size={16} />{$t("settings.providers.blank")}</Button>
+      <Button variant="soft" onclick={() => startCreate()}><Plus size={16} />{$t("settings.providers.blank")}</Button>
     </div>
   {/if}
 </div>
@@ -136,7 +136,7 @@
 {/if}
 
 {#if settings && providers.length === 0 && editing === null}
-  <p class="py-10 text-center text-sm text-muted">{$t("settings.providers.empty")}</p>
+  <EmptyState icon={KeyRound} text={$t("settings.providers.empty")} class="py-12" />
 {/if}
 
 {#each providers as provider (provider.id)}
@@ -144,7 +144,7 @@
     <ProviderForm bind:draft existing={provider} pending={providerPending} onsubmit={submitProvider} oncancel={cancelEdit} />
   {:else if settings}
     {@const usedBy = rolesUsingProvider(settings.roles, provider.id)}
-    <div class="flex items-start gap-3 rounded-lg border border-border bg-surface p-4">
+    <div class="flex items-start gap-3 rounded-lg border border-border bg-surface p-3">
       <div class="min-w-0 flex-1 space-y-2">
         <div class="flex flex-wrap items-center gap-2">
           <span class="text-sm font-medium">{provider.label}</span>
@@ -172,8 +172,8 @@
         <Button variant="ghost" size="icon" aria-label={`${$t("settings.providers.edit")} ${provider.label}`} disabled={editing !== null} onclick={() => startEdit(provider)}>
           <Pencil size={16} />
         </Button>
-        <Button variant="ghost" size="icon" aria-label={`${$t("settings.providers.delete")} ${provider.label}`} disabled={deleteProvider.isPending} onclick={() => void remove(provider)}>
-          <Trash2 size={16} class="text-danger" />
+        <Button variant="ghost" size="icon" class="hover:bg-danger/10 hover:text-danger" aria-label={`${$t("settings.providers.delete")} ${provider.label}`} disabled={deleteProvider.isPending} onclick={() => void remove(provider)}>
+          <Trash2 />
         </Button>
       </div>
     </div>

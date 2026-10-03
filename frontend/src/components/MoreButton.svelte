@@ -17,7 +17,7 @@
 
 <button
   type="button"
-  class={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary", className)}
+  class={cn("flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70 coarse:size-9", className)}
   aria-label={label}
   title={label}
   aria-haspopup="menu"

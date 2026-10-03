@@ -2,6 +2,7 @@
   import { t } from "../../i18n/index.js";
   import type { AgentInfo, AgentKind } from "../../lib/api.js";
   import { errorText } from "../../lib/settings.js";
+  import PathText from "../PathText.svelte";
   import Badge from "../ui/Badge.svelte";
   import Input from "../ui/Input.svelte";
   import SaveStatus from "./SaveStatus.svelte";
@@ -47,8 +48,8 @@
 </script>
 
 <div class="space-y-2" role="group" aria-labelledby={`agent-row-${kind}`}>
-  <div class="flex flex-wrap items-center gap-2 px-1">
-    <h2 id={`agent-row-${kind}`} class="text-[13px] font-semibold">{$t(`settings.kinds.${kind}`)}</h2>
+  <div class="flex flex-wrap items-center gap-2">
+    <h2 id={`agent-row-${kind}`} class="text-sm font-medium">{$t(`settings.kinds.${kind}`)}</h2>
     {#if detecting && !info}
       <Badge tone="muted">{$t("settings.agents.detecting")}</Badge>
     {:else if info?.available}
@@ -61,14 +62,15 @@
   </div>
   <div class="divide-y divide-border rounded-lg border border-border bg-surface">
     {#if info?.available && info.path}
-      <div class="px-4 py-2.5"><p class="font-mono text-[11px] break-all text-muted select-text">{$t("settings.agents.path", { path: info.path })}</p></div>
+      <div class="px-3.5 py-2"><p class="font-mono text-2xs break-words text-muted select-text">{#each $t("settings.agents.path", { path: "\u0000" }).split("\u0000") as piece, index (index)}{#if index > 0}<PathText path={info.path} />{/if}{piece}{/each}</p></div>
     {:else if info && !info.available && info.error}
-      <div class="px-4 py-2.5"><p class="text-xs break-words text-danger select-text">{info.error}</p></div>
+      <div class="px-3.5 py-2"><p class="text-xs break-words text-danger select-text">{info.error}</p></div>
     {/if}
     <SettingsRow label={$t("settings.agents.pathLabel")} hint={$t("settings.agents.pathHint")} for={inputId}>
+      {#snippet below()}
       <Input
         id={inputId}
-        class="w-72 max-w-full font-mono"
+        class="font-mono text-ellipsis"
         placeholder={$t("settings.agents.override", { kind: $t(`settings.kinds.${kind}`) })}
         aria-label={$t("settings.agents.override", { kind: $t(`settings.kinds.${kind}`) })}
         value={path}
@@ -79,6 +81,7 @@
         onblur={() => void commit()}
         onkeydown={(event) => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); void commit(); } }}
       />
+      {/snippet}
     </SettingsRow>
   </div>
 </div>

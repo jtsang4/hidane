@@ -12,7 +12,7 @@ beforeEach(async () => {
 describe("message menu", () => {
   it("offers copying the text everywhere and a permalink only where there is an address bar", () => {
     expect(messageActions({ desktop: true, own: true, redacted: false })).toEqual(["copy-text", "hide"]);
-    expect(messageActions({ desktop: false, own: true, redacted: false })).toEqual(["copy-text", "hide", "copy-link"]);
+    expect(messageActions({ desktop: false, own: true, redacted: false })).toEqual(["copy-text", "copy-link", "hide"]);
   });
 
   it("hides only the person's own messages, and nothing is left to copy once hidden", () => {

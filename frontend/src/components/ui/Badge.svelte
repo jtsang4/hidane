@@ -8,16 +8,16 @@
 
   let { children, class: className = "", tone = "default", ...rest }: Props = $props();
   const tones: Record<Tone, string> = {
-    default: "bg-primary/15 text-primary",
-    success: "bg-success/15 text-success",
-    danger: "bg-danger/15 text-danger",
-    muted: "bg-surface-2 text-muted",
+    default: "bg-primary/12 text-primary",
+    success: "bg-success/12 text-success",
+    danger: "bg-danger/12 text-danger",
+    muted: "bg-accent text-muted",
   };
 </script>
 
 <span
   {...rest}
-  class={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", tones[tone], className)}
+  class={cn("inline-flex h-[18px] items-center gap-1 rounded px-1.5 text-2xs font-medium whitespace-nowrap", tones[tone], className)}
 >
   {@render children?.()}
 </span>

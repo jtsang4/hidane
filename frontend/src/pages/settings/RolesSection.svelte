@@ -17,9 +17,9 @@
   }
 </script>
 
-<p class="px-1 text-xs text-muted">{$t("settings.roles.hint")}</p>
+<p class="text-xs text-muted">{$t("settings.roles.hint")}</p>
 {#if settingsQuery.isLoading}
-  <p class="flex items-center gap-2 px-1 text-sm text-muted"><span class="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-transparent"></span>{$t("common.loading")}</p>
+  <p class="flex items-center gap-2 text-sm text-muted"><span class="size-3 animate-spin rounded-full border-[1.5px] border-muted border-t-transparent"></span>{$t("common.loading")}</p>
 {:else if settings}
   {#each ROLES as role (role)}
     <RoleRow

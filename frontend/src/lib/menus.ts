@@ -15,9 +15,10 @@ export function messageActions(options: {
 }): MessageAction[] {
   const actions: MessageAction[] = [];
   if (!options.redacted) actions.push("copy-text");
-  if (options.own && !options.redacted) actions.push("hide");
   // A permalink needs an address bar to be pasted into; the desktop app has none.
   if (!options.desktop) actions.push("copy-link");
+  // The destructive action goes last, set apart from the harmless ones.
+  if (options.own && !options.redacted) actions.push("hide");
   return actions;
 }
 

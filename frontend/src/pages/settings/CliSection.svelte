@@ -21,9 +21,9 @@
   }
 </script>
 
-<div class="flex items-start gap-3 px-1">
+<div class="flex items-start gap-3">
   <p class="min-w-0 flex-1 text-xs text-muted">{$t("settings.agents.hint")}</p>
-  <Button variant="outline" size="sm" disabled={agentsQuery.isFetching} onclick={() => void agentsQuery.refetch()}>
+  <Button variant="secondary" disabled={agentsQuery.isFetching} onclick={() => void agentsQuery.refetch()}>
     <RefreshCw size={14} class={agentsQuery.isFetching ? "animate-spin" : ""} />{$t("settings.agents.redetect")}
   </Button>
 </div>
@@ -38,5 +38,5 @@
     />
   {/each}
 {:else if settingsQuery.isLoading}
-  <p class="px-1 text-sm text-muted">{$t("common.loading")}</p>
+  <p class="text-sm text-muted">{$t("common.loading")}</p>
 {/if}

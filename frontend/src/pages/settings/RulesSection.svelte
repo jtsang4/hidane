@@ -1,12 +1,14 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { OctagonAlert, Plus, Trash2 } from "@lucide/svelte";
+  import { OctagonAlert, Plus, ShieldCheck, Trash2 } from "@lucide/svelte";
   import i18n, { t } from "../../i18n/index.js";
   import { api, type PolicyRule } from "../../lib/api.js";
   import { confirmAction } from "../../lib/confirm.svelte.js";
   import { errorText } from "../../lib/settings.js";
   import { pushToast } from "../../lib/toast.js";
   import Badge from "../../components/ui/Badge.svelte";
+  import PathText from "../../components/PathText.svelte";
+  import EmptyState from "../../components/EmptyState.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Input from "../../components/ui/Input.svelte";
 
@@ -55,16 +57,16 @@
   }
 </script>
 
-<div class="flex items-start gap-3 px-1">
+<div class="flex items-start gap-3">
   <div class="min-w-0 flex-1 space-y-1">
     <p class="text-xs text-muted">{$t("policies.subtitle")}</p>
-    {#if policyQuery.data}<p class="font-mono text-[11px] break-all text-muted select-text">{$t("policies.file", { path: policyQuery.data.path })}</p>{/if}
+    {#if policyQuery.data}{@const path = policyQuery.data.path}<p class="font-mono text-2xs break-words text-muted select-text">{#each $t("policies.file", { path: "\u0000" }).split("\u0000") as piece, index (index)}{#if index > 0}<PathText {path} />{/if}{piece}{/each}</p>{/if}
   </div>
-  {#if !adding}<Button size="sm" onclick={() => (adding = true)}><Plus size={16} />{$t("policies.add")}</Button>{/if}
+  {#if !adding}<Button variant="soft" onclick={() => (adding = true)}><Plus size={16} />{$t("policies.add")}</Button>{/if}
 </div>
 
 {#if broken}
-  <div class="flex items-start gap-2.5 rounded-lg border border-danger/50 bg-danger/10 p-4 text-sm" role="alert">
+  <div class="flex items-start gap-2.5 rounded-lg border border-danger/40 bg-danger/8 p-3 text-sm" role="alert">
     <OctagonAlert size={18} class="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
     <div class="min-w-0 space-y-1">
       <p class="font-medium text-danger">{$t("policies.broken")}</p>
@@ -75,33 +77,33 @@
 {/if}
 
 {#if adding}
-  <div class="space-y-2 rounded-lg border border-border bg-surface p-4">
+  <div class="space-y-2 rounded-lg border border-border bg-surface p-3">
     <Input bind:value={pattern} data-autofocus placeholder={$t("policies.pattern")} aria-label={$t("policies.pattern")} class="font-mono" />
     <Input bind:value={reason} placeholder={$t("policies.reason")} aria-label={$t("policies.reason")} />
     <Input bind:value={tools} placeholder={$t("policies.tools")} aria-label={$t("policies.tools")} />
     <div class="flex justify-end gap-2">
-      <Button variant="outline" size="sm" onclick={() => (adding = false)}>{$t("common.cancel")}</Button>
-      <Button size="sm" disabled={add.isPending || !pattern.trim() || !reason.trim()} onclick={() => add.mutate()}>{$t("policies.add")}</Button>
+      <Button variant="secondary" onclick={() => (adding = false)}>{$t("common.cancel")}</Button>
+      <Button disabled={add.isPending || !pattern.trim() || !reason.trim()} onclick={() => add.mutate()}>{$t("policies.add")}</Button>
     </div>
   </div>
 {/if}
 
-{#if policyQuery.isLoading}<p class="px-1 text-sm text-muted">{$t("common.loading")}</p>{/if}
-{#if !policyQuery.isLoading && rules.length === 0 && !broken}<p class="py-10 text-center text-sm text-muted">{$t("policies.empty")}</p>{/if}
+{#if policyQuery.isLoading}<p class="text-sm text-muted">{$t("common.loading")}</p>{/if}
+{#if !policyQuery.isLoading && rules.length === 0 && !broken}<EmptyState icon={ShieldCheck} text={$t("policies.empty")} class="py-12" />{/if}
 
 {#if rules.length > 0}
   <div class="divide-y divide-border rounded-lg border border-border bg-surface">
     {#each rules as rule (rule.id)}
-      <div class="flex items-start gap-3 px-4 py-3">
+      <div class="flex items-start gap-3 px-3.5 py-2.5">
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
-            <code class="rounded bg-surface-2 px-1.5 py-0.5 text-xs break-all select-text">{rule.pattern}</code>
+            <code class="rounded bg-accent px-1.5 py-px text-xs break-all select-text">{rule.pattern}</code>
             <Badge tone="muted">{rule.tools && rule.tools.length > 0 ? rule.tools.join(", ") : $t("policies.toolsAll")}</Badge>
             <span class="font-mono text-xs text-muted">{rule.id}</span>
           </div>
           <p class="mt-1.5 text-sm break-words select-text">{rule.reason}</p>
         </div>
-        <Button variant="ghost" size="icon" aria-label={`${$t("policies.delete")} ${rule.id}`} disabled={remove.isPending} onclick={() => void confirmRemove(rule)}><Trash2 size={16} class="text-danger" /></Button>
+        <Button variant="ghost" size="icon" class="hover:bg-danger/10 hover:text-danger" aria-label={`${$t("policies.delete")} ${rule.id}`} disabled={remove.isPending} onclick={() => void confirmRemove(rule)}><Trash2 /></Button>
       </div>
     {/each}
   </div>

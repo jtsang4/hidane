@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fmtDateTime, fmtRelative } from "../lib/utils.js";
+  import { cn, fmtDateTime, fmtRelative } from "../lib/utils.js";
 
   let { iso, class: className = "" }: { iso: string; class?: string } = $props();
   let now = $state(Date.now());
@@ -20,4 +20,4 @@
   });
 </script>
 
-<time dateTime={iso} title={fmtDateTime(iso)} class={className}>{fmtRelative(iso, now)}</time>
+<time dateTime={iso} title={fmtDateTime(iso)} class={cn("tabular-nums", className)}>{fmtRelative(iso, now)}</time>

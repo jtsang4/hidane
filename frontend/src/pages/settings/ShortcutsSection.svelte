@@ -25,10 +25,10 @@
 </script>
 
 {#snippet keys(text: string)}
-  <kbd class="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-sans text-xs text-foreground">{text}</kbd>
+  <kbd class="rounded border border-border bg-accent px-1.5 py-px font-sans text-2xs text-foreground">{text}</kbd>
 {/snippet}
 
-<p class="px-1 text-xs text-muted">{$t("settings.shortcuts.hint")}</p>
+<p class="text-xs text-muted">{$t("settings.shortcuts.hint")}</p>
 
 <SettingsCard title={$t("settings.shortcuts.app")}>
   {#each app as shortcut (shortcut.command)}

@@ -9,6 +9,7 @@
   import { openSettings } from "../lib/router.svelte.js";
   import { AGENT_LABELS, effortOptions, favoriteLabel, sameRunAs, withAgent } from "../lib/runAs.js";
   import { AGENT_KINDS, compatibility, roleCompatibility } from "../lib/settings.js";
+  import { segment, segmented, segmentOff, segmentOn, sheetHandle } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
   import Combobox, { type ComboboxSuggestion } from "./ui/Combobox.svelte";
   import Select, { type SelectOption } from "./ui/Select.svelte";
@@ -152,28 +153,30 @@
   }
 
   const trigger =
-    "flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface px-2 text-xs hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary data-[state=open]:bg-surface-2";
-  const pill = "h-7 rounded-md border px-2 text-xs transition-colors disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-primary";
+    "flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs text-foreground/85 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70 data-[state=open]:bg-accent coarse:min-h-9";
+  const pill = "h-6 rounded-md px-2 text-xs transition-colors disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-primary/70 coarse:min-h-9";
+  const pillOff = "bg-accent text-foreground/85 hover:bg-white/10 hover:text-foreground";
 </script>
 
 {#snippet face()}
   {#if kind === "conversation"}
-    <MessageCircle size={14} class="shrink-0 text-muted" aria-hidden="true" />
+    <MessageCircle size={13} class="shrink-0 text-muted" aria-hidden="true" />
   {:else}
-    <Bot size={14} class="shrink-0 text-muted" aria-hidden="true" />
+    <Bot size={13} class="shrink-0 text-muted" aria-hidden="true" />
   {/if}
-  <span class="shrink-0 text-muted" aria-hidden="true">{scopeName}</span>
+  <!-- Narrow: the icon alone names the scope, so both pickers fit on one row. -->
+  <span class="hidden shrink-0 text-muted @sm:inline" aria-hidden="true">{scopeName}</span>
   <span class="min-w-0 truncate" aria-hidden="true">{head}<span class="hidden @lg:inline">{tail}</span></span>
   {#if problem}<TriangleAlert size={12} class="shrink-0 text-danger" aria-hidden="true" />{/if}
   <ChevronsUpDown size={12} class="shrink-0 text-muted" aria-hidden="true" />
 {/snippet}
 
 {#snippet panel()}
-  <h2 id={`${ids}-title`} class="text-[13px] font-semibold">{title}</h2>
+  <h2 id={`${ids}-title`} class="text-sm font-medium">{title}</h2>
   <p class="mt-0.5 text-xs text-muted">{scopeNote}</p>
 
   <section class="mt-3" aria-labelledby={`${ids}-favorites`}>
-    <h3 id={`${ids}-favorites`} class="text-[11px] font-medium text-muted">{$t("runAs.favorites")}</h3>
+    <h3 id={`${ids}-favorites`} class="text-2xs font-medium text-muted">{$t("runAs.favorites")}</h3>
     {#if favorites.list.length === 0}
       <p class="mt-1 text-xs text-muted">{$t("runAs.favoritesEmpty")}</p>
     {:else}
@@ -186,22 +189,21 @@
             <button
               type="button"
               class={cn(
-                "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-60 disabled:hover:bg-transparent",
-                current && "text-primary",
+                "flex min-w-0 flex-1 items-center gap-1.5 rounded-[5px] px-2 py-1 text-left text-xs hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary/70 disabled:opacity-60 disabled:hover:bg-transparent",
               )}
               aria-current={current ? "true" : undefined}
               disabled={reason !== null}
               onclick={() => apply(entry)}
             >
-              <Check size={12} class={cn("shrink-0", !current && "invisible")} aria-hidden="true" />
+              <Check size={12} class={cn("shrink-0 text-primary", !current && "invisible")} aria-hidden="true" />
               <span class="min-w-0">
                 <span class="block truncate">{label}</span>
-                {#if reason}<span class="block text-[11px] text-muted">{reason}</span>{/if}
+                {#if reason}<span class="block text-2xs text-muted">{reason}</span>{/if}
               </span>
             </button>
             <button
               type="button"
-              class="shrink-0 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary"
+              class="shrink-0 rounded-md p-1 text-muted hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70"
               aria-label={$t("runAs.removeFavorite", { label })}
               title={$t("runAs.removeFavorite", { label })}
               onclick={() => toggleFavoriteRun(entry)}
@@ -215,9 +217,11 @@
   </section>
 
   <div class="mt-3 space-y-2.5 border-t border-border pt-3">
-    <div class="flex flex-wrap gap-1" role="group" aria-label={$t("runAs.agent")}>
+    <!-- One segmented control: a choice among siblings, not a row of separate buttons. -->
+    <!-- The agents share equal widths; "follow settings" is a different kind of choice and takes what its label needs. -->
+    <div class={cn(segmented, "grid w-full", follow !== null ? "grid-cols-[auto_repeat(3,minmax(0,1fr))]" : "grid-cols-3")} role="group" aria-label={$t("runAs.agent")}>
       {#if follow !== null}
-        <button type="button" class={cn(pill, value === null ? "border-primary bg-primary/15 text-primary" : "border-border hover:bg-surface-2")} aria-pressed={value === null} data-autofocus={value === null ? "" : undefined} onclick={() => chooseAgent("")}>
+        <button type="button" class={cn(segment, "px-1.5", value === null ? segmentOn : segmentOff)} aria-pressed={value === null} data-autofocus={value === null ? "" : undefined} onclick={() => chooseAgent("")}>
           {$t("runAs.followShort")}
         </button>
       {/if}
@@ -225,7 +229,7 @@
         {@const missing = available.get(agent) === false}
         <button
           type="button"
-          class={cn(pill, value?.agent === agent ? "border-primary bg-primary/15 text-primary" : "border-border hover:bg-surface-2")}
+          class={cn(segment, "px-1.5", value?.agent === agent ? segmentOn : segmentOff)}
           aria-pressed={value?.agent === agent}
           disabled={missing && value?.agent !== agent}
           title={missing ? $t("runAs.unavailable", { agent: AGENT_LABELS[agent] }) : undefined}
@@ -245,14 +249,13 @@
     {:else}
       {#if providers.length > 0 || value.provider !== ""}
         <div class="space-y-1">
-          <span class="block text-[11px] text-muted" aria-hidden="true">{$t("runAs.provider")}</span>
+          <span class="block text-2xs text-muted" aria-hidden="true">{$t("runAs.provider")}</span>
           <Select size="sm" label={$t("runAs.provider")} value={value.provider} options={providerOptions} onchange={(next) => set({ provider: next, model: "" })} />
         </div>
       {/if}
       <div class="space-y-1">
-        <span class="block text-[11px] text-muted" aria-hidden="true">{$t("runAs.model")}</span>
+        <span class="block text-2xs text-muted" aria-hidden="true">{$t("runAs.model")}</span>
         <Combobox
-          class="font-mono"
           size="sm"
           label={$t("runAs.model")}
           emptyLabel={$t("runAs.defaultModel")}
@@ -266,7 +269,7 @@
         <p class="text-xs text-muted">{$t("runAs.catalogFailed", { agent: AGENT_LABELS[value.agent] })}</p>
       {/if}
       <div class="space-y-1">
-        <span class="block text-[11px] text-muted" aria-hidden="true">{$t("runAs.effort")}</span>
+        <span class="block text-2xs text-muted" aria-hidden="true">{$t("runAs.effort")}</span>
         <Select size="sm" label={$t("runAs.effort")} value={value.effort} options={effortChoices} onchange={(next) => set({ effort: next as Effort })} />
       </div>
     {/if}
@@ -275,7 +278,7 @@
   <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
     <button
       type="button"
-      class={cn(pill, "inline-flex items-center gap-1.5 border-border hover:bg-surface-2", favorite && "text-primary")}
+      class={cn(pill, "inline-flex items-center gap-1.5", favorite ? "bg-primary/10 text-foreground hover:bg-primary/15" : pillOff)}
       aria-pressed={favorite}
       title={favorite ? $t("runAs.favorited") : undefined}
       disabled={value === null}
@@ -284,12 +287,12 @@
         if (value) toggleFavoriteRun(value);
       }}
     >
-      <Star size={12} class={cn(favorite && "fill-current")} aria-hidden="true" />{$t("runAs.favorite")}
+      <Star size={12} class={cn(favorite && "fill-current text-primary")} aria-hidden="true" />{$t("runAs.favorite")}
     </button>
     {#if kind === "conversation"}
       <button
         type="button"
-        class={cn(pill, "inline-flex items-center gap-1.5 border-transparent text-muted hover:text-foreground")}
+        class={cn(pill, "inline-flex items-center gap-1.5 text-muted hover:bg-accent hover:text-foreground")}
         onclick={() => {
           open = false;
           openSettings("roles");
@@ -305,14 +308,15 @@
   <Dialog.Root bind:open {onOpenChange}>
     <Dialog.Trigger bind:ref={triggerRef} class={trigger} aria-label={triggerLabel} title={problem ?? scopeNote}>{@render face()}</Dialog.Trigger>
     <Dialog.Portal>
-      <Dialog.Overlay class="fixed inset-0 z-[60] bg-black/40" />
+      <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-black/45 backdrop-blur-[2px]" />
       <Dialog.Content
         id={`${ids}-panel`}
         aria-labelledby={`${ids}-title`}
-        class="fixed inset-x-0 bottom-0 z-[60] max-h-[80vh] overflow-y-auto rounded-t-xl border border-border bg-surface p-4 shadow-xl outline-none"
+        class="fixed inset-x-0 bottom-0 z-[60] max-h-[80vh] overflow-y-auto animate-rise-in rounded-t-xl border border-border bg-popover p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-dialog outline-none"
         onOpenAutoFocus={focusChoice}
         onCloseAutoFocus={focusTrigger}
       >
+        <div class={sheetHandle} aria-hidden="true"></div>
         {@render panel()}
       </Dialog.Content>
     </Dialog.Portal>
@@ -329,7 +333,7 @@
         collisionPadding={8}
         role="dialog"
         aria-labelledby={`${ids}-title`}
-        class="z-[60] max-h-[var(--bits-popover-content-available-height)] w-80 overflow-y-auto rounded-lg border border-border bg-surface p-3 shadow-xl outline-none"
+        class="z-[60] max-h-[var(--bits-popover-content-available-height)] w-96 animate-pop-in overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-popover outline-none"
         onOpenAutoFocus={focusChoice}
         onCloseAutoFocus={focusTrigger}
       >

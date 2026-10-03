@@ -3,6 +3,7 @@
   import { CornerDownRight, Plus } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import type { Turn } from "../lib/conversation.js";
+  import { popover, popoverItem } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
 
   let {
@@ -39,11 +40,11 @@
 
 {#if turn.ambiguous && turn.message}
   <div class="flex justify-end">
-    <div class="max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-xs" role="group" aria-label={$t("attribution.pick")}>
+    <div class="max-w-[85%] rounded-lg border border-border bg-surface px-3 py-2 text-xs" role="group" aria-label={$t("attribution.pick")}>
       <p class="text-foreground/90">{String(turn.ambiguous.payload["question"] ?? "")}</p>
       <div class="mt-2 flex flex-wrap justify-end gap-1.5">
         {#each candidates as candidate (candidate.id)}
-          <button class="flex max-w-full items-center gap-0.5 rounded-full border border-primary/50 px-2.5 py-1 text-left text-primary hover:bg-primary/10" onclick={() => pick(candidate.id)}>
+          <button class="flex h-6 max-w-full items-center gap-1 rounded-md bg-primary/12 px-2 text-left text-primary hover:bg-primary/20 coarse:min-h-9" onclick={() => pick(candidate.id)}>
             {#if candidate.id === "new"}<Plus size={10} class="shrink-0" />{/if}<span class="truncate">{candidate.title}</span>
           </button>
         {/each}
@@ -58,15 +59,15 @@
     </button>
     <span class="hidden sm:inline">· {$t(`attribution.by.${by === "explicit" || by === "focus" || by === "user" ? by : "model"}`)}</span>
     <DropdownMenu.Root bind:open>
-      <DropdownMenu.Trigger class="rounded px-1 text-primary hover:bg-primary/10 data-[state=open]:bg-primary/10" aria-label={$t("attribution.changeLabel")}>
+      <DropdownMenu.Trigger class="-mr-1 rounded px-1 text-primary hover:bg-primary/10 data-[state=open]:bg-primary/10" aria-label={$t("attribution.changeLabel")}>
         {$t("attribution.change")}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content side="top" align="end" sideOffset={4} collisionPadding={8} loop class="z-[65] max-h-64 w-64 overflow-y-auto rounded-md border border-border bg-surface p-1 text-xs shadow-lg outline-none">
+        <DropdownMenu.Content side="top" align="end" sideOffset={4} collisionPadding={8} loop class={cn(popover, "max-h-64 w-64 overflow-y-auto")}>
           {#each others as choice (choice.id)}
-            <DropdownMenu.Item class="block w-full truncate rounded px-2 py-1.5 text-left text-foreground outline-none data-highlighted:bg-surface-2" onSelect={() => pick(choice.id)}>{choice.title}</DropdownMenu.Item>
+            <DropdownMenu.Item class={cn(popoverItem, "block truncate")} onSelect={() => pick(choice.id)}>{choice.title}</DropdownMenu.Item>
           {/each}
-          <DropdownMenu.Item class={cn("flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-primary outline-none data-highlighted:bg-surface-2", others.length > 0 && "border-t border-border")} onSelect={() => pick("new")}>
+          <DropdownMenu.Item class={cn(popoverItem, "text-primary", others.length > 0 && "mt-1 rounded-t-none border-t border-border pt-1.5")} onSelect={() => pick("new")}>
             <Plus size={12} />{$t("attribution.newTask")}
           </DropdownMenu.Item>
         </DropdownMenu.Content>

@@ -6,6 +6,8 @@
   import { boot } from "../../lib/boot.js";
   import { copyText, parentDir } from "../../lib/native.js";
   import { pushToast, toastError } from "../../lib/toast.js";
+  import BrandMark from "../../components/BrandMark.svelte";
+  import PathText from "../../components/PathText.svelte";
   import SettingsCard from "../../components/settings/SettingsCard.svelte";
   import SettingsRow from "../../components/settings/SettingsRow.svelte";
   import Button from "../../components/ui/Button.svelte";
@@ -33,10 +35,13 @@
 </script>
 
 <SettingsCard>
-  <div class="flex items-center gap-3 px-4 py-4">
-    <img src="/favicon.svg" alt="" class="h-10 w-10" />
+  <div class="flex items-center gap-3 px-3.5 py-3">
+    <div class="relative" aria-hidden="true">
+      <div class="absolute inset-0 rounded-full bg-primary/25 blur-md"></div>
+      <div class="relative grid size-10 place-items-center rounded-xl border border-border bg-linear-to-b from-surface-2 to-surface shadow-popover"><BrandMark size={20} /></div>
+    </div>
     <div>
-      <div class="text-sm font-semibold">{$t("common.appName")}</div>
+      <div class="text-base font-semibold tracking-tight">{$t("common.appName")}</div>
       <div class="text-xs text-muted">{$t(info.desktop ? "settings.about.modeDesktop" : "settings.about.modeBrowser")}</div>
     </div>
   </div>
@@ -46,12 +51,12 @@
 </SettingsCard>
 
 <SettingsCard title={$t("settings.about.dataDir")} description={$t("settings.about.dataDirHint")}>
-  <div class="flex flex-wrap items-center gap-3 px-4 py-3">
-    <code class="min-w-0 flex-1 basis-64 font-mono text-xs break-all text-muted select-text">{dataDir || $t("common.loading")}</code>
+  <div class="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
+    <code class="min-w-0 flex-1 basis-64 font-mono text-xs break-words text-muted select-text">{#if dataDir}<PathText path={dataDir} />{:else}{$t("common.loading")}{/if}</code>
     <div class="flex shrink-0 gap-2">
-      <Button size="sm" variant="outline" disabled={!dataDir} onclick={() => void copyPath()}><Copy size={14} />{$t("settings.about.copyPath")}</Button>
+      <Button variant="secondary" disabled={!dataDir} onclick={() => void copyPath()}><Copy size={14} />{$t("settings.about.copyPath")}</Button>
       {#if info.desktop}
-        <Button size="sm" variant="outline" onclick={() => void reveal()}><FolderOpen size={14} />{$t("settings.about.reveal")}</Button>
+        <Button variant="secondary" onclick={() => void reveal()}><FolderOpen size={14} />{$t("settings.about.reveal")}</Button>
       {/if}
     </div>
   </div>

@@ -13,15 +13,15 @@
         role="alert"
         data-tone={toast.tone}
         class={cn(
-          "pointer-events-auto flex w-fit max-w-md items-start gap-3 rounded-lg border px-3 py-2 text-sm shadow-lg backdrop-blur",
+          "pointer-events-auto flex w-fit max-w-md animate-pop-in items-start gap-2.5 rounded-lg border px-3 py-2 text-sm shadow-popover backdrop-blur",
           toast.tone === "danger"
-            ? "border-danger/40 bg-surface/95 text-danger"
-            : "border-border bg-surface/95",
+            ? "border-danger/40 bg-popover/95 text-danger"
+            : "border-border bg-popover/95",
         )}
       >
         <span class="min-w-0 flex-1 break-words">{toast.message}</span>
         <button class="shrink-0 opacity-70 hover:opacity-100" aria-label={$t("common.dismiss")} onclick={() => dismissToast(toast.id)}>
-          <X size={16} />
+          <X size={14} class="mt-[3px]" />
         </button>
       </div>
     {/each}

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Ban, Bot, CircleHelp, Maximize2, Square } from "@lucide/svelte";
+  import { prefersReducedMotion } from "svelte/motion";
+  import { fade } from "svelte/transition";
   import { t } from "../i18n/index.js";
   import type { BoardCard } from "../lib/api.js";
   import { stateTone } from "../lib/board.js";
@@ -46,10 +48,10 @@
   let children = $derived(card.childIds.map((id) => cards.get(id)).filter((c): c is BoardCard => c !== undefined));
   const dot: Record<string, string> = {
     waiting: "bg-danger",
-    running: "animate-pulse bg-primary",
+    running: "animate-ember bg-primary",
     queued: "bg-primary/50",
-    thinking: "animate-pulse bg-primary/70",
-    delegated: "animate-pulse bg-primary/50",
+    thinking: "animate-ember bg-primary/80",
+    delegated: "animate-ember bg-primary/60",
     idle: "bg-muted",
     done: "bg-success",
     closed: "bg-muted",
@@ -58,9 +60,9 @@
 
 <article
   class={cn(
-    "w-full rounded-lg border bg-surface p-3 text-sm",
+    "relative w-full rounded-lg border bg-surface px-3 py-2.5 text-sm",
     !headless && "max-w-[85%]",
-    card.state === "waiting" ? "border-danger/50" : focused ? "border-primary/60" : "border-border",
+    card.state === "waiting" ? "border-danger/40" : focused ? "border-primary/35 shadow-[0_0_24px_-10px_oklch(0.72_0.16_55/0.45)]" : "border-border",
   )}
   aria-label={card.item.title}
   oncontextmenu={(event) => {
@@ -71,33 +73,40 @@
     onmenu(card, atPointer(event));
   }}
 >
+  <!-- While it runs the card smolders; when it stops, the light cools away. -->
+  {#if busy}
+    <span class="pointer-events-none absolute inset-x-0 -top-px h-px overflow-hidden rounded-t-lg" aria-hidden="true" out:fade={{ duration: prefersReducedMotion.current ? 0 : 700 }}>
+      <span class="absolute inset-y-0 left-0 w-2/5 animate-smolder bg-linear-to-r from-transparent via-primary to-transparent shadow-[0_0_10px_1px_oklch(0.72_0.16_55/0.6)]"></span>
+    </span>
+  {/if}
   {#if headless}
     {#if card.understanding}
-      <p class="text-xs text-muted"><span class="mr-1 rounded bg-surface-2 px-1 py-px text-[10px] text-foreground/80">{$t("task.understanding")}</span>{card.understanding}</p>
+      <p class="flex items-start gap-1.5 text-xs text-muted"><span class="mt-px shrink-0 rounded-sm bg-accent px-1 text-2xs text-foreground/80">{$t("task.understanding")}</span><span class="min-w-0">{card.understanding}</span></p>
     {/if}
   {:else}
   <header class="flex items-start gap-2">
-    <span aria-hidden="true" class={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot[card.state])}></span>
+    <span aria-hidden="true" class={cn("mt-[7px] size-1.5 shrink-0 rounded-full", dot[card.state])}></span>
     <div class="min-w-0 flex-1">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="font-medium break-words">{card.item.title}</span>
-        <Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>
-        {#if card.item.runAs}
-          <span class="flex items-center gap-1 text-xs text-muted" title={$t("runAs.label")}>
-            <Bot size={12} aria-hidden="true" />{runAsSummary(card.item.runAs, (effort) => $t(`settings.effort.${effort || "default"}`), $t("runAs.defaultModel"))}
-          </span>
-        {/if}
+      <!-- The state keeps to the title's first line; a long title wraps in its own column. -->
+      <div class="flex items-start gap-2">
+        <span class="min-w-0 font-medium break-words">{card.item.title}</span>
+        <Badge class="mt-px shrink-0" tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>
       </div>
+      {#if card.item.runAs}
+        <p class="mt-0.5 flex items-center gap-1 text-xs text-muted" title={$t("runAs.label")}>
+          <Bot size={12} aria-hidden="true" />{runAsSummary(card.item.runAs, (effort) => $t(`settings.effort.${effort || "default"}`), $t("runAs.defaultModel"))}
+        </p>
+      {/if}
       {#if card.understanding}
-        <p class="mt-1 text-xs text-muted"><span class="mr-1 rounded bg-surface-2 px-1 py-px text-[10px] text-foreground/80">{$t("task.understanding")}</span>{card.understanding}</p>
+        <p class="mt-1 flex items-start gap-1.5 text-xs text-muted"><span class="mt-px shrink-0 rounded-sm bg-accent px-1 text-2xs text-foreground/80">{$t("task.understanding")}</span><span class="min-w-0">{card.understanding}</span></p>
       {/if}
     </div>
-    <div class="flex shrink-0 items-center gap-1">
+    <div class="-my-0.5 -mr-1 flex shrink-0 items-center gap-0.5">
       {#if busy && card.execution}
-        <Button variant="ghost" size="icon" aria-label={$t("task.stop")} title={$t("task.stop")} onclick={() => onstop(card.item.id)}><Square size={14} /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label={$t("task.stop")} title={$t("task.stop")} onclick={() => onstop(card.item.id)}><Square size={14} /></Button>
       {/if}
       {#if !focused}
-        <Button variant="ghost" size="icon" aria-label={$t("task.open")} title={$t("task.open")} onclick={() => onfocus(card.item.id)}><Maximize2 size={14} /></Button>
+        <Button variant="ghost" size="icon-sm" aria-label={$t("task.open")} title={$t("task.open")} onclick={() => onfocus(card.item.id)}><Maximize2 size={14} /></Button>
       {/if}
       {#if onmenu}
         <MoreButton label={$t("menu.moreFor", { title: card.item.title })} onopen={(placement) => onmenu(card, placement)} />
@@ -113,18 +122,18 @@
   {/if}
 
   {#each live as reply (reply.id)}
-    <div class="mt-2 rounded-md bg-surface-2 px-2 py-1.5"><Markdown content={reply.text} class="select-text" /></div>
+    <div class="mt-2 rounded-md bg-accent px-2 py-1.5"><Markdown content={reply.text} class="select-text" /></div>
   {/each}
 
   {#if card.escalation && compact}
-    <div class="mt-2 flex items-center gap-2 rounded-md border border-danger/40 bg-danger/5 px-2 py-1.5">
-      <CircleHelp size={14} class="shrink-0 text-danger" aria-hidden="true" />
+    <div class="mt-2 flex items-center gap-2 rounded-md bg-danger/8 py-1 pr-1 pl-2">
+      <CircleHelp size={13} class="shrink-0 text-danger" aria-hidden="true" />
       <p class="min-w-0 flex-1 truncate text-xs"><span class="font-medium text-danger">{$t("task.question")}</span> · {question}</p>
       <Button size="sm" onclick={() => onanswer(card)}>{$t("task.answer")}</Button>
     </div>
   {:else if card.escalation}
-    <div class="mt-2 rounded-md border border-danger/40 bg-danger/5 p-2">
-      <p class="flex items-start gap-1.5 text-xs font-medium text-danger"><CircleHelp size={14} class="mt-px shrink-0" />{$t("task.question")}</p>
+    <div class="mt-2 rounded-md bg-danger/8 p-2">
+      <p class="flex items-start gap-1.5 text-xs font-medium text-danger"><CircleHelp size={13} class="mt-px shrink-0" />{$t("task.question")}</p>
       <p class="mt-1 whitespace-pre-wrap select-text">{question}</p>
       {#if card.escalation.path.some((step) => step.tried)}
         <details class="mt-1 text-xs text-muted">
@@ -136,7 +145,7 @@
           </ul>
         </details>
       {/if}
-      <div class="mt-2"><Button size="sm" onclick={() => onanswer(card)}>{$t("task.answer")}</Button></div>
+      <div class="mt-2"><Button onclick={() => onanswer(card)}>{$t("task.answer")}</Button></div>
     </div>
   {/if}
 
@@ -148,7 +157,7 @@
     <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
       <span class="text-muted">{$t("task.children")}</span>
       {#each children as child (child.item.id)}
-        <button class="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 hover:text-foreground" onclick={() => onfocus(child.item.id)}>
+        <button class="flex h-5 items-center gap-1 rounded-md bg-accent px-1.5 hover:bg-white/10 hover:text-foreground" onclick={() => onfocus(child.item.id)}>
           <span aria-hidden="true" class={cn("h-1.5 w-1.5 rounded-full", dot[child.state])}></span>
           {child.item.title}
           <span class="sr-only">{$t(`task.state.${child.state}`)}</span>

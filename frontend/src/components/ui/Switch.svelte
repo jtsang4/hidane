@@ -25,10 +25,10 @@
   aria-label={label}
   {disabled}
   class={cn(
-    "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50",
-    checked ? "bg-primary" : "bg-surface-2 ring-1 ring-border ring-inset",
+    "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/70 disabled:opacity-50",
+    checked ? "bg-primary" : "bg-white/15",
   )}
   onclick={() => onchange(!checked)}
 >
-  <span class={cn("inline-block h-4 w-4 rounded-full bg-white shadow transition-transform", checked ? "translate-x-[18px]" : "translate-x-0.5")}></span>
+  <span class={cn("inline-block size-3 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-3.5" : "translate-x-0.5")}></span>
 </button>

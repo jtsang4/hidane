@@ -150,16 +150,16 @@
 {/snippet}
 
 {#snippet heading(id: string, text: string)}
-  <div id={id} class="px-3 pt-2.5 pb-1 text-[11px] font-medium text-muted" role="presentation">{text}</div>
+  <div id={id} class="px-3.5 pt-2.5 pb-1 text-2xs font-medium text-muted" role="presentation">{text}</div>
 {/snippet}
 
 <!-- Mounted while open by App; Esc or a click outside closes it. -->
 <Dialog.Root bind:open={() => true, (open) => { if (!open) onclose(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-[60] bg-black/40" />
+    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-black/45 backdrop-blur-[2px]" />
     <Dialog.Content
       aria-label={$t("palette.label")}
-      class="fixed top-[12vh] left-1/2 z-[60] flex max-h-[70vh] w-[640px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none"
+      class="fixed top-[12vh] left-1/2 z-[60] flex max-h-[70vh] w-[640px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden animate-dialog-in rounded-xl border border-border bg-popover shadow-dialog outline-none"
       onOpenAutoFocus={(event) => {
         // The last search is offered again, selected, so typing replaces it.
         event.preventDefault();
@@ -168,11 +168,11 @@
       }}
     >
       <div class="flex items-center gap-2 border-b border-border px-3">
-        <Search size={16} class="shrink-0 text-muted" aria-hidden="true" />
+        <Search size={14} class="shrink-0 text-muted" aria-hidden="true" />
         <input
           bind:this={input}
           bind:value={query}
-          class="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+          class="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted/70"
           placeholder={$t("palette.placeholder")}
           aria-label={$t("palette.placeholder")}
           role="combobox"
@@ -184,7 +184,7 @@
           spellcheck="false"
           {onkeydown}
         />
-        {#if searching}<span class="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-muted border-t-transparent" role="status" aria-label={$t("chat.searching")}></span>{/if}
+        {#if searching}<span class="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-muted border-t-transparent" role="status" aria-label={$t("chat.searching")}></span>{/if}
       </div>
       <div bind:this={list} id={listId} role="listbox" aria-label={$t("palette.label")} class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
         {#each options as option, index (option.key)}
@@ -197,25 +197,25 @@
             role="option"
             tabindex="-1"
             aria-selected={index === selected}
-            class={cn("mx-1.5 flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm", index === selected ? "bg-primary/15 text-foreground" : "text-foreground/90")}
+            class={cn("mx-1.5 flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm", index === selected ? "bg-accent text-foreground" : "text-foreground/90")}
             onmousemove={() => { if (selected !== index) selected = index; }}
             onclick={() => choose(index)}
             onkeydown={(event) => { if (event.key === "Enter") choose(index); }}
           >
             {#if option.kind === "command"}
               {@const Icon = option.command.icon}
-              {#if Icon}<Icon size={15} class="shrink-0 text-muted" />{/if}
+              {#if Icon}<Icon size={14} class="shrink-0 text-muted" />{/if}
               <span class="min-w-0 flex-1 truncate">{@render marked(option.command.label)}</span>
-              {#if option.command.shortcut}<kbd class="shrink-0 font-sans text-xs text-muted">{option.command.shortcut}</kbd>{/if}
+              {#if option.command.shortcut}<kbd class="shrink-0 font-sans text-2xs text-muted">{option.command.shortcut}</kbd>{/if}
             {:else if option.kind === "item"}
-              <SquareCheckBig size={15} class="shrink-0 text-muted" aria-hidden="true" />
+              <SquareCheckBig size={14} class="shrink-0 text-muted" aria-hidden="true" />
               <span class="min-w-0 flex-1 truncate">{@render marked(option.item.title)}</span>
-              <span class="shrink-0 font-mono text-[11px] text-muted">{option.item.id}</span>
+              <span class="shrink-0 font-mono text-2xs text-muted">{option.item.id}</span>
             {:else}
               {@const hit = option.event}
-              <MessageSquareText size={15} class="mt-0.5 shrink-0 self-start text-muted" aria-hidden="true" />
+              <MessageSquareText size={14} class="mt-0.5 shrink-0 self-start text-muted" aria-hidden="true" />
               <span class="min-w-0 flex-1">
-                <span class="flex items-center gap-2 text-[11px] text-muted">
+                <span class="flex items-center gap-2 text-2xs text-muted">
                   <span class="font-medium text-foreground/80">{who(hit)}</span>
                   {#if hit.workItemId}<span class="min-w-0 truncate">· {itemTitle(hit.workItemId)}</span>{/if}
                   <time class="ml-auto shrink-0" dateTime={hit.ts}>{fmtDateTime(hit.ts)}</time>
@@ -223,14 +223,20 @@
                 <span class="mt-0.5 block truncate">{@render marked(excerpt(saidText(hit), terms))}</span>
               </span>
             {/if}
-            {#if index === selected}<CornerDownLeft size={13} class="shrink-0 text-muted" aria-hidden="true" />{/if}
+            {#if index === selected}<CornerDownLeft size={13} class="shrink-0 text-muted max-sm:hidden" aria-hidden="true" />{/if}
           </div>
         {/each}
         {#if options.length === 0}
           <p class="px-4 py-8 text-center text-sm text-muted">{searching ? $t("chat.searching") : failed ?? $t("palette.empty")}</p>
         {/if}
       </div>
-      <div class="border-t border-border px-3 py-1.5 text-[11px] text-muted">{$t("palette.hint")}</div>
+      <div class="flex items-center gap-3 border-t border-border px-3 py-1.5 text-2xs text-muted coarse:hidden max-sm:hidden">
+        <!-- The hint reads "keys label · keys label": each key becomes a keycap. -->
+        {#each $t("palette.hint").split(" · ") as hint (hint)}
+          {@const gap = hint.indexOf(" ")}
+          <span class="flex items-center gap-1.5"><kbd class="rounded-sm border border-border bg-accent px-1 font-sans text-2xs leading-4 text-foreground/80">{hint.slice(0, gap)}</kbd>{hint.slice(gap + 1)}</span>
+        {/each}
+      </div>
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>

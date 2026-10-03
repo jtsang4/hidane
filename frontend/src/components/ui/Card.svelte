@@ -8,6 +8,6 @@
   let { children, class: className = "", ...rest }: Props = $props();
 </script>
 
-<div {...rest} class={cn("rounded-lg border border-border bg-surface p-4", className)}>
+<div {...rest} class={cn("rounded-lg border border-border bg-surface p-3", className)}>
   {@render children?.()}
 </div>

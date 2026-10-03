@@ -1,10 +1,13 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Plus } from "@lucide/svelte";
+  import { AlarmClock, Plus } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import { api, type ScheduleInput } from "../lib/api.js";
   import { errorText } from "../lib/settings.js";
   import { pushToast } from "../lib/toast.js";
+  import EmptyState from "../components/EmptyState.svelte";
+  import { segment, segmented, segmentOff, segmentOn } from "../lib/styles.js";
+  import { cn } from "../lib/utils.js";
   import Page from "../components/Page.svelte";
   import ScheduleCard from "../components/ScheduleCard.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -51,19 +54,27 @@
 
 <Page title={$t("schedules.title")}>
   {#snippet actions()}
-    {#if !creating}<Button size="sm" onclick={() => (creating = true)}><Plus size={16} />{$t("schedules.new")}</Button>{/if}
+    {#if !creating}<Button variant="soft" onclick={() => (creating = true)}><Plus size={16} />{$t("schedules.new")}</Button>{/if}
   {/snippet}
-  <p class="px-1 text-xs text-muted">{$t("schedules.subtitle")}</p>
+  <p class="text-xs text-muted">{$t("schedules.subtitle")}</p>
   {#if creating}
     <Card class="space-y-3" aria-label={$t("schedules.new")}>
       <Input bind:value={form.name} placeholder={$t("schedules.form.name")} />
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-xs text-muted">{$t("schedules.form.actionLabel")}</span>
-        <Button variant={form.action === "prompt" ? "default" : "outline"} size="sm" onclick={() => (form.action = "prompt")}>{$t("schedules.action.prompt")}</Button>
-        <Button variant={form.action === "http" ? "default" : "outline"} size="sm" onclick={() => (form.action = "http")}>{$t("schedules.action.http")}</Button>
-        <span class="ml-3 text-xs text-muted">{$t("schedules.form.timingLabel")}</span>
-        <Button variant={form.timing === "interval" ? "default" : "outline"} size="sm" onclick={() => (form.timing = "interval")}>{$t("schedules.form.interval")}</Button>
-        <Button variant={form.timing === "cron" ? "default" : "outline"} size="sm" onclick={() => (form.timing = "cron")}>{$t("schedules.cron")}</Button>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-muted">{$t("schedules.form.actionLabel")}</span>
+          <div class={segmented}>
+            <button type="button" class={cn(segment, form.action === "prompt" ? segmentOn : segmentOff)} aria-pressed={form.action === "prompt"} onclick={() => (form.action = "prompt")}>{$t("schedules.action.prompt")}</button>
+            <button type="button" class={cn(segment, form.action === "http" ? segmentOn : segmentOff)} aria-pressed={form.action === "http"} onclick={() => (form.action = "http")}>{$t("schedules.action.http")}</button>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-muted">{$t("schedules.form.timingLabel")}</span>
+          <div class={segmented}>
+            <button type="button" class={cn(segment, form.timing === "interval" ? segmentOn : segmentOff)} aria-pressed={form.timing === "interval"} onclick={() => (form.timing = "interval")}>{$t("schedules.form.interval")}</button>
+            <button type="button" class={cn(segment, form.timing === "cron" ? segmentOn : segmentOff)} aria-pressed={form.timing === "cron"} onclick={() => (form.timing = "cron")}>{$t("schedules.cron")}</button>
+          </div>
+        </div>
       </div>
       {#if form.timing === "interval"}
         <Input type="number" min={10} bind:value={form.intervalSec} placeholder={$t("schedules.form.intervalSec")} />
@@ -75,17 +86,16 @@
       {:else}
         <div class="space-y-2"><Input bind:value={form.url} placeholder={$t("schedules.form.url")} /><label class="flex items-center gap-2 text-sm text-muted"><Checkbox bind:checked={form.wake} />{$t("schedules.form.wake")}</label></div>
       {/if}
-      <div class="flex justify-end gap-2"><Button variant="outline" size="sm" onclick={() => (creating = false)}>{$t("common.cancel")}</Button><Button size="sm" disabled={create.isPending} onclick={submit}>{$t("schedules.form.create")}</Button></div>
+      <div class="flex justify-end gap-2"><Button variant="secondary" onclick={() => (creating = false)}>{$t("common.cancel")}</Button><Button disabled={create.isPending} onclick={submit}>{$t("schedules.form.create")}</Button></div>
     </Card>
   {/if}
   {#if schedulesQuery.isLoading}
-    <p class="flex items-center gap-2 px-1 text-sm text-muted"><span class="h-3 w-3 animate-spin rounded-full border-2 border-muted border-t-transparent"></span>{$t("common.loading")}</p>
+    <p class="flex items-center gap-2 text-sm text-muted"><span class="size-3 animate-spin rounded-full border-[1.5px] border-muted border-t-transparent"></span>{$t("common.loading")}</p>
   {/if}
   {#if !schedulesQuery.isLoading && schedules.length === 0 && !creating}
-    <div class="flex flex-col items-center gap-3 py-16">
-      <p class="text-sm text-muted">{$t("schedules.empty")}</p>
-      <Button size="sm" variant="outline" onclick={() => (creating = true)}><Plus size={14} />{$t("schedules.new")}</Button>
-    </div>
+    <EmptyState icon={AlarmClock} text={$t("schedules.empty")}>
+      <Button variant="secondary" onclick={() => (creating = true)}><Plus />{$t("schedules.new")}</Button>
+    </EmptyState>
   {/if}
   {#each schedules as schedule (schedule.id)}<ScheduleCard {schedule} />{/each}
 </Page>

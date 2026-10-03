@@ -43,7 +43,7 @@
       {#if permission === "granted"}<Badge tone="success">{$t("notify.granted")}</Badge>{/if}
       {#if permission === "denied"}<Badge tone="danger">{$t("notify.denied")}</Badge>{/if}
       {#if permission === "unsupported"}<Badge tone="muted">{$t("notify.unsupported")}</Badge>{/if}
-      {#if permission === "default"}<Button size="sm" variant="outline" onclick={() => void askPermission()}>{$t("notify.enable")}</Button>{/if}
+      {#if permission === "default"}<Button variant="secondary" onclick={() => void askPermission()}>{$t("notify.enable")}</Button>{/if}
     </SettingsRow>
   {/if}
   <SettingsRow label={$t(desktop ? "settings.general.badgeDesktop" : "settings.general.badgeBrowser")} hint={$t("settings.general.badgeHint")}>
@@ -54,7 +54,7 @@
 {#if needsToken}
   <SettingsCard title={$t("settings.general.account")}>
     <SettingsRow label={$t("token.signOut")} hint={$t("settings.general.signOutHint")}>
-      <Button size="sm" variant="outline" onclick={onsignout}>{$t("token.signOut")}</Button>
+      <Button variant="secondary" onclick={onsignout}>{$t("token.signOut")}</Button>
     </SettingsRow>
   </SettingsCard>
 {/if}

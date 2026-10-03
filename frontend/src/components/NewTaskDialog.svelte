@@ -6,7 +6,9 @@
   import { api } from "../lib/api.js";
   import { focusHref, navigate } from "../lib/router.svelte.js";
   import { errorText } from "../lib/settings.js";
+  import { sheetHandle, sheetOnPhone } from "../lib/styles.js";
   import { pushToast } from "../lib/toast.js";
+  import { cn } from "../lib/utils.js";
   import Button from "./ui/Button.svelte";
   import Input from "./ui/Input.svelte";
   import Textarea from "./ui/Textarea.svelte";
@@ -54,35 +56,36 @@
 <!-- Mounted while open by App; any way of closing it (Esc, a click outside) is Cancel. -->
 <Dialog.Root bind:open={() => true, (open) => { if (!open) onclose(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-[60] bg-black/40" />
+    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-black/45 backdrop-blur-[2px]" />
     <Dialog.Content
-      class="fixed top-[12vh] left-1/2 z-[60] w-[520px] max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-xl border border-border bg-surface p-5 shadow-2xl outline-none"
+      class={cn("fixed top-[12vh] left-1/2 z-[60] w-[520px] max-w-[calc(100%-2rem)] -translate-x-1/2 animate-dialog-in rounded-xl border border-border bg-popover p-4 shadow-dialog outline-none", sheetOnPhone)}
       onOpenAutoFocus={(event) => {
         event.preventDefault();
         titleInput?.focus();
       }}
       {onkeydown}
     >
+      <div class={cn(sheetHandle, "sm:hidden")} aria-hidden="true"></div>
       <Dialog.Title class="text-sm font-semibold">{$t("newTask.title")}</Dialog.Title>
-      <div class="mt-4 space-y-3">
-        <label class="block space-y-1 text-xs text-muted">
-          <span>{$t("newTask.name")}</span>
+      <div class="mt-4 space-y-4">
+        <label class="block space-y-1.5 text-xs text-muted">
+          <span class="block">{$t("newTask.name")}</span>
           <Input bind:ref={titleInput} bind:value={title} placeholder={$t("items.form.title")} />
         </label>
-        <label class="block space-y-1 text-xs text-muted">
-          <span>{$t("newTask.brief")}</span>
+        <label class="block space-y-1.5 text-xs text-muted">
+          <span class="block">{$t("newTask.brief")}</span>
           <Textarea rows={3} bind:value={brief} placeholder={$t("items.form.brief")} />
         </label>
-        <label class="block space-y-1 text-xs text-muted">
-          <span>{$t("newTask.repo")}</span>
+        <label class="block space-y-1.5 text-xs text-muted">
+          <span class="block">{$t("newTask.repo")}</span>
           <Input class="font-mono" bind:value={repo} placeholder={$t("items.form.repo")} />
         </label>
         {#if error}<p class="text-xs break-words text-danger" role="alert">{error}</p>{/if}
       </div>
-      <div class="mt-5 flex items-center justify-end gap-2">
-        <span class="mr-auto text-[11px] text-muted">{$t("newTask.hint")}</span>
-        <Button variant="outline" size="sm" onclick={onclose}>{$t("common.cancel")}</Button>
-        <Button size="sm" disabled={pending || title.trim().length === 0} onclick={() => void create()}>
+      <div class="mt-4 flex items-center justify-end gap-2">
+        <span class="mr-auto text-2xs text-muted">{$t("newTask.hint")}</span>
+        <Button variant="secondary" onclick={onclose}>{$t("common.cancel")}</Button>
+        <Button disabled={pending || title.trim().length === 0} onclick={() => void create()}>
           {#if pending}<LoaderCircle size={14} class="animate-spin" />{/if}{$t("items.form.create")}
         </Button>
       </div>

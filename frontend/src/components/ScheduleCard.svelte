@@ -13,6 +13,7 @@
   import Badge from "./ui/Badge.svelte";
   import Button from "./ui/Button.svelte";
   import Card from "./ui/Card.svelte";
+  import Switch from "./ui/Switch.svelte";
 
   let { schedule }: { schedule: Schedule } = $props();
   const queryClient = useQueryClient();
@@ -44,19 +45,27 @@
     if (confirmed) remove.mutate();
   }
 
-  let timing = $derived(schedule.cron ? `cron ${schedule.cron}${schedule.timezone ? ` (${schedule.timezone})` : ""}` : $t("schedules.everySec", { s: schedule.intervalSec ?? 0 }));
+  let interval = $derived($t("schedules.everySec", { s: schedule.intervalSec ?? 0 }));
   let detail = $derived(schedule.action === "http" ? `${schedule.spec.method ?? "GET"} ${schedule.spec.url ?? ""}${schedule.spec.wake ? ` · ${$t("schedules.wakes")}` : ""}` : schedule.spec.prompt ?? "");
 </script>
 
-<Card class={cn("space-y-2", !schedule.enabled && "opacity-60")}>
+<Card class="space-y-2">
+  <!-- Wide: name, kind, timing, then the actions and the switch on one line. A phone keeps
+       the name and its switch together on the first line and moves the rest under them. -->
   <div class="flex flex-wrap items-center gap-2">
-    <span class="font-medium">{schedule.name}</span>
-    <Badge tone={schedule.action === "http" ? "default" : "success"}>{$t(`schedules.action.${schedule.action}` as const)}</Badge>
-    <Badge tone="muted">{timing}</Badge>
-    <div class="ml-auto flex items-center gap-1">
+    <span class={cn("order-1 font-medium", !schedule.enabled && "text-muted")}>{schedule.name}</span>
+    <span class="order-2 ml-auto flex items-center sm:order-5 sm:ml-1.5"><Switch checked={schedule.enabled} label={`${$t("schedules.enable")} ${schedule.name}`} disabled={toggle.isPending} onchange={() => toggle.mutate()} /></span>
+    <span class="order-3 basis-full sm:hidden" aria-hidden="true"></span>
+    <Badge tone="muted" class="order-4 sm:order-2">{$t(`schedules.action.${schedule.action}` as const)}</Badge>
+    {#if schedule.cron}
+      <!-- The expression is a machine token, set in mono like every id; the zone beside it is plain words. -->
+      <Badge tone="muted" class="order-4 sm:order-3"><span class="font-mono">{schedule.cron}</span>{#if schedule.timezone}<span class="text-muted/80">{schedule.timezone}</span>{/if}</Badge>
+    {:else}
+      <Badge tone="muted" class="order-4 sm:order-3">{interval}</Badge>
+    {/if}
+    <div class="order-4 ml-auto flex items-center gap-1 sm:order-4">
       <Button variant="ghost" size="icon" aria-label={`${$t("schedules.runNow")} ${schedule.name}`} disabled={run.isPending} onclick={() => run.mutate()}><Play size={16} /></Button>
-      <Button variant="ghost" size="icon" aria-label={`${$t("schedules.delete")} ${schedule.name}`} disabled={remove.isPending} onclick={() => void confirmRemove()}><Trash2 size={16} class="text-danger" /></Button>
-      <Button variant="outline" size="sm" disabled={toggle.isPending} onclick={() => toggle.mutate()}>{schedule.enabled ? $t("schedules.disable") : $t("schedules.enable")}</Button>
+      <Button variant="ghost" size="icon" class="hover:bg-danger/10 hover:text-danger" aria-label={`${$t("schedules.delete")} ${schedule.name}`} disabled={remove.isPending} onclick={() => void confirmRemove()}><Trash2 /></Button>
     </div>
   </div>
   <p class="text-xs break-all whitespace-pre-wrap text-muted select-text">{detail}</p>

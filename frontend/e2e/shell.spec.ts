@@ -205,7 +205,7 @@ test("a message's menu, from a right click or its ⋯ button: copy the text, hid
   await bubble.click({ button: "right" });
   const menu = page.getByRole("menu", { name: "消息操作" });
   // The desktop app has no address bar to paste a permalink into.
-  await expect(menu.getByRole("menuitem")).toHaveText(desktop ? ["复制文本", "隐藏"] : ["复制文本", "隐藏", "复制链接"]);
+  await expect(menu.getByRole("menuitem")).toHaveText(desktop ? ["复制文本", "隐藏"] : ["复制文本", "复制链接", "隐藏"]);
   await expect(menu.getByRole("menuitem").first()).toBeFocused();
   await menu.getByRole("menuitem", { name: "复制文本" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "已复制" })).toBeVisible();

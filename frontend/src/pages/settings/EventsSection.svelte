@@ -5,6 +5,8 @@
   import { matchesQuery } from "../../lib/search.js";
   import { nextCursor } from "../../lib/pagination.js";
   import EventRow from "../../components/EventRow.svelte";
+  import { SearchX } from "@lucide/svelte";
+  import EmptyState from "../../components/EmptyState.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Input from "../../components/ui/Input.svelte";
 
@@ -65,16 +67,19 @@
   <div class="flex flex-wrap gap-2">
     <Input class="min-w-0 flex-1" bind:value={kind} placeholder={$t("events.filterKind")} aria-label={$t("events.filterKind")} />
     <Input class="min-w-0 flex-1" bind:value={item} placeholder={$t("events.filterItem")} aria-label={$t("events.filterItem")} />
-    {#if kind || item || query}<Button variant="outline" size="sm" class="h-9 shrink-0" onclick={() => { kind = ""; item = ""; query = ""; }}>{$t("events.clear")}</Button>{/if}
+    {#if kind || item || query}<Button variant="secondary" class="shrink-0" onclick={() => { kind = ""; item = ""; query = ""; }}>{$t("events.clear")}</Button>{/if}
   </div>
-  <p class="px-1 text-xs text-muted" role="status">{$t("events.showing", { n: loaded.length })}{#if filtering}{` ${$t("events.filtered", { n: rows.length })}`}{/if}{#if freshCount > 0}{` · ${$t("events.fresh", { n: freshCount })}`}{/if}</p>
+  <p class="text-xs text-muted" role="status">{$t("events.showing", { n: loaded.length })}{#if filtering}{` ${$t("events.filtered", { n: rows.length })}`}{/if}{#if freshCount > 0}{` · ${$t("events.fresh", { n: freshCount })}`}{/if}</p>
 </div>
-<div class="space-y-2">
-  {#each rows as event (event.id)}<EventRow {event} />{/each}
-  {#if rows.length === 0 && !pageQuery.isLoading}<p class="py-10 text-center text-sm text-muted">{$t("events.empty")}</p>{/if}
-</div>
+{#if rows.length > 0}
+  <div class="divide-y divide-border rounded-lg border border-border bg-surface">
+    {#each rows as event (event.id)}<EventRow {event} />{/each}
+  </div>
+{:else if !pageQuery.isLoading}
+  <EmptyState icon={SearchX} text={$t("events.empty")} class="py-12" />
+{/if}
 {#if loaded.length > 0}
   <div class="pt-2 text-center">
-    {#if hasMore}<Button variant="outline" size="sm" onclick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? $t("common.loading") : $t("events.loadMore")}</Button>{:else}<span class="text-xs text-muted">{$t("events.allLoaded")}</span>{/if}
+    {#if hasMore}<Button variant="secondary" onclick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? $t("common.loading") : $t("events.loadMore")}</Button>{:else}<span class="text-xs text-muted">{$t("events.allLoaded")}</span>{/if}
   </div>
 {/if}

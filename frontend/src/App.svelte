@@ -1,6 +1,6 @@
 <script lang="ts">
   import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
-  import { Flame, MessageSquarePlus, PanelLeft, Settings, SquarePen } from "@lucide/svelte";
+  import { MessageSquarePlus, PanelLeft, Settings, SquarePen, setLucideProps } from "@lucide/svelte";
   import { onMount } from "svelte";
   import i18n, { t, language } from "./i18n/index.js";
   import { api, ApiError, clearToken, getToken, onUnauthorized, setToken } from "./lib/api.js";
@@ -37,7 +37,7 @@
   import Sidebar from "./components/Sidebar.svelte";
   import Toaster from "./components/Toaster.svelte";
   import Button from "./components/ui/Button.svelte";
-  import Card from "./components/ui/Card.svelte";
+  import BrandMark from "./components/BrandMark.svelte";
   import Input from "./components/ui/Input.svelte";
   import ConversationPage from "./pages/ConversationPage.svelte";
   import ItemsPage from "./pages/ItemsPage.svelte";
@@ -59,6 +59,9 @@
       },
     }),
   });
+
+  // Lucide's 2px stroke draws heavier than 13px text; a finer line matches the type.
+  setLucideProps({ strokeWidth: 1.5 });
 
   const desktop = boot().desktop;
   const mac = isMacPlatform();
@@ -278,15 +281,26 @@
 <QueryClientProvider client={queryClient}>
   <LiveLane enabled={authed} onstatechange={onLiveState} />
   {#if !authed}
-    <div class="drag-region flex h-full items-center justify-center p-6">
-      <Card class="w-full max-w-sm space-y-3">
-        <div class="flex items-center gap-2 text-lg font-semibold">
-          <Flame size={20} class="text-primary" /> hidane
+    <div class="drag-region relative flex h-full items-center justify-center overflow-hidden p-6">
+      <!-- The ember: one warm light in a dark room, behind the only thing to do here. -->
+      <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_44%_38%_at_50%_40%,oklch(0.72_0.16_55/0.09),transparent)]" aria-hidden="true"></div>
+      <div class="grain pointer-events-none absolute inset-0" aria-hidden="true"></div>
+      <div class="relative w-full max-w-[340px] animate-dialog-in">
+        <div class="mb-6 flex flex-col items-center text-center">
+          <div class="relative mb-4" aria-hidden="true">
+            <div class="absolute -inset-4 rounded-full bg-primary/25 blur-xl"></div>
+            <div class="relative grid size-12 place-items-center rounded-2xl border border-border bg-linear-to-b from-surface-2 to-surface shadow-popover">
+              <BrandMark size={24} />
+            </div>
+          </div>
+          <h1 class="text-xl font-semibold tracking-tight">hidane</h1>
+          <p class="mt-1.5 text-sm text-muted">{$t("token.prompt")}</p>
         </div>
-        <p class="text-sm text-muted">{$t("token.prompt")}</p>
-        <Input type="password" autofocus bind:value={tokenDraft} placeholder={$t("token.placeholder")} onkeydown={(event) => event.key === "Enter" && submitToken()} />
-        <Button class="w-full" onclick={submitToken} disabled={!tokenDraft.trim()}>{$t("token.enter")}</Button>
-      </Card>
+        <div class="space-y-2 rounded-xl border border-border bg-surface/80 p-3 shadow-dialog backdrop-blur">
+          <Input type="password" class="h-8" autofocus bind:value={tokenDraft} placeholder={$t("token.placeholder")} onkeydown={(event) => event.key === "Enter" && submitToken()} />
+          <Button size="lg" class="w-full" onclick={submitToken} disabled={!tokenDraft.trim()}>{$t("token.enter")}</Button>
+        </div>
+      </div>
     </div>
   {:else if route.name === "settings"}
     <SettingsView section={route.section} onsignout={signOut} />
@@ -312,7 +326,7 @@
               <div class="drag-region h-[52px] shrink-0 border-b border-border"></div>
               <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6">
                 <p class="text-sm text-muted">{$t("notFound.title")}</p>
-                <Button variant="outline" size="sm" onclick={() => navigate(conversationHref({}))}>{$t("notFound.back")}</Button>
+                <Button variant="secondary" onclick={() => navigate(conversationHref({}))}>{$t("notFound.back")}</Button>
               </div>
             </div>
           {/if}

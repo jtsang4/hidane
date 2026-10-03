@@ -18,11 +18,11 @@
 
 {#if pending.active}
   <div class="flex justify-start" role="status" aria-live="polite">
-    <div class="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
+    <div class="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5 text-sm text-muted">
       <span class="flex gap-1" aria-hidden="true">
-        <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted" style="animation-delay: 0ms"></span>
-        <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted" style="animation-delay: 150ms"></span>
-        <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted" style="animation-delay: 300ms"></span>
+        <span class="size-1 animate-ember rounded-full bg-primary" style="animation-delay: 0ms"></span>
+        <span class="size-1 animate-ember rounded-full bg-primary" style="animation-delay: 400ms"></span>
+        <span class="size-1 animate-ember rounded-full bg-primary" style="animation-delay: 800ms"></span>
       </span>
       {$t(pending.phase === "executing" ? "pending.executing" : "pending.routing")}
       <span class="text-xs opacity-70">{$t("pending.elapsed", { s: seconds })}</span>

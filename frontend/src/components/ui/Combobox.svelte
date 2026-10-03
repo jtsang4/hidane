@@ -17,6 +17,7 @@
   import { Combobox } from "bits-ui";
   import { Check, ChevronsUpDown } from "@lucide/svelte";
   import { t } from "../../i18n/index.js";
+  import { field, fieldSize, popover, popoverItem } from "../../lib/styles.js";
   import { cn } from "../../lib/utils.js";
 
   /**
@@ -102,8 +103,11 @@
       autocomplete="off"
       spellcheck={false}
       class={cn(
-        "w-full rounded-md border border-border bg-surface pr-7 placeholder:text-muted focus-visible:outline-2 focus-visible:outline-primary",
-        size === "sm" ? "h-7 pl-2 text-xs" : "h-9 pl-3 text-sm",
+        "w-full",
+        field,
+        fieldSize[size],
+        // Empty is a real choice here (the default), so its name reads as a value, not a hint.
+        "pr-7 placeholder:text-foreground/80",
       )}
       oninput={(event: Event & { currentTarget: HTMLInputElement }) => {
         text = event.currentTarget.value;
@@ -127,25 +131,25 @@
     <Combobox.Trigger
       tabindex={-1}
       aria-label={$t("common.showOptions")}
-      class={cn("absolute inset-y-0 right-0 flex items-center justify-center text-muted hover:text-foreground", size === "sm" ? "w-6" : "w-8")}
+      class={cn("absolute inset-y-0 right-0 flex items-center justify-center text-muted hover:text-foreground", size === "sm" ? "w-6" : "w-7")}
     >
-      <ChevronsUpDown size={size === "sm" ? 12 : 14} aria-hidden="true" />
+      <ChevronsUpDown size={12} aria-hidden="true" />
     </Combobox.Trigger>
   </div>
   <Combobox.Portal>
     <Combobox.Content
       sideOffset={4}
       collisionPadding={8}
-      class="z-[65] max-h-[min(20rem,var(--bits-combobox-content-available-height))] max-w-[min(28rem,var(--bits-combobox-content-available-width))] min-w-[var(--bits-combobox-anchor-width)] overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-xl outline-none"
+      class={cn(popover, "max-h-[min(20rem,var(--bits-combobox-content-available-height))] max-w-[min(28rem,var(--bits-combobox-content-available-width))] min-w-[var(--bits-combobox-anchor-width)] overflow-y-auto")}
     >
       {#each options as option (option.value)}
         <Combobox.Item
           value={option.value}
           label={option.label}
-          class={cn("flex items-center gap-2 rounded-md py-1.5 pr-2 pl-1.5 outline-none data-highlighted:bg-surface-2", size === "sm" ? "text-xs" : "text-sm")}
+          class={cn(popoverItem, "pl-1.5", size === "sm" && "text-xs")}
         >
-          <Check size={14} class={cn("shrink-0 text-primary", option.value !== value && "invisible")} aria-hidden="true" />
-          <span class={cn("truncate", option.value === "" ? "text-muted" : "font-mono")}>{option.label}</span>
+          <Check size={13} class={cn("shrink-0 text-primary", option.value !== value && "invisible")} aria-hidden="true" />
+          <span class={cn("truncate", option.value === "" && "text-muted")}>{option.label}</span>
           {#if option.detail || option.typed}
             <span class="ml-auto shrink-0 pl-3 text-muted">{option.typed ? $t("common.typedValue") : option.detail}</span>
           {/if}

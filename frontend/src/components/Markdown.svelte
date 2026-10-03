@@ -6,7 +6,7 @@
   const BASE = [
     "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
     "[&_p]:my-2 [&_p]:leading-relaxed",
-    "[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-bold",
+    "[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold",
     "[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold",
     "[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold",
     "[&_h4]:mt-3 [&_h4]:mb-1 [&_h4]:font-semibold",
@@ -21,7 +21,7 @@
     "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/30 [&_pre]:p-2",
     "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
     "[&_table]:my-2 [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto [&_table]:border-collapse",
-    "[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
+    "[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium",
     "[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1",
     "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded",
   ].join(" ");

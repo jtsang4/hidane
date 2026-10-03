@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { DropdownMenu } from "bits-ui";
   import { closeMenu, menuState, type MenuRequest } from "../lib/contextMenu.svelte.js";
+  import { popover, popoverItem } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
 
   let content = $state<HTMLElement | null>(null);
@@ -53,7 +54,7 @@
           collisionPadding={8}
           loop
           aria-label={request.label}
-          class="z-[66] min-w-48 rounded-lg border border-border bg-surface p-1 shadow-xl outline-none"
+          class={cn(popover, "z-[66] min-w-44")}
           onOpenAutoFocus={(event) => {
             // A right click opens it too, and the keyboard must be able to take over at once.
             event.preventDefault();
@@ -61,17 +62,19 @@
           }}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          {#each request.items as item (item.id)}
+          {#each request.items as item, index (item.id)}
             {@const Icon = item.icon}
+            <!-- A destructive action that closes the menu is set apart from the rest. -->
+            {#if item.danger && index > 0 && index === request.items.length - 1}<DropdownMenu.Separator class="-mx-1 my-1 h-px bg-border" />{/if}
             <DropdownMenu.Item
               textValue={item.label}
               class={cn(
-                "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm outline-none data-highlighted:bg-surface-2",
+                popoverItem,
                 item.danger ? "text-danger" : "text-foreground",
               )}
               onSelect={() => finish(request, item.id)}
             >
-              {#if Icon}<Icon size={14} class="shrink-0 opacity-80" />{/if}
+              {#if Icon}<Icon size={14} class="shrink-0 text-muted" />{/if}
               <span class="truncate">{item.label}</span>
             </DropdownMenu.Item>
           {/each}
