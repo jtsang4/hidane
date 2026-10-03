@@ -321,7 +321,9 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 - worker 运行中收到的话被**直接转给正在运行的执行**（`execution.steered`，不产生新的 `manager.decision`）
 - 最终产物体现了补充的要求（例如补充「支持 --dry-run」，脚本里就有这个参数）
-- 用真实 `claude` 当 worker 时，补充之后执行照常结束（不会挂到超时）：真实 claude 会把补充并进当前这一轮
+- 用真实 CLI 当 worker 时（`claude`、`codex`、`pi` 各一次），补充都并进**正在运行的这一轮**：这项工作只有一个
+  `execution.started` / `execution.finished`，补充要求的产物出自这次执行，没有另派 worker，也不是等这一轮做完才另起一轮返工；
+  补充之后执行照常结束（不会挂到超时）
 - 在 Manager 规划期间（尚未派出 worker）到达的几句话，下一个 turn 一次取走：
   只有一个 `manager.decision` 的 `of` 同时包含这几条消息；或刚派出、执行还在排队时到达的，记为
   `execution.steered`（`queued: true`）并写进 worker 的指令

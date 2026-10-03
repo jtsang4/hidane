@@ -532,28 +532,24 @@ func chunks(s string, n int) []string {
 
 var tomlCommand = regexp.MustCompile(`command="((?:[^"\\]|\\.)*)"`)
 
+// codexTurn is the running turn of the fake app-server.
+type codexTurn struct {
+	id, thread  string
+	steers      []codexSteer
+	interrupted bool
+}
+
+type codexSteer struct{ clientID, text string }
+
+// runCodex is `codex app-server`: JSON-RPC over stdio. As in the real one, a
+// PreToolUse hook given with -c runs only when the thread's config sets
+// bypass_hook_trust, a call the hook refuses leaves no tool item behind, and
+// steered input joins the running turn at its next step.
+// FAKEAGENT_CODEX_SKIP_HOOKS=1 plays a codex that ignores the hook anyway.
 func runCodex(args []string) {
-	if len(args) == 0 || args[0] != "exec" {
-		fmt.Fprintln(os.Stderr, "fake codex: only exec is supported")
+	if len(args) == 0 || args[0] != "app-server" {
+		fmt.Fprintln(os.Stderr, "fake codex: only app-server is supported")
 		os.Exit(2)
-	}
-	thread := fmt.Sprintf("0199%012d", time.Now().UnixNano()%1e12)
-	for i, a := range args {
-		if a == "resume" && i+1 < len(args) {
-			rest := []string{}
-			for j := i + 1; j < len(args); j++ {
-				if args[j] == "-c" || args[j] == "-m" || args[j] == "-i" {
-					j++
-					continue
-				}
-				if !strings.HasPrefix(args[j], "-") {
-					rest = append(rest, args[j])
-				}
-			}
-			if len(rest) > 0 {
-				thread = rest[0]
-			}
-		}
 	}
 	system, hook, sandbox := "", "", ""
 	for i, a := range args {
@@ -573,49 +569,209 @@ func runCodex(args []string) {
 		}
 	}
 	cwd, _ := os.Getwd()
-	if c, ok := flag(args, "-C"); ok {
-		cwd = c
+	var (
+		mu      sync.Mutex
+		thread  string
+		trusted bool
+		turn    *codexTurn
+		turns   int
+		wg      sync.WaitGroup
+	)
+	reply := func(id json.RawMessage, result any) { emit(map[string]any{"id": id, "result": result}) }
+	replyErr := func(id json.RawMessage, msg string) {
+		emit(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": msg}})
 	}
-	b, _ := readAll()
-	prompt := string(b)
-	emit(map[string]any{"type": "thread.started", "thread_id": thread})
-	emit(map[string]any{"type": "turn.started"})
-	var answer string
-	if sandbox == "workspace-write" && strings.Contains(system, "Worker execution") {
-		var blocked, done []string
-		for i, call := range workerPlan(prompt, cwd) {
-			id := fmt.Sprintf("item_%d", i)
-			detail, _ := json.Marshal(call.input)
-			emit(map[string]any{"type": "item.started", "item": map[string]any{"id": id, "type": "command_execution", "command": string(detail), "status": "in_progress"}})
-			reason := runHook(hook, "codex", "Bash", map[string]any{"command": shellCommand(call)})
-			exit := 0
-			if reason != "" {
-				blocked = append(blocked, reason)
-				exit = 1
-			} else if err := call.perform(); err != nil {
-				blocked = append(blocked, err.Error())
-				exit = 1
-			} else {
-				done = append(done, fmt.Sprintf("%s ok: %v", call.tool, call.input["file_path"]))
-			}
-			status := "completed"
-			if exit != 0 {
-				status = "failed"
-			}
-			emit(map[string]any{"type": "item.completed", "item": map[string]any{"id": id, "type": "command_execution", "command": string(detail), "exit_code": exit, "status": status}})
+	notify := func(method string, params map[string]any) { emit(map[string]any{"method": method, "params": params}) }
+	item := func(t *codexTurn, phase string, it map[string]any) {
+		notify("item/"+phase, map[string]any{"threadId": t.thread, "turnId": t.id, "item": it})
+	}
+	// takeSteers hands over what was steered in, as a real turn takes it in
+	// before its next model request.
+	takeSteers := func(t *codexTurn) []string {
+		mu.Lock()
+		pending := t.steers
+		t.steers = nil
+		mu.Unlock()
+		var texts []string
+		for _, s := range pending {
+			it := map[string]any{"type": "userMessage", "id": "um_" + s.clientID, "clientId": s.clientID,
+				"content": []any{map[string]any{"type": "text", "text": s.text}}}
+			item(t, "started", it)
+			item(t, "completed", it)
+			texts = append(texts, s.text)
 		}
-		delay()
-		answer = workerSummary(prompt, blocked, done)
-	} else {
-		delay()
-		answer = brain(system, prompt)
+		return texts
 	}
-	emit(map[string]any{"type": "item.completed", "item": map[string]any{"id": "item_msg", "type": "agent_message", "text": answer}})
-	if strings.Contains(prompt, "FAKE_FAIL") {
-		emit(map[string]any{"type": "turn.failed", "error": map[string]any{"message": "fake failure"}})
-		return
+	runTurn := func(t *codexTurn, prompt string) {
+		defer wg.Done()
+		notify("turn/started", map[string]any{"threadId": t.thread, "turn": map[string]any{"id": t.id, "status": "inProgress", "items": []any{}}})
+		um := map[string]any{"type": "userMessage", "id": "um_" + t.id, "content": []any{map[string]any{"type": "text", "text": prompt}}}
+		item(t, "started", um)
+		item(t, "completed", um)
+		var answer string
+		if sandbox == "workspace-write" && strings.Contains(system, "Worker execution") {
+			var blocked, done []string
+			n := 0
+			for inputs := []string{prompt}; len(inputs) > 0; {
+				text := inputs[0]
+				inputs = inputs[1:]
+				for _, call := range workerPlan(text, cwd) {
+					n++
+					id := fmt.Sprintf("call_%s_%d", t.id, n)
+					command := shellCommand(call)
+					reason := ""
+					mu.Lock()
+					hooked := trusted && hook != "" && os.Getenv("FAKEAGENT_CODEX_SKIP_HOOKS") != "1"
+					mu.Unlock()
+					if hooked {
+						run := map[string]any{"id": "pre-tool-use:0:/<session-flags>/config.toml:" + id, "eventName": "preToolUse",
+							"source": "sessionFlags", "sourcePath": "/<session-flags>/config.toml", "status": "running", "entries": []any{}}
+						notify("hook/started", map[string]any{"threadId": t.thread, "turnId": t.id, "run": run})
+						reason = runHook(hook, "codex", "Bash", map[string]any{"command": command})
+						run["status"], run["entries"] = "completed", []any{}
+						if reason != "" {
+							run["status"], run["entries"] = "blocked", []any{map[string]any{"kind": "feedback", "text": reason}}
+						}
+						notify("hook/completed", map[string]any{"threadId": t.thread, "turnId": t.id, "run": run})
+					}
+					if reason != "" {
+						blocked = append(blocked, reason)
+						continue
+					}
+					ex := map[string]any{"type": "commandExecution", "id": id, "command": command, "cwd": cwd, "status": "inProgress"}
+					item(t, "started", ex)
+					exit := 0
+					if err := call.perform(); err != nil {
+						blocked = append(blocked, err.Error())
+						exit = 1
+					} else {
+						done = append(done, fmt.Sprintf("%s ok: %v", call.tool, call.input["file_path"]))
+					}
+					ex["exitCode"], ex["status"] = exit, "completed"
+					if exit != 0 {
+						ex["status"] = "failed"
+					}
+					item(t, "completed", ex)
+				}
+				delay()
+				inputs = append(inputs, takeSteers(t)...)
+			}
+			answer = workerSummary(prompt, blocked, done)
+		} else {
+			delay()
+			if more := takeSteers(t); len(more) > 0 {
+				prompt += "\n" + strings.Join(more, "\n")
+			}
+			answer = brain(system, prompt)
+		}
+		mu.Lock()
+		interrupted := t.interrupted
+		mu.Unlock()
+		status := "completed"
+		var turnErr any
+		switch {
+		case interrupted:
+			status = "interrupted"
+		case strings.Contains(prompt, "FAKE_FAIL"):
+			notify("error", map[string]any{"threadId": t.thread, "turnId": t.id, "willRetry": false, "error": map[string]any{"message": "fake failure"}})
+			status, turnErr = "failed", map[string]any{"message": "fake failure"}
+		default:
+			msgID := "msg_" + t.id
+			item(t, "started", map[string]any{"type": "agentMessage", "id": msgID, "text": ""})
+			for _, c := range chunks(answer, 7) {
+				notify("item/agentMessage/delta", map[string]any{"threadId": t.thread, "turnId": t.id, "itemId": msgID, "delta": c})
+			}
+			item(t, "completed", map[string]any{"type": "agentMessage", "id": msgID, "text": answer, "phase": "final_answer"})
+		}
+		mu.Lock()
+		turn = nil
+		mu.Unlock()
+		notify("turn/completed", map[string]any{"threadId": t.thread, "turn": map[string]any{"id": t.id, "status": status, "items": []any{}, "error": turnErr}})
 	}
-	emit(map[string]any{"type": "turn.completed", "usage": map[string]any{"input_tokens": 1, "output_tokens": 1}})
+
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 1<<20), 1<<24)
+	for sc.Scan() {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params struct {
+				ThreadID       string `json:"threadId"`
+				ExpectedTurnID string `json:"expectedTurnId"`
+				ClientID       string `json:"clientUserMessageId"`
+				Config         struct {
+					BypassHookTrust bool `json:"bypass_hook_trust"`
+				} `json:"config"`
+				Input []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"input"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Method == "" {
+			continue
+		}
+		text := ""
+		for _, in := range req.Params.Input {
+			if in.Type == "text" {
+				text += in.Text
+			}
+		}
+		switch req.Method {
+		case "initialize":
+			reply(req.ID, map[string]any{"userAgent": "codex fake", "platformFamily": "unix", "platformOs": "macos"})
+		case "initialized":
+		case "thread/start", "thread/resume":
+			mu.Lock()
+			thread = req.Params.ThreadID
+			if thread == "" {
+				thread = fmt.Sprintf("0199%012d", time.Now().UnixNano()%1e12)
+			}
+			trusted = req.Params.Config.BypassHookTrust
+			mu.Unlock()
+			notify("thread/started", map[string]any{"thread": map[string]any{"id": thread}})
+			reply(req.ID, map[string]any{"thread": map[string]any{"id": thread}, "model": "gpt-fake-1"})
+		case "turn/start":
+			mu.Lock()
+			if turn != nil {
+				mu.Unlock()
+				replyErr(req.ID, "a turn is already running")
+				continue
+			}
+			turns++
+			t := &codexTurn{id: fmt.Sprintf("turn%d", turns), thread: thread}
+			turn = t
+			mu.Unlock()
+			reply(req.ID, map[string]any{"turn": map[string]any{"id": t.id, "status": "inProgress", "items": []any{}}})
+			wg.Add(1)
+			go runTurn(t, text)
+		case "turn/steer":
+			mu.Lock()
+			t := turn
+			ok := t != nil && t.id == req.Params.ExpectedTurnID && !t.interrupted
+			if ok {
+				t.steers = append(t.steers, codexSteer{clientID: req.Params.ClientID, text: text})
+			}
+			mu.Unlock()
+			if !ok {
+				replyErr(req.ID, "no active turn to steer")
+				continue
+			}
+			reply(req.ID, map[string]any{"turnId": t.id})
+		case "turn/interrupt":
+			mu.Lock()
+			if turn != nil {
+				turn.interrupted = true
+			}
+			mu.Unlock()
+			reply(req.ID, map[string]any{})
+		default:
+			if len(req.ID) > 0 {
+				replyErr(req.ID, "fake codex: unknown method "+req.Method)
+			}
+		}
+	}
+	wg.Wait()
 }
 
 // shellCommand is how codex expresses a call: everything is a shell command.
@@ -626,18 +782,6 @@ func shellCommand(call toolCall) string {
 	content, _ := call.input["content"].(string)
 	path, _ := call.input["file_path"].(string)
 	return fmt.Sprintf("printf '%%s\\n' '%s' > '%s'", strings.ReplaceAll(content, "'", `'\''`), path)
-}
-
-func readAll() ([]byte, error) {
-	var out []byte
-	buf := make([]byte, 64*1024)
-	for {
-		n, err := os.Stdin.Read(buf)
-		out = append(out, buf[:n]...)
-		if err != nil {
-			return out, nil
-		}
-	}
 }
 
 // ---- pi ---------------------------------------------------------------------

@@ -175,7 +175,12 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 					errs++
 				}
 			}
-			if starts != 2 || errs != 1 || res.ToolCalls != 2 {
+			wantStarts, wantErrs := 2, 1
+			if agent == "codex" {
+				// app-server shows no tool item for a call its hook refused.
+				wantStarts, wantErrs = 1, 0
+			}
+			if starts != wantStarts || errs != wantErrs || res.ToolCalls != wantStarts {
 				t.Fatalf("tool events: %+v (calls %d)", tools, res.ToolCalls)
 			}
 
@@ -216,7 +221,7 @@ func TestProviderInjectionKeepsKeysOffTheCommandLine(t *testing.T) {
 					t.Fatalf("codex key handling: %+v %s", inv.Env, args)
 				}
 				for _, want := range []string{`model_provider="hidane"`, `model_providers.hidane.base_url="https://gw.example.com/v1"`,
-					`model_providers.hidane.wire_api="responses"`, `model_reasoning_effort="high"`, "-m deepseek-v4-pro"} {
+					`model_providers.hidane.wire_api="responses"`, `model_reasoning_effort="high"`, `model="deepseek-v4-pro"`} {
 					if !strings.Contains(args, want) {
 						t.Fatalf("codex args missing %s: %s", want, args)
 					}
@@ -265,9 +270,12 @@ func TestSteeringReachesARunningAgent(t *testing.T) {
 				}
 			}
 			if agent == "codex" {
-				invs := h.invocations()
-				if len(invs) != 2 || !strings.Contains(strings.Join(invs[1].Args, " "), "resume") {
-					t.Fatalf("codex continues the same thread: %+v", invs)
+				// Steered into the running turn: one process, one final answer for both.
+				if invs := h.invocations(); len(invs) != 1 || invs[0].Args[0] != "app-server" {
+					t.Fatalf("codex runs one app-server: %+v", invs)
+				}
+				if !strings.Contains(res.Text, "a.txt") || !strings.Contains(res.Text, "b.txt") {
+					t.Fatalf("the steered words joined the running turn: %s", res.Text)
 				}
 			}
 			if run.Steer("too late") {
@@ -304,6 +312,43 @@ func TestClaudeSteerAbsorbedIntoTheRunningTurn(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.cwd, "b.txt")); err != nil {
 		t.Fatalf("steered instruction was not carried out: %v (%s)", err, res.Text)
+	}
+}
+
+// app-server skips a hook it does not trust without a word: a tool call the
+// guard never saw must stop the run, not pass unchecked.
+func TestCodexStopsWhenTheGuardDidNotRun(t *testing.T) {
+	h := newHarness(t, "FAKEAGENT_CODEX_SKIP_HOOKS=1")
+	req := h.req("RUN: sleep 2\nWRITE late.txt: never")
+	req.SystemPrompt = workerCharter
+	req.Tools = true
+	res := agentcli.Call(context.Background(), h.l, "codex", req)
+	if res.OK || !strings.Contains(res.Error, "without asking the hidane guard") {
+		t.Fatalf("an unguarded tool call must end the run: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(h.cwd, "late.txt")); err == nil {
+		t.Fatal("nothing after the unguarded call may run")
+	}
+}
+
+// Words that reach a run before its first turn has started go into that turn.
+func TestCodexSteerBeforeTheTurnStarts(t *testing.T) {
+	h := newHarness(t, "FAKEAGENT_DELAY_MS=300")
+	consumed := make(chan struct{}, 4)
+	req := h.req("WRITE a.txt: first")
+	req.SystemPrompt = workerCharter
+	req.Tools = true
+	req.OnSteerConsumed = func() { consumed <- struct{}{} }
+	run, err := h.l.Start(context.Background(), "codex", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !run.Steer("WRITE b.txt: second") {
+		t.Fatal("a starting run must accept steering")
+	}
+	res := run.Wait()
+	if !res.OK || !strings.Contains(res.Text, "b.txt") || len(consumed) != 1 {
+		t.Fatalf("%+v (consumed %d)", res, len(consumed))
 	}
 }
 

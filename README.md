@@ -129,13 +129,13 @@ Every role runs on a local agent CLI as a subprocess — no SDK is embedded:
 
 | Role | Uses tools | Runs as |
 |---|---|---|
-| Primary, Manager, distiller | no — they decide, they never act | the charter is the whole system prompt; tools disabled (`claude --tools ""`, `codex --sandbox read-only`, `pi --no-tools`) |
+| Primary, Manager, distiller | no — they decide, they never act | the charter is the whole system prompt; tools disabled (`claude --tools ""`, `codex -c sandbox_mode="read-only"`, `pi --no-tools`) |
 | Worker | yes, in its work item's workspace | the charter is appended; every tool call passes `hidane guard` (Claude Code / Codex PreToolUse hook, a pi extension) |
 
 | CLI | Protocol hidane speaks | Steering a running worker | Cancel |
 |---|---|---|---|
-| `claude` | `-p --input-format stream-json --output-format stream-json` | further user messages on stdin | kill the process group |
-| `codex` | `exec --json`, prompt on stdin | the same thread continues with `exec resume` once the turn ends | kill the process group |
+| `claude` | `-p --input-format stream-json --output-format stream-json` | further user messages on stdin, taken into the running turn | kill the process group |
+| `codex` | `app-server` (JSON-RPC over stdio), one thread per run | `turn/steer` into the running turn | `turn/interrupt`, then kill the process group |
 | `pi` | `--mode rpc` (JSONL) | RPC `steer` | RPC `abort` |
 
 The **Settings** page (or `settings.json` in `HIDANE_HOME`, mode 0600) picks, per

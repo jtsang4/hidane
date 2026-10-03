@@ -32,11 +32,17 @@ and prints what to judge.
 
 # every role on one CLI
 .agents/skills/hidane-live-check/scripts/live-check.sh --all codex "在工作区里创建 notes.md，写一句问候语，然后告诉我写了什么。"
+
+# the person adds something while the worker runs (steering)
+.agents/skills/hidane-live-check/scripts/live-check.sh --worker codex --steer "另外再创建 extra.txt，内容是 steered。" \
+  "在工作区里创建 a.txt、b.txt、c.txt，内容分别是 1、2、3，每个文件单独写；然后运行 ls -la 并告诉我结果。"
 ```
 
 Options: `--worker <cli>` (reasoning roles stay on claude with `--model`,
 default `haiku`), `--all <cli>` (every role on one CLI), `--model <id>`,
-`--policy <regex>`. Run several in parallel with `&` — each gets its own home.
+`--policy <regex>`, `--steer <text>` (sent to the task once its worker made
+its first tool call, `--steer-after <s>` later, default 3). Run several in
+parallel with `&` — each gets its own home.
 For a single round trip per role, `bin/hidane-nogui model --ping` is cheaper.
 
 ## Judge — don't stop at exit code 0
@@ -53,6 +59,9 @@ file the workers produced. Check all of these:
    naming the rule.
 5. **The final reply matches the files on disk**, not just the worker's prose.
 6. No `agent.error`, and nothing left `queued`/`running` (`bin/hidane-nogui items`).
+7. **Steering** (with `--steer`): an `execution.steered` without `late`, and
+   the steered file on disk from the same execution — one `execution.finished`
+   for the task, no second worker, and no `agent.error`.
 
 Report the evidence you looked at (event lines, `ls` output) with the verdict.
 Delete the `/tmp/hidane-live-*` homes when done.
