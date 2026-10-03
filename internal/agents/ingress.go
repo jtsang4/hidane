@@ -241,6 +241,8 @@ func (s *System) RedactMessage(ctx context.Context, messageID, source string) (*
 // ChangeStatus is the one path for status changes, so a parent always hears
 // when its children have all settled.
 func (s *System) ChangeStatus(ctx context.Context, id, status, source string, causedBy *kernel.Event) (kernel.WorkItem, error) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
 	item, err := s.K.SetWorkItemStatus(ctx, id, status, source)
 	if err != nil {
 		return item, err

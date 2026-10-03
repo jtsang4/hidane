@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli"
@@ -26,6 +27,11 @@ type System struct {
 	Live     *LiveText
 	Pool     *WorkerPool
 	Runtime  *kernel.Runtime
+
+	// statusMu makes a status change and the look at its siblings one step:
+	// two children finishing at once each saw the other done, and their
+	// parent was told twice that all had settled.
+	statusMu sync.Mutex
 }
 
 func New(k *kernel.Kernel, st *settings.Store, starter agentcli.Starter) *System {
