@@ -293,7 +293,7 @@
               <BrandMark size={24} />
             </div>
           </div>
-          <h1 class="text-xl font-semibold tracking-tight">hidane</h1>
+          <h1 class="text-xl font-semibold tracking-tight">Hidane</h1>
           <p class="mt-1.5 text-sm text-muted">{$t("token.prompt")}</p>
         </div>
         <div class="space-y-2 rounded-xl border border-border bg-surface/80 p-3 shadow-dialog backdrop-blur">

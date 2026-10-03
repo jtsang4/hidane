@@ -5,9 +5,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleName</key>
-    <string>hidane</string>
+    <string>Hidane</string>
     <key>CFBundleDisplayName</key>
-    <string>hidane 火种</string>
+    <string>Hidane 火种</string>
     <key>CFBundleExecutable</key>
     <string>hidane</string>
     <key>CFBundleIdentifier</key>

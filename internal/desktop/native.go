@@ -107,7 +107,7 @@ func menu(app *application.App, send func(command string)) *application.Menu {
 		}
 	}
 	if runtime.GOOS == "darwin" {
-		appMenu := m.AddSubmenu("hidane")
+		appMenu := m.AddSubmenu("Hidane")
 		appMenu.AddRole(application.About)
 		appMenu.AddSeparator()
 		item(appMenu, "Settings…", "CmdOrCtrl+,", "open-settings")

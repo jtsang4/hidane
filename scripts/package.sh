@@ -65,7 +65,7 @@ macos() {
   mkdir -p "$stage" && cp -R "$app" "$stage/" && ln -sf /Applications "$stage/Applications"
   local dmg="$out/hidane-$version-macos-universal.dmg"
   rm -f "$dmg"
-  hdiutil create -volname "hidane" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
+  hdiutil create -volname "Hidane" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
   if [[ -n "${MACOS_SIGN_IDENTITY:-}" ]]; then
     codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dmg"
   fi

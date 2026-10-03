@@ -77,8 +77,10 @@ func Run(cfg *config.Config) error {
 		},
 	})
 	wapp = application.New(application.Options{
+		// An identifier, not the displayed name: Wails derives the Linux GTK
+		// application id and the autostart entry from it.
 		Name:        "hidane",
-		Description: "hidane (火种) — a persistent personal agent runtime",
+		Description: "Hidane (火种) — a persistent personal agent runtime",
 		Assets:      application.AssetOptions{Handler: handler, DisableLogging: true},
 		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 		SingleInstance: &application.SingleInstanceOptions{
@@ -102,7 +104,7 @@ func Run(cfg *config.Config) error {
 		wapp.Event.Emit(CommandEvent, map[string]any{"command": command})
 	}))
 	opts := application.WebviewWindowOptions{
-		Title: "hidane 火种", Width: 1280, Height: 860, MinWidth: 900, MinHeight: 600, URL: "/",
+		Title: "Hidane 火种", Width: 1280, Height: 860, MinWidth: 900, MinHeight: 600, URL: "/",
 		// The page draws its own title bar: traffic lights sit over the
 		// sidebar, and the toolbar row is the drag region (--wails-draggable).
 		Mac: application.MacWindow{

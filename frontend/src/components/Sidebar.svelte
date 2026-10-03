@@ -70,7 +70,7 @@
 <aside class="flex h-full w-60 shrink-0 flex-col border-r border-border bg-surface" aria-label={$t("shell.sidebar")}>
   <!-- Desktop: the traffic lights sit in this row's left 78px. -->
   <div class={cn("drag-region flex h-[52px] shrink-0 items-center gap-2 px-3", desktop && "pl-[84px]")}>
-    <span class={cn("flex items-center gap-2 text-sm font-semibold tracking-tight", desktop ? "px-0" : "px-1")}><BrandMark size={16} />hidane</span>
+    <span class={cn("flex items-center gap-2 text-sm font-semibold tracking-tight", desktop ? "px-0" : "px-1")}><BrandMark size={16} />Hidane</span>
     <button
       class="ml-auto flex size-7 items-center justify-center rounded-md text-muted hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary/70"
       aria-label={$t("shell.collapseSidebar")}
