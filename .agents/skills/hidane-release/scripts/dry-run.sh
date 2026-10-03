@@ -22,7 +22,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   scripts/package.sh macos
   dir="$(mktemp -d)"
   ditto -x -k "bin/release/hidane-$version-macos-universal.zip" "$dir"
-  HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 "$dir/hidane.app/Contents/MacOS/hidane" 2>&1 | grep "ui ready"
+  HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 "$dir/Hidane.app/Contents/MacOS/hidane" 2>&1 | grep "ui ready"
 else
   echo "== macOS skipped (needs a Mac)"
 fi

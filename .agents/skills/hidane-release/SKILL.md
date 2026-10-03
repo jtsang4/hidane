@@ -114,8 +114,8 @@ dir="$(mktemp -d)" && cd "$dir"
 gh release download "$version" --repo jtsang4/hidane
 shasum -a 256 -c SHA256SUMS
 ditto -x -k "hidane-$version-macos-universal.zip" app        # on macOS
-HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 app/hidane.app/Contents/MacOS/hidane
-app/hidane.app/Contents/MacOS/hidane version                 # prints the tag
+HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 app/Hidane.app/Contents/MacOS/hidane
+app/Hidane.app/Contents/MacOS/hidane version                 # prints the tag
 ```
 
 Report the release URL and what you verified.

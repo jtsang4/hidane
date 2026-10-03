@@ -145,7 +145,7 @@ headless server and CLI build anywhere), and at least one of `claude`, `codex`,
 ```bash
 make build                         # frontend + desktop binary → bin/hidane
 bin/hidane                         # open the desktop app
-make app                           # bin/hidane.app bundle
+make app                           # bin/Hidane.app bundle
 
 bin/hidane agents                  # which CLIs are available
 bin/hidane chat "帮我写一个 hello world 脚本并运行验证"   # runs the loop in-process when no app is open

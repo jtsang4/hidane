@@ -92,7 +92,7 @@ jobs:
         run: |
           dir="$(mktemp -d)"
           ditto -x -k "bin/release/hidane-$VERSION-macos-universal.zip" "$dir"
-          HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 "$dir/hidane.app/Contents/MacOS/hidane"
+          HIDANE_HOME="$(mktemp -d)" HIDANE_GUI_SMOKE=1 HIDANE_LOGIN_SHELL=0 "$dir/Hidane.app/Contents/MacOS/hidane"
       - uses: actions/upload-artifact@v7
         with:
           name: macos

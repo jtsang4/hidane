@@ -68,11 +68,11 @@ acceptance:
 
 # macOS .app bundle.
 app: build
-	rm -rf $(BIN)/hidane.app
-	mkdir -p $(BIN)/hidane.app/Contents/MacOS $(BIN)/hidane.app/Contents/Resources
-	cp $(BIN)/hidane $(BIN)/hidane.app/Contents/MacOS/hidane
-	sed "s/@VERSION@/$(VERSION)/g" build/darwin/Info.plist > $(BIN)/hidane.app/Contents/Info.plist
-	cp build/darwin/icons.icns $(BIN)/hidane.app/Contents/Resources/icons.icns
+	rm -rf $(BIN)/Hidane.app
+	mkdir -p $(BIN)/Hidane.app/Contents/MacOS $(BIN)/Hidane.app/Contents/Resources
+	cp $(BIN)/hidane $(BIN)/Hidane.app/Contents/MacOS/hidane
+	sed "s/@VERSION@/$(VERSION)/g" build/darwin/Info.plist > $(BIN)/Hidane.app/Contents/Info.plist
+	cp build/darwin/icons.icns $(BIN)/Hidane.app/Contents/Resources/icons.icns
 
 clean:
 	rm -rf $(BIN) frontend/dist/assets frontend/dist/index.html

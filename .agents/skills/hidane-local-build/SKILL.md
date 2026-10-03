@@ -6,7 +6,7 @@ description: Update hidane from its Git upstream, compile and verify a local mac
 # Build and install hidane locally
 
 Deliver a working desktop app from the requested checkout, normally at
-`~/Applications/hidane.app`. Read the repository's `AGENTS.md` and `Makefile`
+`~/Applications/Hidane.app`. Read the repository's `AGENTS.md` and `Makefile`
 first; use their current build targets instead of recreating the build system.
 This workflow updates a local installation. Commit or push repository changes
 only when the user requests those actions.
@@ -45,9 +45,9 @@ pnpm lockfile; the Wails CLI is not needed for `make app`.
 make app
 make test
 make fakeagent
-plutil -lint bin/hidane.app/Contents/Info.plist
-codesign --force --sign - bin/hidane.app
-codesign --verify --strict bin/hidane.app
+plutil -lint bin/Hidane.app/Contents/Info.plist
+codesign --force --sign - bin/Hidane.app
+codesign --verify --strict bin/Hidane.app
 ```
 
 Run expensive build and test commands sequentially. If the user is concerned
@@ -78,7 +78,7 @@ import subprocess
 import tempfile
 
 repo = Path.cwd()
-binary = repo / "bin/hidane.app/Contents/MacOS/hidane"
+binary = repo / "bin/Hidane.app/Contents/MacOS/hidane"
 log = repo / "bin/gui-smoke.log"
 with tempfile.TemporaryDirectory(prefix="hidane-gui-smoke-") as home:
     settings = Path(home) / "settings.json"
@@ -107,8 +107,9 @@ real model merely to verify that the window opens.
 
 ## Install and launch
 
-Use the user's requested installation path, or `~/Applications/hidane.app` by
-default. If it exists, move the old bundle to a fresh backup directory before
+Use the user's requested installation path, or `~/Applications/Hidane.app` by
+default. If it, or a bundle from before the rename (`hidane.app`), exists,
+move the old bundle to a fresh backup directory before
 copying, so the replacement is a complete bundle and rollback remains possible.
 Copy the verified build with `ditto`; verify the installed signature with
 `codesign --verify --strict`. If copying or verification fails, restore the
@@ -119,9 +120,9 @@ Launch the installed bundle with `open`, with stdout and stderr directed to
 fake CLI settings into this normal launch. For the default path:
 
 ```sh
-open -a "$HOME/Applications/hidane.app" \
+open -a "$HOME/Applications/Hidane.app" \
   --stdout "$PWD/bin/hidane-local.log" --stderr "$PWD/bin/hidane-local.log"
-"$HOME/Applications/hidane.app/Contents/MacOS/hidane" version
+"$HOME/Applications/Hidane.app/Contents/MacOS/hidane" version
 ```
 
 Confirm the installed process remains running and its startup log contains

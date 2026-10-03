@@ -498,8 +498,8 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 ## 场景 6C：桌面应用
 
 - `make smoke-gui`：真实的 Wails 窗口加载内嵌界面，界面经 Wails 事件（而不是 SSE 回退）收到实时帧后自动退出 0；
-  输出含 `ui ready (live transport: wails)`；`make app` 产出的 `bin/hidane.app` 同样通过
-  （`HIDANE_GUI_SMOKE=1 bin/hidane.app/Contents/MacOS/hidane`）
+  输出含 `ui ready (live transport: wails)`；`make app` 产出的 `bin/Hidane.app` 同样通过
+  （`HIDANE_GUI_SMOKE=1 bin/Hidane.app/Contents/MacOS/hidane`）
 - 原生菜单（hidane / File / Edit / View / Window）存在且带快捷键：Settings… ⌘,、New Task… ⌘N、New Message ⌘L、
   会话/任务/定时/记忆/日志 ⌘1–⌘5、Search ⌘K、Toggle Sidebar ⌘B——可用 `osascript` 读取应用菜单栏验证（若无辅助功能权限则 BLOCKED）
 - 隐藏式标题栏：窗口大小与位置在移动/缩放后写入 `$HIDANE_HOME/runtime/window.json`，下次启动恢复

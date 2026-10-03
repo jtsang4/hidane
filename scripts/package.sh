@@ -32,7 +32,7 @@ macos() {
   for arch in arm64 amd64; do
     CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags="$ldflags" -o "$work/macos/hidane-$arch" .
   done
-  app="$work/macos/hidane.app"
+  app="$work/macos/Hidane.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   lipo -create -output "$app/Contents/MacOS/hidane" "$work/macos/hidane-arm64" "$work/macos/hidane-amd64"
   # Bundle versions must be numeric (1.2.3); the full version is in the binary.
