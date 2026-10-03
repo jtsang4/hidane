@@ -58,13 +58,17 @@ func TestPolicyFilesApplyOutermostFirstAndToMutatingToolsByDefault(t *testing.T)
 	}
 	// A shell command that only looks is a read, like the read tool.
 	_ = guard.WriteFile(global, guard.File{Rules: []guard.Rule{{ID: "pol_g", Pattern: `forbidden\.txt`, Reason: "not that file"}}})
-	for _, cmd := range []string{"ls -la forbidden.txt", "cat forbidden.txt 2>/dev/null", "grep keep forbidden.txt 2>&1 | wc -l"} {
+	for _, cmd := range []string{"ls -la forbidden.txt", "cat forbidden.txt 2>/dev/null", "grep keep forbidden.txt 2>&1 | wc -l",
+		// A real claude worker's look, refused while cd counted as a change.
+		"cd " + dir + ` && echo "--- hello.txt"; cat hello.txt; echo "--- forbidden.txt"; cat forbidden.txt`} {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); d.Block {
 			t.Fatalf("%q is a read, not a change: %s", cmd, d.Reason)
 		}
 	}
-	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "echo x > forbidden.txt"}, env); !d.Block {
-		t.Fatal("writing the file is refused")
+	for _, cmd := range []string{"echo x > forbidden.txt", "cd " + dir + " && echo x > forbidden.txt"} {
+		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); !d.Block {
+			t.Fatalf("%q writes the file and is refused", cmd)
+		}
 	}
 }
 

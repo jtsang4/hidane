@@ -110,7 +110,10 @@ var mutating = map[string]bool{"bash": true, "write": true, "edit": true}
 // superseded instructions may not be undoable.
 // Not here, though they mostly look: sort (-o), uniq (an output file argument)
 // and sed (its w command) can write.
-var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|printf|true|false|test|\[|basename|dirname|realpath|readlink|diff|cmp|cut|tr|jq|shasum|sha256sum|md5|md5sum|git\s+(status|log|diff|show|branch))(\s|$)[^;&|>]*$`)
+// cd changes no file, and a path after it is judged from where it lands
+// (bases): read as a change, `cd <workspace> && cat a; cat b` was refused
+// by a rule meant for writes.
+var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|printf|true|false|test|\[|basename|dirname|realpath|readlink|diff|cmp|cut|tr|jq|shasum|sha256sum|md5|md5sum|cd|pushd|popd|git\s+(status|log|diff|show|branch))(\s|$)[^;&|>]*$`)
 
 // Read-only commands that can still change things through a flag.
 var (
