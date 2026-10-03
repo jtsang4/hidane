@@ -87,7 +87,8 @@ func (h *harness) req(prompt string) agentcli.Request {
 func TestReasoningCallsOnEveryCLI(t *testing.T) {
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
-			h := newHarness(t)
+			threads := filepath.Join(t.TempDir(), "threads.jsonl")
+			h := newHarness(t, "FAKEAGENT_THREAD_LOG="+threads)
 			var mu sync.Mutex
 			var streamed strings.Builder
 			req := h.req("ping")
@@ -121,9 +122,23 @@ func TestReasoningCallsOnEveryCLI(t *testing.T) {
 						t.Fatalf("reasoning roles run without tools: %v", inv.Args)
 					}
 				}
+				if !slices.Contains(inv.Args, "--strict-mcp-config") {
+					t.Fatalf("nor the MCP servers of the person's own config: %v", inv.Args)
+				}
 			case "codex":
-				if !strings.Contains(joined, `sandbox_mode="read-only"`) {
-					t.Fatalf("reasoning roles run read-only: %v", inv.Args)
+				if !strings.Contains(joined, `sandbox_mode="read-only"`) || !strings.Contains(joined, "features.shell_tool=false") ||
+					!strings.Contains(joined, `web_search="disabled"`) || strings.Contains(joined, "developer_instructions") {
+					t.Fatalf("reasoning roles run read-only, without tools: %v", inv.Args)
+				}
+				// The fake answers OK only when it got the charter: through
+				// baseInstructions, which replaces codex's own coding-agent prompt.
+				b, _ := os.ReadFile(threads)
+				var params struct {
+					BaseInstructions string         `json:"baseInstructions"`
+					Config           map[string]any `json:"config"`
+				}
+				if json.Unmarshal(b, &params) != nil || params.BaseInstructions != req.SystemPrompt || params.Config["mcp_servers.fake_docs.enabled"] != false {
+					t.Fatalf("the charter replaces the base instructions and the person's MCP servers are off: %s", b)
 				}
 			case "pi":
 				if !strings.Contains(joined, "--no-tools") || inv.Env["PI_OFFLINE"] != "1" {

@@ -78,6 +78,11 @@ func tomlString(s string) string {
 
 const codexProviderID = "hidane"
 
+// codexToolFeatures are the codex features that hand the model a tool or an
+// MCP server of codex's own; a reasoning role runs with all of them off.
+var codexToolFeatures = []string{"shell_tool", "unified_exec", "multi_agent", "goals", "apps", "plugins", "browser_use",
+	"in_app_browser", "computer_use", "image_generation", "view_image", "sleep_tool", "tool_suggest", "skill_search"}
+
 func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 	sandbox := "read-only"
 	if req.Tools {
@@ -99,9 +104,17 @@ func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 			}
 			cfg = append(cfg, "sandbox_workspace_write.writable_roots=["+strings.Join(roots, ",")+"]")
 		}
-	}
-	if req.SystemPrompt != "" {
-		cfg = append(cfg, "developer_instructions="+tomlString(req.SystemPrompt))
+		if req.SystemPrompt != "" {
+			cfg = append(cfg, "developer_instructions="+tomlString(req.SystemPrompt))
+		}
+	} else {
+		// A reasoning role's charter replaces the base instructions instead
+		// (thread/start): told it was a coding agent with a shell, a codex
+		// Manager tried to write the files itself.
+		for _, f := range codexToolFeatures {
+			cfg = append(cfg, "features."+f+"=false")
+		}
+		cfg = append(cfg, "web_search="+tomlString("disabled"))
 	}
 	if req.Model != "" {
 		cfg = append(cfg, "model="+tomlString(req.Model))
@@ -247,6 +260,15 @@ func (r *codexRun) open() error {
 	}
 	if r.req.Tools {
 		params["config"] = map[string]any{"bypass_hook_trust": true}
+	} else {
+		if r.req.SystemPrompt != "" {
+			params["baseInstructions"] = r.req.SystemPrompt
+		}
+		off, err := r.mcpServersOff()
+		if err != nil {
+			return err
+		}
+		params["config"] = off
 	}
 	res, err := r.call(method, params, 0)
 	if err != nil {
@@ -264,6 +286,28 @@ func (r *codexRun) open() error {
 	r.threadID = out.Thread.ID
 	r.mu.Unlock()
 	return nil
+}
+
+// mcpServersOff turns off, for this thread, every MCP server the person's own
+// codex config declares: their tools are tools all the same.
+func (r *codexRun) mcpServersOff() (map[string]any, error) {
+	res, err := r.call("config/read", map[string]any{"cwd": r.req.Cwd}, 0)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Config struct {
+			MCPServers map[string]json.RawMessage `json:"mcp_servers"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return nil, fmt.Errorf("config/read: %w", err)
+	}
+	off := map[string]any{}
+	for name := range out.Config.MCPServers {
+		off["mcp_servers."+name+".enabled"] = false
+	}
+	return off, nil
 }
 
 // runTurn starts a turn and returns once it has ended (or the server has).

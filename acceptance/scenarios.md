@@ -325,7 +325,8 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
   `execution.started` / `execution.finished`，补充要求的产物出自这次执行，没有另派 worker，也不是等这一轮做完才另起一轮返工；
   补充之后执行照常结束（不会挂到超时）
 - 在 Manager 规划期间（尚未派出 worker）到达的几句话，下一个 turn 一次取走：
-  只有一个 `manager.decision` 的 `of` 同时包含这几条消息；或刚派出、执行还在排队时到达的，记为
+  只有一个 `manager.decision` 的 `of` 同时包含这几条消息；若下一个 turn 时规划派出的 worker 已经在跑，
+  这几句直接转给它（`execution.steered`，不再有新的 `manager.decision`）；刚派出、执行还在排队时到达的，记为
   `execution.steered`（`queued: true`）并写进 worker 的指令
 - 任何情况下都**不**出现「could not deliver」之类的 `agent.error`：执行正要结束、送不进去的话记为
   `execution.steered`（`late: true`），随该执行的结果一起交给 Manager，Manager 的下一次回复要处理它

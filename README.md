@@ -129,7 +129,7 @@ Every role runs on a local agent CLI as a subprocess — no SDK is embedded:
 
 | Role | Uses tools | Runs as |
 |---|---|---|
-| Primary, Manager, distiller | no — they decide, they never act | the charter is the whole system prompt; tools disabled (`claude --tools ""`, `codex -c sandbox_mode="read-only"`, `pi --no-tools`) |
+| Primary, Manager, distiller | no — they decide, they never act | the charter is the whole system prompt (codex: `baseInstructions`); tools disabled, MCP servers from the CLI's own config too (`claude --tools "" --strict-mcp-config`, codex read-only with its tool features and MCP servers off, `pi --no-tools`) |
 | Worker | yes, in its work item's workspace | the charter is appended; every tool call passes `hidane guard` (Claude Code / Codex PreToolUse hook, a pi extension) |
 
 | CLI | Protocol hidane speaks | Steering a running worker | Cancel |

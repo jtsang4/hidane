@@ -96,7 +96,10 @@ func claudeArgs(l *Launcher, req Request) (args []string, env []string) {
 			}},
 		}
 	} else {
-		args = append(args, "--tools", "")
+		// --tools only covers the built-in set: MCP servers from the person's
+		// own config (a docs connector that creates and deletes documents)
+		// would still be tools.
+		args = append(args, "--tools", "", "--strict-mcp-config")
 	}
 	if len(doc) > 0 {
 		b, _ := json.Marshal(doc)

@@ -549,7 +549,9 @@ type codexSteer struct{ clientID, text string }
 // bypass_hook_trust, a call the hook refuses leaves no tool item behind, and
 // steered input joins the running turn at its next step.
 // FAKEAGENT_CODEX_SKIP_HOOKS=1 plays a codex that ignores the hook anyway;
-// FAKEAGENT_CODEX_REFUSE_STEER=1 one whose turn is always just ending.
+// FAKEAGENT_CODEX_REFUSE_STEER=1 one whose turn is always just ending. Its
+// config declares one MCP server of the person's own, fake_docs, and
+// FAKEAGENT_THREAD_LOG appends the params of every thread/start|resume.
 func runCodex(args []string) {
 	if len(args) == 0 || args[0] != "app-server" {
 		fmt.Fprintln(os.Stderr, "fake codex: only app-server is supported")
@@ -699,22 +701,25 @@ func runCodex(args []string) {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
+			Raw    json.RawMessage `json:"params"`
 			Params struct {
-				ThreadID       string `json:"threadId"`
-				ExpectedTurnID string `json:"expectedTurnId"`
-				ClientID       string `json:"clientUserMessageId"`
-				Config         struct {
+				ThreadID         string `json:"threadId"`
+				ExpectedTurnID   string `json:"expectedTurnId"`
+				ClientID         string `json:"clientUserMessageId"`
+				BaseInstructions string `json:"baseInstructions"`
+				Config           struct {
 					BypassHookTrust bool `json:"bypass_hook_trust"`
 				} `json:"config"`
 				Input []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"input"`
-			} `json:"params"`
+			} `json:"-"`
 		}
 		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Method == "" {
 			continue
 		}
+		_ = json.Unmarshal(req.Raw, &req.Params)
 		text := ""
 		for _, in := range req.Params.Input {
 			if in.Type == "text" {
@@ -725,8 +730,19 @@ func runCodex(args []string) {
 		case "initialize":
 			reply(req.ID, map[string]any{"userAgent": "codex fake", "platformFamily": "unix", "platformOs": "macos"})
 		case "initialized":
+		case "config/read":
+			reply(req.ID, map[string]any{"config": map[string]any{"mcp_servers": map[string]any{"fake_docs": map[string]any{"enabled": true}}}, "origins": map[string]any{}})
 		case "thread/start", "thread/resume":
+			if path := os.Getenv("FAKEAGENT_THREAD_LOG"); path != "" {
+				if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+					_, _ = f.Write(append(append([]byte(nil), req.Raw...), '\n'))
+					f.Close()
+				}
+			}
 			mu.Lock()
+			if req.Params.BaseInstructions != "" {
+				system = req.Params.BaseInstructions
+			}
 			thread = req.Params.ThreadID
 			if thread == "" {
 				thread = fmt.Sprintf("0199%012d", time.Now().UnixNano()%1e12)
