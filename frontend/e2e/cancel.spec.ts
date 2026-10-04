@@ -1,8 +1,8 @@
 import { SLOW_DELAY_MS, SLOW_URL } from "./env.js";
 import { confirmDialog, expect, say, test, turn, unique, waitForEvent } from "./fixtures.js";
 
-// The second backend's fake agents sleep FAKEAGENT_DELAY_MS on every turn, so
-// a worker stays running long enough to be stopped from the UI.
+// The second backend's fake workers sleep FAKEAGENT_WORKER_DELAY_MS, so a run
+// stays running long enough to be stopped from the UI.
 test.use({ baseURL: SLOW_URL });
 test.setTimeout(6 * SLOW_DELAY_MS + 30_000);
 

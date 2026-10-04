@@ -1,7 +1,7 @@
 // Starts the real Go backend (`hidane-nogui serve`) for Playwright, on a fresh
 // HIDANE_HOME whose settings point every role at the fake agent CLIs.
 //
-//   node e2e/serve.mjs <port> [FAKEAGENT_DELAY_MS]
+//   node e2e/serve.mjs <port> [FAKEAGENT_WORKER_DELAY_MS]
 //
 // Build inputs: `make build-nogui fakeagent` (bin/hidane-nogui, bin/fake/*).
 import { spawn } from "node:child_process";
@@ -52,11 +52,11 @@ const env = {
   GIT_COMMITTER_NAME: "e2e",
   GIT_COMMITTER_EMAIL: "e2e@example.com",
 };
-if (delayMs) env.FAKEAGENT_DELAY_MS = delayMs;
+if (delayMs) env.FAKEAGENT_WORKER_DELAY_MS = delayMs;
 // A developer's own session must not leak into the fakes the server spawns.
 delete env.CLAUDECODE;
 
-console.log(`[e2e serve] home ${home}${delayMs ? `, FAKEAGENT_DELAY_MS=${delayMs}` : ""}`);
+console.log(`[e2e serve] home ${home}${delayMs ? `, FAKEAGENT_WORKER_DELAY_MS=${delayMs}` : ""}`);
 const child = spawn(binary, ["serve", "--addr", `127.0.0.1:${port}`], { env, stdio: ["ignore", "inherit", "inherit"] });
 
 let stopping = false;

@@ -114,7 +114,7 @@ func TestARefusedPrimaryCallIsRecorded(t *testing.T) {
 func TestRefusalsAreRecordedWhileTheRunGoesOn(t *testing.T) {
 	for _, agent := range []string{settings.Claude, settings.Codex} {
 		t.Run(agent, func(t *testing.T) {
-			w := newWorld(t, agent, "FAKEAGENT_DELAY_MS=2500")
+			w := newWorld(t, agent, "FAKEAGENT_WORKER_DELAY_MS=2500")
 			m(w.k.AddGlobalRule(`forbidden\.txt`, "not that file", nil))
 			item := m(w.k.CreateWorkItem(ctx, "guarded", "test", kernel.CreateWorkItemOpts{}))
 			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "RUN: echo x > forbidden.txt", Source: "connector:web", Target: item.ID}))

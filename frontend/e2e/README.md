@@ -6,7 +6,7 @@ in for the agent CLIs (`cmd/fakeagent`: real wire protocols, real guard hook,
 scripted answers — a message containing `hello`/`你好` is small talk, anything
 else becomes a work item whose worker writes `result.txt` (`REPO=<name or path>`,
 `FROM=<work item>`, `INPLACE` (`UNASKED`: without quoting the person), `ROUTE=<work item>` steer the Primary's repo choices); `FAKE_FAIL` fails the
-CLI; `FAKEAGENT_DELAY_MS` slows each turn). Every spec runs in zh and fails on any
+CLI; `FAKEAGENT_DELAY_MS` slows each turn, `FAKEAGENT_WORKER_DELAY_MS` only a worker's). Every spec runs in zh and fails on any
 uncaught page error, any console error, and any native `confirm()`/`alert()`/
 `prompt()` (the desktop webview implements none of them).
 
@@ -29,7 +29,7 @@ make screenshots ONLY=run-as      # only the pages and states whose names start 
 ```
 
 Two servers run: the normal one on 2797, and a slow one on 2798
-(`FAKEAGENT_DELAY_MS=8000`) for anything that must be caught mid-run.
+(`FAKEAGENT_WORKER_DELAY_MS=8000`) for anything that must be caught mid-run.
 `screenshots.mjs` uses 2796. Tests share one server, so each uses unique text.
 
 ## What each spec guards — extend the one that covers what you change

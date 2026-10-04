@@ -378,7 +378,7 @@ func TestExplicitTargetSkipsThePrimary(t *testing.T) {
 func TestSteeringReachesTheRunningWorker(t *testing.T) {
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
-			w := newWorld(t, agent, "FAKEAGENT_DELAY_MS=1500")
+			w := newWorld(t, agent, "FAKEAGENT_WORKER_DELAY_MS=1500")
 			item := m(w.k.CreateWorkItem(ctx, "long job", "test", kernel.CreateWorkItemOpts{}))
 			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "start", Source: "connector:web", Target: item.ID}))
 			if err := w.rt.Drain(20); err != nil {
@@ -508,7 +508,7 @@ func TestParentHearsTheChildsFinalAnswer(t *testing.T) {
 }
 
 func TestCancelTreeStopsARunningWorker(t *testing.T) {
-	w := newWorld(t, settings.Claude, "FAKEAGENT_DELAY_MS=20000")
+	w := newWorld(t, settings.Claude, "FAKEAGENT_WORKER_DELAY_MS=20000")
 	parent := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
 	child := m(w.k.CreateWorkItem(ctx, "child", "test", kernel.CreateWorkItemOpts{ParentID: parent.ID}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "work", Source: "connector:web", Target: child.ID}))
@@ -698,7 +698,7 @@ func TestBudgetStopsDispatchButNeverAnOutcome(t *testing.T) {
 }
 
 func TestShutdownReportsRunningWorkersAsLost(t *testing.T) {
-	w := newWorld(t, settings.Claude, "FAKEAGENT_DELAY_MS=30000")
+	w := newWorld(t, settings.Claude, "FAKEAGENT_WORKER_DELAY_MS=30000")
 	item := m(w.k.CreateWorkItem(ctx, "long", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "work", Source: "connector:web", Target: item.ID}))
 	if err := w.rt.Drain(20); err != nil {

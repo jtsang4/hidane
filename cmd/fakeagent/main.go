@@ -4,8 +4,10 @@
 // tests exercise hidane's drivers and guard end to end without a model.
 //
 // The kind comes from FAKEAGENT_KIND or the executable name (claude, codex, pi).
-// FAKEAGENT_DELAY_MS slows each turn down; FAKEAGENT_LOG appends a JSON record
-// of every invocation (args, selected env) for assertions.
+// FAKEAGENT_DELAY_MS slows each turn down, FAKEAGENT_WORKER_DELAY_MS only a
+// worker's (catching a run mid-flight then costs no reasoning turns);
+// FAKEAGENT_LOG appends a JSON record of every invocation (args, selected env)
+// for assertions.
 package main
 
 import (
@@ -103,8 +105,12 @@ func has(args []string, name string) bool {
 	return false
 }
 
-func delay() {
-	if ms, err := strconv.Atoi(os.Getenv("FAKEAGENT_DELAY_MS")); err == nil && ms > 0 {
+func delay(worker bool) {
+	ms, err := strconv.Atoi(os.Getenv("FAKEAGENT_DELAY_MS"))
+	if v, e := strconv.Atoi(os.Getenv("FAKEAGENT_WORKER_DELAY_MS")); worker && e == nil {
+		ms, err = v, e
+	}
+	if err == nil && ms > 0 {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
@@ -500,7 +506,7 @@ func runClaude(args []string) {
 		emit(map[string]any{"type": "user", "isReplay": true, "session_id": session,
 			"message": map[string]any{"role": "user", "content": content}})
 		if absorb {
-			delay()
+			delay(toolsOn && strings.Contains(system, "Worker execution"))
 		drain:
 			for {
 				select {
@@ -533,7 +539,7 @@ func runClaude(args []string) {
 				emit(map[string]any{"type": "user", "session_id": session, "message": map[string]any{"role": "user",
 					"content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": isErr, "content": reason}}}})
 			}
-			delay()
+			delay(true)
 			answer = wk.summary()
 		} else {
 			// A reasoning role with tools looks first when told to: LOOK_FIRST: <command>.
@@ -551,7 +557,7 @@ func runClaude(args []string) {
 				emit(map[string]any{"type": "user", "session_id": session, "message": map[string]any{"role": "user",
 					"content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": reason != "", "content": reason}}}})
 			}
-			delay()
+			delay(false)
 			answer = brain(system, prompt)
 		}
 		for _, chunk := range chunks(answer, 7) {
@@ -713,12 +719,12 @@ func runCodex(args []string) {
 					}
 					item(t, "completed", ex)
 				}
-				delay()
+				delay(true)
 				inputs = append(inputs, takeSteers(t)...)
 			}
 			answer = wk.summary()
 		} else {
-			delay()
+			delay(false)
 			if more := takeSteers(t); len(more) > 0 {
 				prompt += "\n" + strings.Join(more, "\n")
 			}
@@ -916,10 +922,10 @@ func runPi(args []string) {
 						isErr := wk.run(call, runHook(hook, "pi", name, call.input))
 						emit(map[string]any{"type": "tool_execution_end", "toolCallId": fmt.Sprint(i), "toolName": name, "isError": isErr})
 					}
-					delay()
+					delay(true)
 					answer = wk.summary()
 				} else {
-					delay()
+					delay(false)
 					answer = brain(system, prompt)
 				}
 				mu.Lock()

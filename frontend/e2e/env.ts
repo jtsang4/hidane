@@ -2,7 +2,7 @@
 
 /** The normal backend: fake agents answer immediately. */
 export const PORT = 2797;
-/** A second backend whose fake agents sleep each turn, so a run can be caught mid-flight. */
+/** A second backend whose fake workers sleep, so a run can be caught mid-flight. */
 export const SLOW_PORT = 2798;
 export const SLOW_DELAY_MS = 8000;
 
