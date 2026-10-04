@@ -137,16 +137,6 @@ func (p *proc) writeJSON(v any) error {
 	return err
 }
 
-func (p *proc) writeRaw(s string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.stdinClosed || p.stdin == nil {
-		return errors.New("stdin closed")
-	}
-	_, err := io.WriteString(p.stdin, s)
-	return err
-}
-
 func (p *proc) closeStdin() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

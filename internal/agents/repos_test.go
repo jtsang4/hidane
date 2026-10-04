@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -94,8 +93,6 @@ func workerCall(t *testing.T, log string) invocation {
 	t.Fatalf("no worker run in %s", log)
 	return invocation{}
 }
-
-func strconvQuote(s string) string { return strconv.Quote(s) }
 
 func (w *world) onlyItem() kernel.WorkItem {
 	w.t.Helper()
