@@ -12,7 +12,7 @@
   };
 
   let { title = "", description = "", actions, children, class: className = "", ...rest }: Props = $props();
-  const headingId = `card-${Math.random().toString(36).slice(2, 8)}`;
+  const headingId = $props.id();
 </script>
 
 <section {...rest} class={cn("space-y-2", className)} aria-labelledby={title ? headingId : undefined}>

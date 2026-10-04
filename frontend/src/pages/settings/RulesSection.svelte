@@ -4,8 +4,7 @@
   import i18n, { t } from "../../i18n/index.js";
   import { api, type PolicyRule } from "../../lib/api.js";
   import { confirmAction } from "../../lib/confirm.svelte.js";
-  import { errorText } from "../../lib/settings.js";
-  import { pushToast } from "../../lib/toast.js";
+  import { pushToast, toastError } from "../../lib/toast.js";
   import Badge from "../../components/ui/Badge.svelte";
   import PathText from "../../components/PathText.svelte";
   import EmptyState from "../../components/EmptyState.svelte";
@@ -38,12 +37,12 @@
       tools = "";
       void queryClient.invalidateQueries({ queryKey: ["policies"] });
     },
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
   const remove = createMutation(() => ({
     mutationFn: (id: string) => api.deletePolicy(id),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["policies"] }),
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
 
   async function confirmRemove(rule: PolicyRule): Promise<void> {

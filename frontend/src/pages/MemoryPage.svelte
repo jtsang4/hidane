@@ -4,8 +4,7 @@
   import i18n, { t } from "../i18n/index.js";
   import { api, type MemoryEntry } from "../lib/api.js";
   import { confirmAction } from "../lib/confirm.svelte.js";
-  import { errorText } from "../lib/settings.js";
-  import { pushToast } from "../lib/toast.js";
+  import { pushToast, toastError } from "../lib/toast.js";
   import EmptyState from "../components/EmptyState.svelte";
   import { segment, segmented, segmentOff, segmentOn } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
@@ -30,7 +29,7 @@
       pushToast(i18n.t("memory.forgotten"), "default");
       void queryClient.invalidateQueries({ queryKey: ["memories"] });
     },
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
   const add = createMutation(() => ({
     mutationFn: (content: string) => api.addMemory(kind, content),
@@ -39,7 +38,7 @@
       draft = null;
       void queryClient.invalidateQueries({ queryKey: ["memories"] });
     },
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
 
   async function confirmForget(entry: MemoryEntry): Promise<void> {

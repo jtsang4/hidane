@@ -3,7 +3,7 @@
   import { Archive, ArrowUpLeft, Check, FolderOpen, MessageSquareText, RotateCcw, Square, X } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
-  import { api, ApiError, type BoardCard, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
+  import { api, type BoardCard, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
   import { stateTone } from "../lib/board.js";
   import { boot } from "../lib/boot.js";
   import { steeredKey } from "../lib/conversation.js";
@@ -12,7 +12,7 @@
   import { nextCursor } from "../lib/pagination.js";
   import { conversationHref, navigate } from "../lib/router.svelte.js";
   import { revealWorkspace, setTaskStatus } from "../lib/taskActions.js";
-  import { pushToast } from "../lib/toast.js";
+  import { toastError } from "../lib/toast.js";
   import { fmtDateTime } from "../lib/utils.js";
   import Artifacts from "./Artifacts.svelte";
   import ChatBubble from "./ChatBubble.svelte";
@@ -109,7 +109,7 @@
       }
       if (!page.hasMore || page.events.length === 0) exhausted = true;
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
+      toastError(error);
     } finally {
       loadingOlder = false;
     }
@@ -122,7 +122,7 @@
       void queryClient.invalidateQueries({ queryKey: ["board"] });
       void queryClient.invalidateQueries({ queryKey: ["items"] });
     },
-    onError: (error) => pushToast(error instanceof ApiError ? error.message : String(error)),
+    onError: (error) => toastError(error),
   }));
 </script>
 
@@ -141,7 +141,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="text-base font-semibold break-words">{item.title}</h2>
-            {#if card}<Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>{:else}<Badge tone="muted">{item.status}</Badge>{/if}
+            {#if card}<Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>{:else}<Badge tone="muted">{$t(`items.status.${item.status}`)}</Badge>{/if}
           </div>
           <p class="mt-1 truncate text-xs text-muted select-text">{$t("item.meta", { id: item.id, time: fmtDateTime(item.createdAt) })}</p>
           <!-- A long workspace path loses its start, not its end: the task's own folder is the part that tells them apart. -->

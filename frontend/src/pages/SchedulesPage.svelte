@@ -3,8 +3,7 @@
   import { AlarmClock, Plus } from "@lucide/svelte";
   import { t } from "../i18n/index.js";
   import { api, type ScheduleInput } from "../lib/api.js";
-  import { errorText } from "../lib/settings.js";
-  import { pushToast } from "../lib/toast.js";
+  import { toastError } from "../lib/toast.js";
   import EmptyState from "../components/EmptyState.svelte";
   import { segment, segmented, segmentOff, segmentOn } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
@@ -38,7 +37,7 @@
       form = { name: "", action: "prompt", timing: "interval", intervalSec: "3600", cron: "", timezone: "", prompt: "", url: "", wake: false };
       creating = false;
     },
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
 
   function submit(): void {

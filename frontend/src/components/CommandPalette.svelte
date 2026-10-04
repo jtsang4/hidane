@@ -26,6 +26,7 @@
   import { api, type HidaneEvent, type WorkItem } from "../lib/api.js";
   import { excerpt, highlight, saidText, searchTerms } from "../lib/history.js";
   import { filterCommands, stepSelection } from "../lib/palette.js";
+  import { dialogOverlay, dialogSurface } from "../lib/styles.js";
   import { cn, fmtDateTime } from "../lib/utils.js";
 
   let {
@@ -49,7 +50,7 @@
     | { key: string; kind: "item"; item: WorkItem }
     | { key: string; kind: "message"; event: HidaneEvent };
 
-  const listId = `palette-${Math.random().toString(36).slice(2, 8)}`;
+  const listId = $props.id();
   let query = $state(lastQuery);
   let results = $state.raw<Awaited<ReturnType<PaletteSearch>> | null>(null);
   let searching = $state(false);
@@ -156,10 +157,10 @@
 <!-- Mounted while open by App; Esc or a click outside closes it. -->
 <Dialog.Root bind:open={() => true, (open) => { if (!open) onclose(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-overlay backdrop-blur-[2px]" />
+    <Dialog.Overlay class={cn(dialogOverlay, "z-[60]")} />
     <Dialog.Content
       aria-label={$t("palette.label")}
-      class="fixed top-[12vh] left-1/2 z-[60] flex max-h-[70vh] w-[640px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden animate-dialog-in rounded-xl border border-border bg-popover shadow-dialog outline-none"
+      class={cn(dialogSurface, "fixed top-[12vh] left-1/2 z-[60] flex max-h-[70vh] w-[640px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden")}
       onOpenAutoFocus={(event) => {
         // The last search is offered again, selected, so typing replaces it.
         event.preventDefault();

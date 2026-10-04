@@ -9,7 +9,7 @@
   import { openSettings } from "../lib/router.svelte.js";
   import { AGENT_LABELS, effortOptions, favoriteLabel, sameRunAs, withAgent } from "../lib/runAs.js";
   import { AGENT_KINDS, compatibility, roleCompatibility } from "../lib/settings.js";
-  import { segment, segmented, segmentOff, segmentOn, sheetHandle } from "../lib/styles.js";
+  import { dialogOverlay, segment, segmented, segmentOff, segmentOn, sheetHandle } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
   import Combobox, { type ComboboxSuggestion } from "./ui/Combobox.svelte";
   import Select, { type SelectOption } from "./ui/Select.svelte";
@@ -308,7 +308,7 @@
   <Dialog.Root bind:open {onOpenChange}>
     <Dialog.Trigger bind:ref={triggerRef} class={trigger} aria-label={triggerLabel} title={problem ?? scopeNote}>{@render face()}</Dialog.Trigger>
     <Dialog.Portal>
-      <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-overlay backdrop-blur-[2px]" />
+      <Dialog.Overlay class={cn(dialogOverlay, "z-[60]")} />
       <Dialog.Content
         id={`${ids}-panel`}
         aria-labelledby={`${ids}-title`}

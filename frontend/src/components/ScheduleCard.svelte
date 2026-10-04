@@ -5,8 +5,7 @@
   import i18n from "../i18n/index.js";
   import { api, type Schedule } from "../lib/api.js";
   import { confirmAction } from "../lib/confirm.svelte.js";
-  import { errorText as describe } from "../lib/settings.js";
-  import { pushToast } from "../lib/toast.js";
+  import { pushToast, toastError } from "../lib/toast.js";
   import { cn, fmtDateTime } from "../lib/utils.js";
   import RunHistory from "./RunHistory.svelte";
   import Time from "./Time.svelte";
@@ -18,22 +17,21 @@
   let { schedule }: { schedule: Schedule } = $props();
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["schedules"] });
-  const errorText = (error: unknown) => describe(error);
 
   const toggle = createMutation(() => ({
     mutationFn: () => api.updateSchedule(schedule.id, { enabled: !schedule.enabled }),
     onSuccess: invalidate,
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
   const run = createMutation(() => ({
     mutationFn: () => api.runSchedule(schedule.id),
     onSuccess: (result) => { pushToast(i18n.t("schedules.ranNow", { status: result.status }), "default"); invalidate(); },
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
   const remove = createMutation(() => ({
     mutationFn: () => api.deleteSchedule(schedule.id),
     onSuccess: invalidate,
-    onError: (error) => pushToast(errorText(error)),
+    onError: (error) => toastError(error),
   }));
 
   async function confirmRemove(): Promise<void> {

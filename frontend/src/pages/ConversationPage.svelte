@@ -17,7 +17,6 @@
   import { atFrom, conversationHref, focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
   import { followAfterScroll, isPinnedToBottom, scrollerGesture } from "../lib/scroll.js";
   import { seenState, updateSeen } from "../lib/seen.svelte.js";
-  import { errorText } from "../lib/settings.js";
   import { openTaskMenu, stopTask } from "../lib/taskActions.js";
   import { pushToast, toastError } from "../lib/toast.js";
   import { ui } from "../lib/ui.svelte.js";
@@ -368,7 +367,8 @@
       });
     } catch (error) {
       anchoring = false;
-      pushToast(error instanceof ApiError && error.status === 404 ? i18n.t("chat.notFound") : error instanceof Error ? error.message : String(error));
+      if (error instanceof ApiError && error.status === 404) pushToast(i18n.t("chat.notFound"));
+      else toastError(error);
     }
   }
 
@@ -462,7 +462,7 @@
       await tick();
       restore();
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
+      toastError(error);
     } finally {
       loadingOlder = false;
     }
@@ -482,7 +482,7 @@
       await tick();
       restore();
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
+      toastError(error);
     } finally {
       loadingNewer = false;
     }
@@ -573,7 +573,7 @@
       void queryClient.invalidateQueries({ queryKey: ["conversation"] });
       void queryClient.invalidateQueries({ queryKey: ["board"] });
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : String(error));
+      toastError(error);
     }
   }
 
@@ -637,7 +637,7 @@
       pushToast(i18n.t("chat.hideDone"), "default");
       void queryClient.invalidateQueries({ queryKey: ["conversation"] });
     } catch (error) {
-      pushToast(errorText(error));
+      toastError(error);
     }
   }
 

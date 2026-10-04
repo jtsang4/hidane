@@ -38,6 +38,12 @@ export const segment =
 export const segmentOn = "bg-surface-2 text-foreground shadow-segment";
 export const segmentOff = "text-muted hover:text-foreground";
 
+/** The dimmed backdrop behind a dialog; the dialog adds its z layer. */
+export const dialogOverlay = "fixed inset-0 animate-fade-in bg-overlay backdrop-blur-[2px]";
+
+/** A dialog's own surface; the dialog adds its position, size and z layer. */
+export const dialogSurface = "animate-dialog-in rounded-xl border border-border bg-popover shadow-dialog outline-none";
+
 /** A centred dialog that becomes a bottom sheet on a phone, within reach of the thumb. */
 export const sheetOnPhone =
   "max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:animate-rise-in max-sm:rounded-b-none max-sm:pb-[max(1rem,env(safe-area-inset-bottom))]";

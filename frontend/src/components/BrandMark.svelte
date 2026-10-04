@@ -3,7 +3,7 @@
   let { size = 24, class: className = "" }: { size?: number; class?: string } = $props();
 
   // Several marks can share a page; each needs its own gradient id.
-  const id = `ember-${Math.random().toString(36).slice(2, 8)}`;
+  const id = $props.id();
 </script>
 
 <svg width={size} height={size} viewBox="1.5 2 21 21" class={className} aria-hidden="true">

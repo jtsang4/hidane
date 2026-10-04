@@ -14,7 +14,7 @@
     rolesUsingProvider,
     type ProviderDraft,
   } from "../../lib/settings.js";
-  import { pushToast } from "../../lib/toast.js";
+  import { pushToast, toastError } from "../../lib/toast.js";
   import ProviderForm from "../../components/settings/ProviderForm.svelte";
   import Badge from "../../components/ui/Badge.svelte";
   import EmptyState from "../../components/EmptyState.svelte";
@@ -38,8 +38,6 @@
   let draft = $state<ProviderDraft>(emptyDraft());
   let deleteError = $state<{ id: string; message: string } | null>(null);
 
-  const reportError = (error: unknown) => pushToast(errorText(error));
-
   function providerSaved(message: string): void {
     editing = null;
     draft = emptyDraft();
@@ -50,12 +48,12 @@
   const createProvider = createMutation(() => ({
     mutationFn: (input: ProviderInput) => api.createProvider(input),
     onSuccess: () => providerSaved(i18n.t("settings.providers.created")),
-    onError: reportError,
+    onError: toastError,
   }));
   const updateProvider = createMutation(() => ({
     mutationFn: (vars: { id: string; patch: ProviderPatch }) => api.updateProvider(vars.id, vars.patch),
     onSuccess: () => providerSaved(i18n.t("settings.providers.updated")),
-    onError: reportError,
+    onError: toastError,
   }));
   const deleteProvider = createMutation(() => ({
     mutationFn: (id: string) => api.deleteProvider(id),

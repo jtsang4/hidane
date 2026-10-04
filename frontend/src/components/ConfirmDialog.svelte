@@ -1,7 +1,7 @@
 <script lang="ts">
   import { AlertDialog } from "bits-ui";
   import { t } from "../i18n/index.js";
-  import { sheetHandle, sheetOnPhone } from "../lib/styles.js";
+  import { dialogOverlay, dialogSurface, sheetHandle, sheetOnPhone } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
   import Button from "./ui/Button.svelte";
 
@@ -27,9 +27,9 @@
 <!-- Mounted per request by ConfirmHost: open for as long as it exists; any way of closing it is a "no". -->
 <AlertDialog.Root bind:open={() => true, (open) => { if (!open) onresult(false); }}>
   <AlertDialog.Portal>
-    <AlertDialog.Overlay class="fixed inset-0 z-[70] animate-fade-in bg-overlay backdrop-blur-[2px]" />
+    <AlertDialog.Overlay class={cn(dialogOverlay, "z-[70]")} />
     <AlertDialog.Content
-      class={cn("fixed top-1/2 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 animate-dialog-in rounded-xl border border-border bg-popover p-4 shadow-dialog outline-none", sheetOnPhone)}
+      class={cn(dialogSurface, "fixed top-1/2 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 p-4", sheetOnPhone)}
       interactOutsideBehavior="close"
       onOpenAutoFocus={(event) => {
         event.preventDefault();

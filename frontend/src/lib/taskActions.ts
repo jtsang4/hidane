@@ -7,7 +7,6 @@ import { confirmAction } from "./confirm.svelte.js";
 import { openMenu, type MenuEntry, type MenuPlacement } from "./contextMenu.svelte.js";
 import { taskActions, type TaskAction } from "./menus.js";
 import { focusHref, navigate } from "./router.svelte.js";
-import { errorText } from "./settings.js";
 import { pushToast, toastError } from "./toast.js";
 
 /** Work-item actions shared by cards, the sidebar, the task list and the focus panel. */
@@ -31,7 +30,7 @@ export async function stopTask(queryClient: QueryClient, id: string): Promise<vo
     pushToast(i18n.t("task.stopped"), "default");
     refresh(queryClient, id);
   } catch (error) {
-    pushToast(errorText(error));
+    toastError(error);
   }
 }
 
@@ -49,7 +48,7 @@ export async function setTaskStatus(queryClient: QueryClient, id: string, status
     refresh(queryClient, id);
     return true;
   } catch (error) {
-    pushToast(errorText(error));
+    toastError(error);
     return false;
   }
 }

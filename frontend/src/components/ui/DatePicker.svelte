@@ -4,7 +4,7 @@
   import { CalendarDays, ChevronLeft, ChevronRight } from "@lucide/svelte";
   import { language, t } from "../../i18n/index.js";
   import { popover, toolbarButton } from "../../lib/styles.js";
-  import { cn, fmtDay, fmtShortDay } from "../../lib/utils.js";
+  import { cn, dateLocale, fmtDay, fmtShortDay } from "../../lib/utils.js";
 
   let {
     value,
@@ -30,7 +30,7 @@
   let content = $state<HTMLElement | null>(null);
   let date = $derived(parse(value));
   let maxDate = $derived(max === undefined ? undefined : parse(max));
-  let locale = $derived($language === "en" ? "en-US" : "zh-CN");
+  let locale = $derived(dateLocale($language));
   let text = $derived.by(() => {
     void $language;
     return { full: fmtDay(value), short: fmtShortDay(value) };

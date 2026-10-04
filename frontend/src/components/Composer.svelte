@@ -8,8 +8,7 @@
   import { api, type Effort, type RunAs } from "../lib/api.js";
   import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
   import { loadDraftRunAs, runAsSummary, saveDraftRunAs } from "../lib/runAs.js";
-  import { errorText } from "../lib/settings.js";
-  import { pushToast } from "../lib/toast.js";
+  import { pushToast, toastError } from "../lib/toast.js";
   import RunAsBar from "./RunAsBar.svelte";
   import Button from "./ui/Button.svelte";
   import Textarea from "./ui/Textarea.svelte";
@@ -70,7 +69,7 @@
       onfailed();
       if (text.length === 0) text = variables.body;
       if (attached.length === 0) attached = variables.images;
-      pushToast(error instanceof Error ? error.message : String(error));
+      toastError(error);
     },
   }));
 
@@ -113,7 +112,7 @@
     const seq = ++latestSave[kind];
     const done = saves.then(() =>
       save(() => seq === latestSave[kind]).catch(async (error: unknown) => {
-        pushToast(errorText(error));
+        toastError(error);
         await rollback();
       }),
     );

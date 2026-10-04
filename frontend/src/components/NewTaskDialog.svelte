@@ -6,7 +6,7 @@
   import { api } from "../lib/api.js";
   import { focusHref, navigate } from "../lib/router.svelte.js";
   import { errorText } from "../lib/settings.js";
-  import { sheetHandle, sheetOnPhone } from "../lib/styles.js";
+  import { dialogOverlay, dialogSurface, sheetHandle, sheetOnPhone } from "../lib/styles.js";
   import { pushToast } from "../lib/toast.js";
   import { cn } from "../lib/utils.js";
   import Button from "./ui/Button.svelte";
@@ -56,9 +56,9 @@
 <!-- Mounted while open by App; any way of closing it (Esc, a click outside) is Cancel. -->
 <Dialog.Root bind:open={() => true, (open) => { if (!open) onclose(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-[60] animate-fade-in bg-overlay backdrop-blur-[2px]" />
+    <Dialog.Overlay class={cn(dialogOverlay, "z-[60]")} />
     <Dialog.Content
-      class={cn("fixed top-[12vh] left-1/2 z-[60] w-[520px] max-w-[calc(100%-2rem)] -translate-x-1/2 animate-dialog-in rounded-xl border border-border bg-popover p-4 shadow-dialog outline-none", sheetOnPhone)}
+      class={cn(dialogSurface, "fixed top-[12vh] left-1/2 z-[60] w-[520px] max-w-[calc(100%-2rem)] -translate-x-1/2 p-4", sheetOnPhone)}
       onOpenAutoFocus={(event) => {
         event.preventDefault();
         titleInput?.focus();

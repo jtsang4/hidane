@@ -6,8 +6,9 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-function dateLocale(): string {
-  return i18n.language === "en" ? "en-US" : "zh-CN";
+/** The BCP 47 locale dates are written in for a UI language. */
+export function dateLocale(language: string = i18n.language): string {
+  return language === "en" ? "en-US" : "zh-CN";
 }
 
 function fmtTime(iso: string): string {
