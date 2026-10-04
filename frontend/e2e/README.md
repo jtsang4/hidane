@@ -30,7 +30,9 @@ make screenshots ONLY=run-as      # only the pages and states whose names start 
 
 Two servers run: the normal one on 2797, and a slow one on 2798
 (`FAKEAGENT_WORKER_DELAY_MS=8000`) for anything that must be caught mid-run.
-`screenshots.mjs` uses 2796. Tests share one server, so each uses unique text.
+`screenshots.mjs` uses 2796. `HIDANE_E2E_PORT=<n>` moves them to n, n+1 and n−1,
+so runs in two checkouts at once do not collide. Tests share one server, so each
+uses unique text.
 
 ## What each spec guards — extend the one that covers what you change
 

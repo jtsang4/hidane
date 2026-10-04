@@ -23,7 +23,7 @@ import { chromium } from "@playwright/test";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(process.argv[2] ?? join(here, "..", "..", "bin", "screenshots"));
-const port = "2796";
+const port = String(Number(process.env.HIDANE_E2E_PORT ?? 2797) - 1);
 const base = `http://127.0.0.1:${port}`;
 const token = "e2e-token";
 const pages = [
