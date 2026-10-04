@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 	"github.com/jtsang4/hidane/internal/app"
 	"github.com/jtsang4/hidane/internal/config"
+	"github.com/jtsang4/hidane/internal/kernel"
 )
 
 // onlyCodex exposes just the fake codex on PATH.
@@ -86,6 +88,45 @@ func TestFirstRunPicksAnInstalledCLIAndHoldsTheLock(t *testing.T) {
 	}
 	third.Stop()
 	third.Close()
+}
+
+// The started runtime runs the scheduler and triage loops: a due schedule
+// fires on its own and its capture is recorded, waking nothing.
+func TestTheRuntimeFiresDueSchedules(t *testing.T) {
+	onlyCodex(t)
+	a, err := app.Open(config.ForTest(t.TempDir()), app.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer target.Close()
+	name, action, interval := "probe", "http", 3600
+	if _, err := a.K.CreateSchedule(context.Background(), kernel.ScheduleInput{Name: &name, Action: &action, IntervalSec: &interval,
+		Spec: &kernel.ScheduleSpec{URL: target.URL}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(2 * time.Hour)
+	a.K.Now = func() time.Time { return later } // due on the scheduler's first tick
+	if _, err := a.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		decisions, err := a.K.ListEvents(context.Background(), kernel.ListFilter{Kind: "triage.decision"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range decisions {
+			if d.Payload.Str("ofKind") == "connector.http" {
+				if d.Payload.Str("rule") != "scheduled-http-record-only" {
+					t.Fatalf("triage: %+v", d.Payload)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("the runtime never fired the due schedule, or never triaged its capture")
 }
 
 func TestAnExistingSettingsFileIsLeftAlone(t *testing.T) {

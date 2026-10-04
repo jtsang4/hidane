@@ -152,15 +152,24 @@ func TestSchedulerFiresOncePerSlotUntilDisabled(t *testing.T) {
 		}
 	}
 	captured := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "connector.http"}))
-	if len(captured) != 2 || captured[1].Payload["status"] != float64(200) || captured[1].Payload.Str("body") != "up" {
+	if len(captured) != 2 {
 		t.Fatalf("each firing records the response: %+v", captured)
+	}
+	for _, c := range captured {
+		if c.Payload["status"] != float64(200) || c.Payload.Str("body") != "up" {
+			t.Fatalf("each firing records the response: %+v", c.Payload)
+		}
 	}
 	if _, woke, err := connectors.TriageOnce(ctx, k); err != nil || woke != 0 {
 		t.Fatalf("a recorded response wakes no model: woke=%d %v", woke, err)
 	}
+	ruled := map[string]string{}
 	for _, d := range m(k.ListEvents(ctx, kernel.ListFilter{Kind: "triage.decision"})) {
-		if d.Payload.Str("rule") != "scheduled-http-record-only" {
-			t.Fatalf("triage: %+v", d.Payload)
+		ruled[d.Payload.Str("of")] = d.Payload.Str("rule")
+	}
+	for _, c := range captured {
+		if ruled[c.ID] != "scheduled-http-record-only" {
+			t.Fatalf("every capture is triaged as record-only: %v", ruled)
 		}
 	}
 }

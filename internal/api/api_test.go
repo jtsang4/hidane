@@ -456,6 +456,11 @@ func TestScheduleDefinitionsAndRunHistory(t *testing.T) {
 		}
 		return body["schedule"].(map[string]any)["id"].(string)
 	}
+	code, body := e.do("POST", "/api/schedules", "", map[string]any{"name": "five", "action": "prompt", "cron": "0 17 * * *", "timezone": "Pacific/Kiritimati", "spec": prompt})
+	next, err := kernel.ParseTime(fmt.Sprint(body["schedule"].(map[string]any)["nextRunAt"]))
+	if loc, _ := time.LoadLocation("Pacific/Kiritimati"); code != 201 || err != nil || next.In(loc).Hour() != 17 || next.In(loc).Minute() != 0 {
+		t.Fatalf("cron in its timezone: %d %v %v", code, body, err)
+	}
 	a, b := create("a"), create("b")
 	if code, body := e.do("PATCH", "/api/schedules/"+b, "", map[string]any{"enabled": false}); code != 200 || body["schedule"].(map[string]any)["nextRunAt"] != nil {
 		t.Fatalf("disabled: %d %v", code, body)
@@ -465,7 +470,7 @@ func TestScheduleDefinitionsAndRunHistory(t *testing.T) {
 			t.Fatalf("run now: %d %v", code, body)
 		}
 	}
-	_, body := e.do("GET", "/api/schedules/"+a+"/runs", "", nil)
+	_, body = e.do("GET", "/api/schedules/"+a+"/runs", "", nil)
 	var kinds []string
 	last := int64(1 << 62)
 	for _, r := range body["runs"].([]any) {
