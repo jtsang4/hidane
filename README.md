@@ -91,39 +91,18 @@ rebuilt from the log, and when a message refers to something older it emits a
 
 ## Repositories and worktrees
 
-The person keeps talking in one conversation; which repository a task works in
-is settled by convention, not by a form.
-
-- **Repositories are the person's places**, registered the first time a path is
-  given (`hidane` remembers it by name from then on) and listed under Tasks →
-  Worktrees. A repo is known by its path; one whose `origin` matches a repo that
-  went missing is that repo moved, and keeps its identity. A name that fits two
-  repos, or a repo that is gone, is a question to the person — work never starts
-  on a guess.
-- **Every new task gets its own git worktree** of each repository it needs, on
-  branch `hidane/<work item>` from the repo's default branch, inside the task's
-  workspace (`workspaces/<wi>/<repo>`). Parallel tasks on one repo never share a
-  directory. A task can start from another task's branch (picking up archived
-  work), and a fanned-out task's children branch from their parent's. Only when
-  the person explicitly asks does a task work **in place** in their own
-  directory — one task at a time, and its commits stay theirs to make.
-- **Setup and teardown** come from the repo: `hidane.json`
-  (`{"worktree":{"setup":"pnpm install","teardown":"…"}}`, a script or a list of
-  commands), else the `worktree` block of an existing `paseo.json`; a file
-  `repos/<repo id>.json` in `HIDANE_HOME` overrides either for the person alone.
-  Setup runs before the first worker that needs it and is recorded as that
-  execution's side effect; scripts see `HIDANE_SOURCE_CHECKOUT_PATH`,
-  `HIDANE_WORKTREE_PATH`, `HIDANE_BRANCH` (and the `PASEO_*` equivalents).
-- **Nothing is cleaned up behind the person's back.** A finished task keeps its
-  worktree, so a follow-up — however long after — still reaches it. Tasks →
-  Worktrees shows each one with its task, what is on its branch and what is
-  uncommitted; archiving runs teardown, deletes the directory and keeps the
-  branch, and asks again before throwing away uncommitted changes. A directory
-  git can no longer read (its repository is gone) is never deleted — not by
-  archiving it, not by forgetting the repository.
-- **A repository that moves or disappears is noticed** — at start, when the list
-  is opened, and before it is used — recorded (`repo.missing`) and put to the
-  person as a question in the conversation.
+- A repository is registered the first time its path is given, then found by
+  name. A name that fits two repos, or a repo that has gone missing, is asked
+  about before any work starts; a moved repo keeps its identity.
+- Each new task gets its own git worktree per repository, on `hidane/<wi>` from
+  the default branch, in `workspaces/<wi>/<repo>`. It can continue another
+  task's branch; children branch from their parent's. The person's own
+  checkout is left alone — used only when they ask, one task per repo at a time.
+- `hidane.json` in the repo (else `paseo.json`'s `worktree` block; overridable in
+  `HIDANE_HOME/repos/<repo id>.json`) gives `setup` and `teardown` scripts.
+- Worktrees are never cleaned up automatically: Tasks → Worktrees lists them, and
+  archiving runs teardown, deletes the directory and keeps the branch, asking
+  again before losing uncommitted changes.
 
 ## Agents, CLIs and LLM providers
 
