@@ -83,11 +83,9 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 
 ## 场景 4C：飞书连接器（长连接，无公开回调）
 
-桌面应用没有公网地址，飞书入站改为官方 Go SDK 的长连接：连接用 App 凭证认证，不再有需要校验 token 的公开写口。期望：
+桌面应用没有公网地址，飞书入站改为官方 Go SDK 的长连接：连接用 App 凭证认证，不再有需要校验 token 的公开写口
+（`POST /feishu/events` 的 404 与连接器的捕获、去重、分块、卡片格式由 `go test ./internal/api/ ./internal/feishu/` 守住）。期望：
 
-- `POST /feishu/events` 返回 404：不存在任何未鉴权、能触发执行的飞书端点；任何未知路径的非 GET 请求都是 404（界面外壳只回应 GET/HEAD）
-- 入站捕获、去重、图片下载失败的诚实描述、贴纸不唤醒模型、工作项话题的归属、出站分块与卡片格式
-  由 `go test ./internal/feishu/ -v` 覆盖（假 Messenger）——运行它并把通过的用例名作为证据
 - 若环境里有真实的 `FEISHU_APP_ID`/`FEISHU_APP_SECRET`（或 settings.json 的 `feishu` 段），启动 serve 后日志
   出现 `feishu channel enabled`，给机器人发一条单聊消息能在主线程看到 `connector.feishu` 与回复；没有凭证则 BLOCKED
 
