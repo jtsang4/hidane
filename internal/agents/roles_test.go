@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtsang4/hidane/internal/agents"
 	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/projections"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
@@ -103,5 +105,54 @@ func TestARefusedPrimaryCallIsRecorded(t *testing.T) {
 	if len(blocked) != 1 || blocked[0].Source != "agent:primary" || blocked[0].ThreadID != "main" ||
 		blocked[0].Payload.Str("reason") != "not that file" || blocked[0].Payload.Str("rule") == "" {
 		t.Fatalf("policy.blocked: %+v", blocked)
+	}
+}
+
+// A refusal is recorded when it happens: before the result of the call it
+// stopped, and while the run still goes on — so the running card can show it.
+// Codex shows no tool item for a refused call; a ticker catches that one.
+func TestRefusalsAreRecordedWhileTheRunGoesOn(t *testing.T) {
+	for _, agent := range []string{settings.Claude, settings.Codex} {
+		t.Run(agent, func(t *testing.T) {
+			w := newWorld(t, agent, "FAKEAGENT_DELAY_MS=2500")
+			m(w.k.AddGlobalRule(`forbidden\.txt`, "not that file", nil))
+			item := m(w.k.CreateWorkItem(ctx, "guarded", "test", kernel.CreateWorkItemOpts{}))
+			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "RUN: echo x > forbidden.txt", Source: "connector:web", Target: item.ID}))
+			// The Manager's turn dispatches the worker; the run then goes on alone.
+			if err := w.rt.Drain(50); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(30 * time.Second)
+			var shown bool
+			for !shown && time.Now().Before(deadline) {
+				_, running, _ := w.k.ActiveExecutionFor(ctx, item.ID)
+				if !running || len(w.events("policy.blocked")) == 0 {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				for _, card := range m(projections.BuildBoard(ctx, w.k, nil)) {
+					if card.Item.ID == item.ID && card.Execution != nil && card.LastPolicyBlock != nil {
+						shown = true
+					}
+				}
+			}
+			if !shown {
+				t.Fatal("the refusal must be on record, and on the card, while the execution still runs")
+			}
+			w.settle()
+			if agent == settings.Claude {
+				kinds := w.kinds()
+				blocked := indexOf(kinds, "policy.blocked", 0)
+				if blocked < 0 || blocked > indexOf(kinds, "side_effect.result", indexOf(kinds, "side_effect.intent", 0)) {
+					t.Fatalf("policy.blocked lands before the refused call's result: %v", kinds)
+				}
+			}
+			if n := len(w.events("policy.blocked")); n != 1 {
+				t.Fatalf("recorded once: %d", n)
+			}
+			if _, err := os.Stat(filepath.Join(item.Workspace, "forbidden.txt")); err == nil {
+				t.Fatal("the refused write must not have happened")
+			}
+		})
 	}
 }

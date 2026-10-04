@@ -103,34 +103,22 @@ func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought 
 	if live != nil {
 		req.OnText = func(d string) { live.Push(extract(d)) }
 	}
-	var blocks string
+	var trail *toolTrail
 	if o.Tools {
 		req.Tools, req.ReplacePrompt = true, true
 		// A refusal of the role's own call is a fact like a worker's.
 		control := filepath.Join(s.K.Cfg.RuntimeDir(), "turns", kernel.GenID("turn", 8))
 		_ = os.MkdirAll(control, 0o755)
 		defer os.RemoveAll(control)
-		blocks = filepath.Join(control, "policy-blocks.jsonl")
+		blocks := filepath.Join(control, "policy-blocks.jsonl")
 		req.Env = guard.Env{PolicyFiles: o.PolicyFiles, BlocksFile: blocks}.Vars()
-		// Two-phase, as a worker's: intent before the tool acts, result after.
-		var trailMu sync.Mutex
-		req.OnTool = func(e agentcli.ToolEvent) {
-			trailMu.Lock()
-			defer trailMu.Unlock()
-			in := o.Trail
-			if e.Phase == "start" {
-				in.Kind, in.Payload = "side_effect.intent", kernel.Payload{"tool": e.Tool, "input": e.Detail}
-			} else {
-				in.Kind, in.Payload = "side_effect.result", kernel.Payload{"tool": e.Tool, "isError": e.IsError}
-			}
-			_, _ = s.K.Append(context.WithoutCancel(ctx), in)
-		}
+		trail = newToolTrail(s.K, o.Trail, nil, blocks)
+		req.OnTool = trail.tool
+		defer trail.watch()()
 	}
 	res := agentcli.Call(ctx, s.Agents, r.Agent, req)
-	for _, b := range guard.ReadBlocks(blocks) {
-		in := o.Trail
-		in.Kind, in.Payload = "policy.blocked", blockPayload(b)
-		_, _ = s.K.Append(context.WithoutCancel(ctx), in)
+	if trail != nil {
+		trail.finish()
 	}
 	live.End()
 	if ctx.Err() != nil {

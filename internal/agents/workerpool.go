@@ -217,8 +217,9 @@ func (p *WorkerPool) runJob(j *job) {
 	var outcome runOutcome
 	var item *kernel.WorkItem
 	skip := false
-	// Tool events are appended in order and all land before the outcome.
-	var trailMu sync.Mutex
+	// Tool events and refusals are recorded in order, all before the outcome
+	// (finish waits for any still being written).
+	var trail *toolTrail
 	defer func() {
 		p.remove(j.executionID)
 		p.Pump()
@@ -307,22 +308,13 @@ func (p *WorkerPool) runJob(j *job) {
 		pending := filepath.Join(control, "pending-input")
 		blocks := filepath.Join(control, "policy-blocks.jsonl")
 		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks}
+		trail = newToolTrail(k, kernel.EventInput{Source: "agent:worker", ThreadID: it.ThreadID, WorkItemID: it.ID, ExecutionID: j.executionID},
+			kernel.Payload{"root": kernel.RootOf(j.started)}, blocks)
 		req := agentcli.Request{
 			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: cwd, Tools: true,
 			Model: r.Model, Effort: r.Effort, Provider: r.Provider,
 			SessionDir: filepath.Join(hidaneDir, "sessions"), Env: genv.Vars(), Timeout: k.Cfg.WorkerTimeout,
-			// Two-phase side-effect trail: intent before the tool acts, result after.
-			OnTool: func(e agentcli.ToolEvent) {
-				trailMu.Lock()
-				defer trailMu.Unlock()
-				in := kernel.EventInput{Source: "agent:worker", ThreadID: it.ThreadID, WorkItemID: it.ID, ExecutionID: j.executionID}
-				if e.Phase == "start" {
-					in.Kind, in.Payload = "side_effect.intent", kernel.Payload{"tool": e.Tool, "input": e.Detail}
-				} else {
-					in.Kind, in.Payload = "side_effect.result", kernel.Payload{"tool": e.Tool, "isError": e.IsError}
-				}
-				_, _ = k.Append(ctx, in)
-			},
+			OnTool:          trail.tool,
 			OnSteerConsumed: func() { _ = os.Remove(pending) },
 		}
 		j.mu.Lock()
@@ -350,8 +342,11 @@ func (p *WorkerPool) runJob(j *job) {
 		for _, b := range buffered {
 			run.Steer(b)
 		}
+		stopWatch := trail.watch()
 		outcome.Result = run.Wait()
-		outcome.PolicyBlocks = guard.ReadBlocks(blocks)
+		stopWatch()
+		// Before the control directory, and the refusals in it, are removed.
+		outcome.PolicyBlocks = trail.finish()
 		j.mu.Lock()
 		if p.ctx.Err() != nil && !j.cancelled {
 			outcome.OK, outcome.Lost = false, true
@@ -366,8 +361,6 @@ func (p *WorkerPool) runJob(j *job) {
 	if skip {
 		return
 	}
-	trailMu.Lock()
-	trailMu.Unlock()
 	if err := p.reportOutcome(ctx, j.executionID, j.workItemID, j.owner, &j.started, item, outcome); err != nil {
 		_, _ = k.Append(ctx, kernel.EventInput{Source: "kernel:runtime", Kind: "agent.error", ThreadID: "main",
 			Payload: kernel.Payload{"error": "reporting execution outcome failed: " + err.Error(), "executionId": j.executionID}})
@@ -420,17 +413,10 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 	if started != nil && started.ID != "" {
 		rootP["root"] = kernel.RootOf(*started)
 	}
+	// Each refusal was recorded as policy.blocked when it happened (toolTrail).
 	var blocks []any
 	for _, b := range run.PolicyBlocks {
 		blocks = append(blocks, map[string]any{"tool": b.Tool, "reason": b.Reason})
-		payload := blockPayload(b)
-		for key, v := range rootP {
-			payload[key] = v
-		}
-		if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:worker", Kind: "policy.blocked", ThreadID: threadID,
-			WorkItemID: workItemID, ExecutionID: executionID, Payload: payload}); err != nil {
-			return err
-		}
 	}
 	if blocks == nil {
 		blocks = []any{}
