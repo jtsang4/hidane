@@ -113,7 +113,7 @@ var mutating = map[string]bool{"bash": true, "write": true, "edit": true}
 // and sed (its w command) can write.
 // cd changes no file: read as a change, `cd <workspace> && cat a; cat b` was
 // refused by a rule meant for writes.
-var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|printf|true|false|test|\[|basename|dirname|realpath|readlink|diff|cmp|cut|tr|jq|shasum|sha256sum|md5|md5sum|cd|pushd|popd|git\s+(status|log|diff|show|branch))(\s|$)[^;&|>]*$`)
+var readOnlyHead = regexp.MustCompile(`^\s*(ls|cat|head|tail|grep|rg|find|pwd|wc|file|stat|tree|du|which|echo|printf|true|false|test|\[|basename|dirname|realpath|readlink|diff|cmp|cut|tr|jq|shasum|sha256sum|md5|md5sum|cd|pushd|popd|read|git\s+(status|log|diff|show|branch))(\s|$)[^;&|>]*$`)
 
 // Read-only commands that can still change things through a flag.
 var (
@@ -122,11 +122,13 @@ var (
 	treeOut    = regexp.MustCompile(`^\s*tree\b.*\s-o\b`)
 )
 
-// IsReadOnly reports whether a shell command only looks. A second line, a
-// command substitution or an acting flag makes any command a change.
-// Commands joined with ;, &&, || or | are read-only when every part is.
+// IsReadOnly reports whether a shell command only looks. A command
+// substitution or an acting flag makes any command a change. Commands joined
+// with ;, &&, ||, | or a newline, and the parts of an if, for or while, are
+// read-only when every part is: a multi-line look was refused under a rule,
+// and the worker concluded it could not even name the file.
 func IsReadOnly(cmd string) bool {
-	if strings.ContainsAny(cmd, "\n\r`") || strings.Contains(cmd, "$(") || strings.Contains(cmd, "<(") || strings.Contains(cmd, ">(") {
+	if strings.ContainsAny(cmd, "`") || strings.Contains(cmd, "$(") || strings.Contains(cmd, "<(") || strings.Contains(cmd, ">(") {
 		return false
 	}
 	masked := maskQuoted(cmd)
@@ -136,6 +138,12 @@ func IsReadOnly(cmd string) bool {
 	cmd, masked = dropHarmlessRedirections(cmd, masked)
 	for _, span := range splitSpans(masked, readOnlySep) {
 		seg, mseg := cmd[span[0]:span[1]], masked[span[0]:span[1]]
+		if loc := shellKeyword.FindStringIndex(mseg); loc != nil {
+			seg, mseg = seg[loc[1]:], mseg[loc[1]:]
+		}
+		if strings.TrimSpace(mseg) == "" || loopHeader.MatchString(mseg) || inputOnly.MatchString(mseg) {
+			continue
+		}
 		if !readOnlyHead.MatchString(mseg) || findActs.MatchString(seg) || branchActs.MatchString(seg) || treeOut.MatchString(seg) {
 			return false
 		}
@@ -143,7 +151,14 @@ func IsReadOnly(cmd string) bool {
 	return true
 }
 
-var readOnlySep = regexp.MustCompile(`&&|\|\||;|\||&`)
+var (
+	readOnlySep = regexp.MustCompile(`&&|\|\||;|\||&|\r?\n`)
+	// The words of a compound command; what follows them is judged as any command.
+	shellKeyword = regexp.MustCompile(`^\s*(if|then|elif|else|fi|do|done|while|until)(\s+|$)`)
+	loopHeader   = regexp.MustCompile(`^\s*for\s+\w+(\s+in\b[^;&|>]*)?$`)
+	// `done < notes.md`: what is left of a loop's end is where it reads from.
+	inputOnly = regexp.MustCompile(`^\s*<\s*[^<>;&|]+$`)
+)
 
 // A redirection into a device or onto another descriptor (2>&1, 2>/dev/null)
 // writes no file. Agents append them to plain looks; read as writes, they got

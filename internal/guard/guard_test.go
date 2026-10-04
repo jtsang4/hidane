@@ -51,7 +51,11 @@ func TestPolicyFilesApplyOutermostFirstAndToMutatingToolsByDefault(t *testing.T)
 			t.Fatalf("%q is a read, not a change: %s", cmd, d.Reason)
 		}
 	}
-	for _, cmd := range []string{"echo x > forbidden.txt", "cd " + dir + " && echo x > forbidden.txt"} {
+	// Nor across lines or inside an if: a real pi worker was refused this look.
+	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "ls -la\nif [ -e forbidden.txt ]; then cat forbidden.txt; fi"}, env); d.Block {
+		t.Fatalf("a multi-line look is a read: %s", d.Reason)
+	}
+	for _, cmd := range []string{"echo x > forbidden.txt", "cd " + dir + " && echo x > forbidden.txt", "ls\necho x > forbidden.txt"} {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); !d.Block {
 			t.Fatalf("%q writes the file and is refused", cmd)
 		}
@@ -195,6 +199,12 @@ func TestReadOnlyCommands(t *testing.T) {
 		"git status",
 		"git branch -a",
 		"echo hi",
+		// A real pi worker's look, refused while a newline made it a change.
+		"ls -la\nif [ -e forbidden.txt ]; then cat forbidden.txt; else echo missing; fi",
+		"cat forbidden.txt\nls -la",
+		"cd ws\nls -l forbidden.txt\n",
+		"for f in *.md; do wc -l \"$f\"; done",
+		"while read -r line; do echo \"$line\"; done < notes.md",
 	} {
 		if !guard.IsReadOnly(cmd) {
 			t.Errorf("%q only looks", cmd)
@@ -213,6 +223,10 @@ func TestReadOnlyCommands(t *testing.T) {
 		"find . -exec rm {} ;",
 		"echo ok\nrm x",
 		"echo $(rm -rf x)",
+		"if [ -e x ]; then rm x; fi",
+		"for f in *.tmp; do rm \"$f\"; done",
+		"cat <<EOF > notes.md\nhi\nEOF",
+		"python3 - <<'PY'\nprint(1)\nPY",
 	} {
 		if guard.IsReadOnly(cmd) {
 			t.Errorf("%q changes something", cmd)
