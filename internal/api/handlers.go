@@ -27,18 +27,13 @@ func (s *server) filters(r *http.Request) kernel.ListFilter {
 		Conversation: has(r, "conversation"),
 		ThreadID:     q.Get("thread"),
 		WorkItemID:   q.Get("item"),
-		Day:          q.Get("day"),
 	}
 	f.PersonOnly = f.Conversation && q.Get("origin") == "person"
-	// `kind` accepts a comma-separated list; a single kind keeps its old meaning.
-	if kind := q.Get("kind"); strings.Contains(kind, ",") {
-		for _, k := range strings.Split(kind, ",") {
-			if k = strings.TrimSpace(k); k != "" {
-				f.Kinds = append(f.Kinds, k)
-			}
+	// `kind` accepts a comma-separated list.
+	for _, k := range strings.Split(q.Get("kind"), ",") {
+		if k = strings.TrimSpace(k); k != "" {
+			f.Kinds = append(f.Kinds, k)
 		}
-	} else {
-		f.Kind = kind
 	}
 	return f
 }
@@ -232,7 +227,6 @@ func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 			From    string `json:"from"`
 			InPlace bool   `json:"inPlace"`
 		} `json:"repos"`
-		ParentID string `json:"parentId"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("invalid json"))
@@ -244,12 +238,6 @@ func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if body.ParentID != "" {
-		if _, err := s.K.GetWorkItem(ctx, body.ParentID); err != nil {
-			writeJSON(w, http.StatusBadRequest, errBody("parent not found"))
-			return
-		}
-	}
 	var wanted []agents.RepoRequest
 	if strings.TrimSpace(body.Repo) != "" {
 		wanted = append(wanted, agents.RepoRequest{Ref: body.Repo})
@@ -259,7 +247,7 @@ func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 			wanted = append(wanted, agents.RepoRequest{Ref: rq.Repo, Spec: repos.AttachSpec{Base: rq.Base, From: rq.From, InPlace: rq.InPlace}})
 		}
 	}
-	item, problem, err := s.Sys.StartWorkItem(ctx, title, "connector:web", kernel.CreateWorkItemOpts{ParentID: body.ParentID}, wanted)
+	item, problem, err := s.Sys.StartWorkItem(ctx, title, "connector:web", kernel.CreateWorkItemOpts{}, wanted)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
@@ -407,14 +395,8 @@ func (s *server) cancelWorkItem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cancelled": cancelled})
 }
 
-// The web channel feeds the same vision models as Feishu. Bounded: base64
-// rides in the JSON body.
-const (
-	maxImages     = 4
-	maxImageBytes = 6 << 20
-	// ImageOnlyText stands in for words on an image-only message, on every channel.
-	ImageOnlyText = "(图片消息，请查看附带图片)"
-)
+// Bounded: base64 rides in the JSON body.
+const maxImageBytes = 6 << 20
 
 func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -432,7 +414,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	text := strings.TrimSpace(body.Text)
 	var images []agents.InboundImage
 	for _, im := range body.Images {
-		if len(images) == maxImages {
+		if len(images) == agents.MaxImages {
 			break
 		}
 		if !strings.HasPrefix(im.MimeType, "image/") || im.Data == "" || len(im.Data)*3/4 > maxImageBytes {
@@ -457,7 +439,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if text == "" {
-		text = ImageOnlyText
+		text = agents.ImageOnlyText
 	}
 	msg, err := s.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Images: images, Source: "connector:web",
 		Target: body.Target, Focus: body.Target != "" && body.Focus, ReplyTo: body.ReplyTo, RunAs: runAs})
@@ -472,7 +454,6 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 func (s *server) routeMessage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		WorkItemID string `json:"workItemId"`
-		Title      string `json:"title"`
 	}
 	_ = readJSON(r, &body)
 	if body.WorkItemID == "" {
@@ -488,14 +469,11 @@ func (s *server) routeMessage(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, errBody("message not found"))
 			return
 		}
-		title := strings.TrimSpace(body.Title)
-		if title == "" {
-			title = msg.Payload.Str("text")
-		}
-		if r := []rune(strings.TrimSpace(title)); len(r) > 60 {
+		title := strings.TrimSpace(msg.Payload.Str("text"))
+		if r := []rune(title); len(r) > 60 {
 			title = string(r[:60])
 		}
-		if strings.TrimSpace(title) == "" {
+		if title == "" {
 			title = "新任务"
 		}
 		item, err := s.K.CreateWorkItem(ctx, title, "connector:web", kernel.CreateWorkItemOpts{Of: messageID})
@@ -708,18 +686,6 @@ func (s *server) schedules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"schedules": list})
 }
 
-func scheduleError(w http.ResponseWriter, err error) {
-	var verr kernel.ValidationError
-	switch {
-	case errors.As(err, &verr):
-		writeJSON(w, http.StatusBadRequest, errBody(verr.Msg))
-	case notFound(err):
-		writeJSON(w, http.StatusNotFound, errBody("not found"))
-	default:
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-	}
-}
-
 func (s *server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	var in kernel.ScheduleInput
 	if err := readJSON(r, &in); err != nil {
@@ -728,7 +694,7 @@ func (s *server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	sc, err := s.K.CreateSchedule(r.Context(), in, "connector:web")
 	if err != nil {
-		scheduleError(w, err)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "schedule": sc})
@@ -742,7 +708,7 @@ func (s *server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	sc, err := s.K.UpdateSchedule(r.Context(), r.PathValue("id"), in, "connector:web")
 	if err != nil {
-		scheduleError(w, err)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "schedule": sc})
@@ -750,7 +716,7 @@ func (s *server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 	if err := s.K.DeleteSchedule(r.Context(), r.PathValue("id"), "connector:web"); err != nil {
-		scheduleError(w, err)
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -834,7 +800,6 @@ func (s *server) status(w http.ResponseWriter, r *http.Request) {
 	}
 	st := s.Settings.Get()
 	roles := map[string]any{}
-	var summary []string
 	for _, role := range settings.Roles {
 		res := st.Resolve(role)
 		provider := ""
@@ -842,18 +807,17 @@ func (s *server) status(w http.ResponseWriter, r *http.Request) {
 			provider = res.Provider.Label
 		}
 		roles[role] = map[string]any{"agent": res.Agent, "provider": provider, "model": res.Model}
-		summary = append(summary, role+": "+res.Describe())
 	}
 	lag := latest - cursor
 	if lag < 0 {
 		lag = 0
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"latestSeq": latest, "triageCursor": cursor, "triageLag": lag, "lastHeartbeatAt": lastHB,
-		"openWorkItems": len(open), "model": strings.Join(summary, " · "), "roles": roles,
+		"latestSeq": latest, "triageLag": lag, "lastHeartbeatAt": lastHB,
+		"openWorkItems": len(open), "roles": roles,
 		"agents": s.Detect(ctx),
 		"runtime": map[string]any{"up": s.Sys.Runtime != nil, "activeTurns": s.Sys.ActiveTurns(),
-			"pendingMailboxes": len(mailboxes), "pendingMessages": pendingMessages, "workers": s.Sys.Pool.Status()},
+			"pendingMessages": pendingMessages, "workers": s.Sys.Pool.Status()},
 	})
 }
 
@@ -861,12 +825,16 @@ func (s *server) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.Settings.View())
 }
 
-func settingsError(w http.ResponseWriter, err error) {
-	var verr settings.Error
+// writeError maps a schedule or settings error to its status.
+func writeError(w http.ResponseWriter, err error) {
+	var verr kernel.ValidationError
+	var serr settings.Error
 	var inUse settings.InUseError
 	switch {
 	case errors.As(err, &verr):
 		writeJSON(w, http.StatusBadRequest, errBody(verr.Msg))
+	case errors.As(err, &serr):
+		writeJSON(w, http.StatusBadRequest, errBody(serr.Msg))
 	case errors.As(err, &inUse):
 		writeJSON(w, http.StatusConflict, errBody(inUse.Error()))
 	case notFound(err):
@@ -894,7 +862,7 @@ func (s *server) putRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.Settings.SetRoles(body.Roles); err != nil {
-		settingsError(w, err)
+		writeError(w, err)
 		return
 	}
 	roles := map[string]any{}
@@ -914,7 +882,7 @@ func (s *server) putBinaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.Settings.SetBinaries(body.Binaries); err != nil {
-		settingsError(w, err)
+		writeError(w, err)
 		return
 	}
 	if s.OnSettingsChanged != nil {
@@ -932,7 +900,7 @@ func (s *server) addProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := s.Settings.AddProvider(in)
 	if err != nil {
-		settingsError(w, err)
+		writeError(w, err)
 		return
 	}
 	s.recordSettings(r.Context(), "providers", kernel.Payload{"added": p.ID})
@@ -947,7 +915,7 @@ func (s *server) patchProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := s.Settings.UpdateProvider(r.PathValue("id"), in)
 	if err != nil {
-		settingsError(w, err)
+		writeError(w, err)
 		return
 	}
 	s.recordSettings(r.Context(), "providers", kernel.Payload{"updated": p.ID})
@@ -957,7 +925,7 @@ func (s *server) patchProvider(w http.ResponseWriter, r *http.Request) {
 func (s *server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.Settings.DeleteProvider(id); err != nil {
-		settingsError(w, err)
+		writeError(w, err)
 		return
 	}
 	s.recordSettings(r.Context(), "providers", kernel.Payload{"deleted": id})

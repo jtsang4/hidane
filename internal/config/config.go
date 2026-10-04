@@ -33,11 +33,9 @@ type Config struct {
 	MaxExecutionsPerItem int
 	AttributionThreshold float64
 
-	FeishuAppID             string
-	FeishuAppSecret         string
-	FeishuVerificationToken string
-	FeishuEncryptKey        string
-	FeishuAllowedUsers      []string
+	FeishuAppID        string
+	FeishuAppSecret    string
+	FeishuAllowedUsers []string
 }
 
 func env(name string) string { return os.Getenv(name) }
@@ -89,25 +87,23 @@ func Load() *Config {
 		addr = "127.0.0.1:2718"
 	}
 	return &Config{
-		Home:                    home,
-		Addr:                    addr,
-		APIToken:                env("HIDANE_API_TOKEN"),
-		WebhookSecret:           env("HIDANE_WEBHOOK_SECRET"),
-		HeartbeatInterval:       envSec("HIDANE_HEARTBEAT_SEC", 300),
-		DistillInterval:         envSec("HIDANE_DISTILL_SEC", 600),
-		RouteTimeout:            envSec("HIDANE_ROUTE_TIMEOUT_SEC", 180),
-		WorkerTimeout:           envSec("HIDANE_WORKER_TIMEOUT_SEC", 600),
-		SetupTimeout:            envSec("HIDANE_SETUP_TIMEOUT_SEC", 1200),
-		MaxHops:                 envInt("HIDANE_MAX_HOPS", 24),
-		MaxWorkers:              envInt("HIDANE_MAX_WORKERS", 3),
-		MaxConcurrentTurns:      envInt("HIDANE_MAX_TURNS", 4),
-		MaxExecutionsPerItem:    envInt("HIDANE_MAX_EXECUTIONS_PER_ITEM", 12),
-		AttributionThreshold:    envFloat("HIDANE_ATTRIBUTION_THRESHOLD", 0.6),
-		FeishuAppID:             env("FEISHU_APP_ID"),
-		FeishuAppSecret:         env("FEISHU_APP_SECRET"),
-		FeishuVerificationToken: env("FEISHU_VERIFICATION_TOKEN"),
-		FeishuEncryptKey:        env("FEISHU_ENCRYPT_KEY"),
-		FeishuAllowedUsers:      list(env("FEISHU_ALLOWED_USERS")),
+		Home:                 home,
+		Addr:                 addr,
+		APIToken:             env("HIDANE_API_TOKEN"),
+		WebhookSecret:        env("HIDANE_WEBHOOK_SECRET"),
+		HeartbeatInterval:    envSec("HIDANE_HEARTBEAT_SEC", 300),
+		DistillInterval:      envSec("HIDANE_DISTILL_SEC", 600),
+		RouteTimeout:         envSec("HIDANE_ROUTE_TIMEOUT_SEC", 180),
+		WorkerTimeout:        envSec("HIDANE_WORKER_TIMEOUT_SEC", 600),
+		SetupTimeout:         envSec("HIDANE_SETUP_TIMEOUT_SEC", 1200),
+		MaxHops:              envInt("HIDANE_MAX_HOPS", 24),
+		MaxWorkers:           envInt("HIDANE_MAX_WORKERS", 3),
+		MaxConcurrentTurns:   envInt("HIDANE_MAX_TURNS", 4),
+		MaxExecutionsPerItem: envInt("HIDANE_MAX_EXECUTIONS_PER_ITEM", 12),
+		AttributionThreshold: envFloat("HIDANE_ATTRIBUTION_THRESHOLD", 0.6),
+		FeishuAppID:          env("FEISHU_APP_ID"),
+		FeishuAppSecret:      env("FEISHU_APP_SECRET"),
+		FeishuAllowedUsers:   list(env("FEISHU_ALLOWED_USERS")),
 	}
 }
 

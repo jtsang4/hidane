@@ -254,7 +254,7 @@ func TestChatIsTheOneDoor(t *testing.T) {
 		t.Fatalf("image-only: %d %v", code, body)
 	}
 	msg, _, _ := e.k.GetEvent(context.Background(), body["messageId"].(string))
-	if msg.Payload.Str("text") != api.ImageOnlyText || msg.Payload["imageCount"] != float64(1) {
+	if msg.Payload.Str("text") != agents.ImageOnlyText || msg.Payload["imageCount"] != float64(1) {
 		t.Fatalf("image-only message: %+v", msg.Payload)
 	}
 	images := agents.StoredImages(msg.Payload)

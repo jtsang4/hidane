@@ -349,8 +349,7 @@ func nonNil(events []kernel.Event) []kernel.Event {
 	return events
 }
 
-// Pump drives a live frame stream (SSE or desktop events) from an exclusive
-// seq; after < 0 starts at the tail.
+// Frame is one message of a live stream (SSE or desktop events).
 type Frame struct {
 	Event string
 	ID    string
@@ -365,7 +364,8 @@ const (
 // Pump writes `hello`, then durable `hidane` log events and ephemeral
 // `stream` reply frames as they happen, and a `ping` whenever the stream has
 // been quiet — clients judge liveness by silence, because a dead server does
-// not close a stream in a way they can see.
+// not close a stream in a way they can see. `after` is an exclusive seq; a
+// negative one starts at the tail.
 func Pump(ctx context.Context, k *kernel.Kernel, live *agents.LiveText, after int64, send func(Frame) error) error {
 	snapshot, frames, cancelLive := live.Subscribe()
 	defer cancelLive()

@@ -38,7 +38,6 @@
             tone: heartbeatOk ? "success" : "danger",
           },
           { label: $t("status.openItems"), value: String(data.openWorkItems) },
-          { label: $t("status.model"), value: data.model ?? $t("status.none"), tone: data.model?.startsWith("error:") ? "danger" : undefined },
         ]
       : [],
   );

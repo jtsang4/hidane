@@ -165,6 +165,14 @@ func (s *System) Ping(ctx context.Context, role string) (agentcli.Result, settin
 	return agentcli.Call(ctx, s.Agents, r.Agent, req), r
 }
 
+// Every channel feeds the same vision models.
+const (
+	// MaxImages is how many images of one message reach the agents.
+	MaxImages = 4
+	// ImageOnlyText stands in for words on an image-only message.
+	ImageOnlyText = "(图片消息，请查看附带图片)"
+)
+
 // Inbound image from a channel, base64 in transit.
 type InboundImage struct {
 	Data     string `json:"data"`

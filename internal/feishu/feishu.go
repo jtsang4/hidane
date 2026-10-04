@@ -218,9 +218,6 @@ func SniffMime(b []byte, fallback string) string {
 	return fallback
 }
 
-// ImageOnlyText stands in for words on an image-only message.
-const ImageOnlyText = "(图片消息，请查看附带图片)"
-
 // DescribeMessage tells the agent what actually arrived when there are no
 // words — truthfully: a failed download says so rather than pretending.
 func DescribeMessage(messageType string, keys []string, images int, failures int) string {
@@ -228,7 +225,7 @@ func DescribeMessage(messageType string, keys []string, images int, failures int
 		if failures > 0 {
 			return fmt.Sprintf("(图片消息：附带 %d 张图片，另有 %d 张下载失败)", images, failures)
 		}
-		return ImageOnlyText
+		return agents.ImageOnlyText
 	}
 	if len(keys) > 0 {
 		return fmt.Sprintf("(收到 %d 张图片，但下载失败，无法查看内容)", len(keys))
@@ -311,7 +308,7 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 	var failures []string
 	for i, key := range keys {
 		// Nothing is fetched for a sender the agents will not act for.
-		if i == 4 || !allowed {
+		if i == agents.MaxImages || !allowed {
 			break
 		}
 		b, header, err := c.M.FetchImage(ctx, in.MessageID, key)

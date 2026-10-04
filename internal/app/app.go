@@ -5,7 +5,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -251,22 +250,15 @@ type HandlerOptions struct {
 	Token       string
 	OnUIReady   func(transport string)
 	OnLiveHello func()
-	Assets      fs.FS
 	// Host exposes the OS to the page (desktop only).
 	Host api.Host
 }
 
 // Handler is the single http.Handler for the webview and for serve mode.
 func (a *App) Handler(o HandlerOptions) http.Handler {
-	assets := o.Assets
-	if assets == nil {
-		assets = frontend.Dist()
-	}
 	return api.New(api.Options{
-		K: a.K, Sys: a.Sys, Settings: a.Settings, Assets: assets,
-		Detect: func(ctx context.Context) []agentcli.Detection {
-			return a.Detect(ctx)
-		},
+		K: a.K, Sys: a.Sys, Settings: a.Settings, Assets: frontend.Dist(),
+		Detect:  a.Detect,
 		Catalog: a.Catalog,
 		Desktop: o.Desktop, Token: o.Token, WebhookSecret: a.Cfg.WebhookSecret, Version: Version,
 		OnUIReady: o.OnUIReady, OnLiveHello: o.OnLiveHello, Host: o.Host,

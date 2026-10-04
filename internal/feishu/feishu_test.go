@@ -123,7 +123,7 @@ func TestImagesAreDownloadedOrHonestlyReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := m(k.PendingMessages(ctx, kernel.Primary, 10))[0]
-	if msg.Payload.Str("text") != feishu.ImageOnlyText || len(agents.StoredImages(msg.Payload)) != 1 || agents.StoredImages(msg.Payload)[0].MimeType != "image/png" {
+	if msg.Payload.Str("text") != agents.ImageOnlyText || len(agents.StoredImages(msg.Payload)) != 1 || agents.StoredImages(msg.Payload)[0].MimeType != "image/png" {
 		t.Fatalf("image message: %+v", msg.Payload)
 	}
 	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", MessageID: "om_j", ChatID: "oc_1", ChatType: "p2p", MessageType: "image", Content: `{"image_key":"img_gone"}`})

@@ -231,14 +231,12 @@ type Env struct {
 	PolicyFiles      []string
 	PendingInputFile string
 	BlocksFile       string
-	ExtraDeny        []string
 }
 
 const (
 	EnvPolicyFiles  = "HIDANE_POLICY_FILES"
 	EnvPendingInput = "HIDANE_PENDING_INPUT_FILE"
 	EnvBlocksFile   = "HIDANE_POLICY_BLOCKS_FILE"
-	EnvExtraDeny    = "HIDANE_GUARD_DENY"
 )
 
 func lines(s string) []string {
@@ -256,7 +254,6 @@ func EnvFromOS() Env {
 		PolicyFiles:      lines(os.Getenv(EnvPolicyFiles)),
 		PendingInputFile: os.Getenv(EnvPendingInput),
 		BlocksFile:       os.Getenv(EnvBlocksFile),
-		ExtraDeny:        lines(os.Getenv(EnvExtraDeny)),
 	}
 }
 
@@ -275,11 +272,6 @@ func Evaluate(call Call, env Env) Decision {
 		for _, re := range deny {
 			if re.MatchString(call.Subject) {
 				return Decision{Block: true, Policy: true, Reason: fmt.Sprintf("blocked by hidane guard: %s", re.String())}
-			}
-		}
-		for _, lit := range env.ExtraDeny {
-			if strings.Contains(call.Subject, lit) {
-				return Decision{Block: true, Policy: true, Reason: "blocked by hidane guard: " + lit}
 			}
 		}
 	}

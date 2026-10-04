@@ -218,17 +218,14 @@ export interface ArtifactContent {
 
 export interface StatusInfo {
   latestSeq: number;
-  triageCursor: number;
   triageLag: number;
   lastHeartbeatAt: string | null;
   openWorkItems: number;
-  model?: string;
   agents?: Array<Pick<AgentInfo, "kind" | "available" | "version" | "error">>;
   roles?: Record<Role, Pick<RoleConfig, "agent" | "provider" | "model">>;
   runtime?: {
     up: boolean;
     activeTurns: string[];
-    pendingMailboxes: number;
     pendingMessages: number;
     workers: { running: number; queued: number };
   };
@@ -548,7 +545,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ force }),
     }),
-  createWorkItem: (input: { title: string; brief?: string; repo?: string; parentId?: string }) =>
+  createWorkItem: (input: { title: string; brief?: string; repo?: string }) =>
     apiFetch<{ ok: boolean; item: WorkItem; dispatched: boolean }>(`/api/work-items`, {
       method: "POST",
       body: JSON.stringify(input),

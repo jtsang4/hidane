@@ -49,7 +49,7 @@ Usage:
 
 func main() {
 	args := os.Args[1:]
-	if len(args) == 0 || args[0] == "app" {
+	if len(args) == 0 {
 		if err := runGUI(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
