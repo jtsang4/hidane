@@ -85,7 +85,7 @@ func workerCall(t *testing.T, log string) invocation {
 			continue
 		}
 		joined := strings.Join(inv.Args, " ")
-		if strings.Contains(joined, "bypassPermissions") || strings.Contains(joined, "workspace-write") {
+		if strings.Contains(joined, "bypassPermissions") || strings.Contains(joined, "default_permissions") {
 			return inv
 		}
 	}
@@ -144,8 +144,7 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 				t.Fatalf("the setup script ran in the worktree: %q %v", b, err)
 			}
 			// Claude starts in the worktree, where the repo's own instructions
-			// are found. Codex starts in the workspace: its sandbox makes the
-			// git metadata of a worktree it starts in read-only.
+			// are found. Codex starts in the workspace and is handed them.
 			start := c.Path
 			if agent == settings.Codex {
 				start = item.Workspace
@@ -157,10 +156,10 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 			if got, _ := filepath.EvalSymlinks(worker.Cwd); got != m(filepath.EvalSymlinks(start)) {
 				t.Fatalf("worker cwd %s, want %s", worker.Cwd, start)
 			}
-			if agent == settings.Codex && !strings.Contains(strings.Join(worker.Args, " "), `sandbox_workspace_write.writable_roots=[`+strconvQuote(filepath.Join(item.Workspace))) {
-				t.Fatalf("codex may write the workspace and the repo's git metadata: %v", worker.Args)
+			if agent == settings.Codex && !strings.Contains(strings.Join(worker.Args, " "), strconvQuote(item.Workspace)+`="write"`) {
+				t.Fatalf("codex may write the workspace: %v", worker.Args)
 			}
-			if agent == settings.Codex && !strings.Contains(strings.Join(worker.Args, " "), strconvQuote(filepath.Join(repo, ".git"))) {
+			if agent == settings.Codex && !strings.Contains(strings.Join(worker.Args, " "), strconvQuote(filepath.Join(repo, ".git"))+`="write"`) {
 				t.Fatalf("codex may write the repo's git metadata: %v", worker.Args)
 			}
 			if _, err := os.Stat(filepath.Join(repo, "result.txt")); err == nil {

@@ -83,27 +83,33 @@ const codexProviderID = "hidane"
 var codexToolFeatures = []string{"shell_tool", "unified_exec", "multi_agent", "goals", "apps", "plugins", "browser_use",
 	"in_app_browser", "computer_use", "image_generation", "view_image", "sleep_tool", "tool_suggest", "skill_search"}
 
+// codexProfile is the permission profile a worker runs under.
+const codexProfile = "hidane"
+
 func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
-	sandbox := "read-only"
+	cfg = []string{"approval_policy=" + tomlString("never")}
 	if req.Tools {
-		sandbox = "workspace-write"
-	}
-	cfg = []string{
-		"sandbox_mode=" + tomlString(sandbox),
-		"approval_policy=" + tomlString("never"),
-	}
-	if req.Tools {
-		// Workers install packages and fetch things; the workspace stays the
-		// only writable root.
-		cfg = append(cfg, "sandbox_workspace_write.network_access=true",
-			`hooks.PreToolUse=[{matcher="*",hooks=[{type="command",command=`+tomlString(hookCommand(l.GuardCommand, "codex"))+`,timeout=30}]}]`)
-		if len(req.WritableRoots) > 0 {
-			roots := make([]string, len(req.WritableRoots))
-			for i, r := range req.WritableRoots {
-				roots[i] = tomlString(r)
-			}
-			cfg = append(cfg, "sandbox_workspace_write.writable_roots=["+strings.Join(roots, ",")+"]")
+		// The workspace is where a worker starts, not a fence: it may change
+		// files anywhere, and fetch things. The sandbox still keeps it off what
+		// it is told to leave alone — where the guard cannot follow, since
+		// codex does not show the hook a command's workdir.
+		fs := []string{tomlString(":root") + "=" + tomlString("write"), tomlString(req.Cwd) + "=" + tomlString("write")}
+		// Named, so they stay writable inside a read-only path: a worktree's
+		// git metadata, a checkout the person lent.
+		for _, p := range req.WritableRoots {
+			fs = append(fs, tomlString(p)+"="+tomlString("write"))
 		}
+		for _, p := range req.ReadOnly {
+			fs = append(fs, tomlString(p)+"="+tomlString("read"))
+		}
+		for _, p := range req.Hidden {
+			fs = append(fs, tomlString(p)+"="+tomlString("deny"))
+		}
+		cfg = append(cfg,
+			"default_permissions="+tomlString(codexProfile),
+			"permissions."+codexProfile+".filesystem={"+strings.Join(fs, ",")+"}",
+			"permissions."+codexProfile+".network.enabled=true",
+			`hooks.PreToolUse=[{matcher="*",hooks=[{type="command",command=`+tomlString(hookCommand(l.GuardCommand, "codex"))+`,timeout=30}]}]`)
 		if req.SystemPrompt != "" {
 			cfg = append(cfg, "developer_instructions="+tomlString(req.SystemPrompt))
 		}
@@ -111,6 +117,7 @@ func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 		// A reasoning role's charter replaces the base instructions instead
 		// (thread/start): told it was a coding agent with a shell, a codex
 		// Manager tried to write the files itself.
+		cfg = append(cfg, "sandbox_mode="+tomlString("read-only"))
 		for _, f := range codexToolFeatures {
 			cfg = append(cfg, "features."+f+"=false")
 		}

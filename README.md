@@ -61,11 +61,13 @@ Across the tree, facts propagate like DOM events:
   Which kinds bubble is declared per kind; tool traffic never does.
 - **Capture** — before any worker tool call runs, it passes the built-in deny
   list, the policy files from the global one down through each ancestor
-  workspace to its own (`POLICY.json`), and a confinement check (file tools and
-  the writes a shell command spells out stay in the work item's workspace, never
-  in hidane's own data directory); any of them
-  can refuse it. Rules only, no model. While a person's new message is queued
-  for a running worker, changes are paused until it has been read.
+  workspace to its own (`POLICY.json`), and a check that keeps workers off what
+  hidane itself runs on: no change to its data directory (other work items'
+  workspaces included) or to a workspace's `.hidane`, and no access at all to
+  its `settings.json`. The workspace is where a worker starts and puts its
+  work, not a fence — it may read and change files anywhere else. Any of them
+  can refuse a call. Rules only, no model. While a person's new message is
+  queued for a running worker, changes are paused until it has been read.
 - **Cancel** flows down the tree; its source is a person, a deadline, or a spent
   budget (`HIDANE_MAX_HOPS` bounds any causal chain of messages).
 

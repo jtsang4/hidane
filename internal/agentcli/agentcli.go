@@ -59,7 +59,12 @@ type Request struct {
 	// workspace, a worktree's repository metadata, a lent checkout); only a
 	// CLI with its own sandbox needs telling.
 	WritableRoots []string
-	Timeout       time.Duration
+	// ReadOnly are paths a worker may read but not change, Hidden ones it may
+	// not even read (hidane's own data, its settings). The guard enforces them
+	// on every CLI; codex's own sandbox does as well.
+	ReadOnly []string
+	Hidden   []string
+	Timeout  time.Duration
 
 	OnText func(delta string)
 	OnTool func(ToolEvent)

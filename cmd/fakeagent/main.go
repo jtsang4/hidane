@@ -637,7 +637,7 @@ func runCodex(args []string) {
 		item(t, "started", um)
 		item(t, "completed", um)
 		var answer string
-		if sandbox == "workspace-write" && strings.Contains(system, "Worker execution") {
+		if sandbox != "read-only" && strings.Contains(system, "Worker execution") {
 			var blocked, done []string
 			n := 0
 			for inputs := []string{prompt}; len(inputs) > 0; {

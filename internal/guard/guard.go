@@ -478,7 +478,9 @@ func (e Env) base() string {
 	return e.Workspace
 }
 
-// roots are every directory a worker may change, resolved.
+// roots are the directories hidane gave a worker to change (its workspace,
+// what the person lent it), resolved: they stay writable even inside hidane's
+// own data directory.
 func (e Env) roots() []string {
 	out := []string{resolved(e.Workspace)}
 	for _, w := range e.Writable {
@@ -498,16 +500,16 @@ func insideAny(roots []string, path string) bool {
 	return false
 }
 
-// confinement keeps a worker's changes inside its workspace (and any original
-// checkout the person lent it), out of the workspace's own control directory
-// (.hidane: its policy, its traces), and away from hidane's data directory.
-// File tools are checked exactly; shell commands can only be checked for
-// naming those places.
+// confinement keeps a worker's changes away from what hidane itself runs on:
+// its data directory (policies, settings, the log, other work items'
+// workspaces) and the workspace's own control directory (.hidane: its policy,
+// its traces). The workspace is where a worker starts and puts its work, not a
+// fence: it may change files anywhere else. File tools are checked exactly;
+// shell commands by the paths they name and the directories they work in.
 func confinement(call Call, env Env) string {
 	if env.Workspace == "" {
-		// Every run hidane starts names its workspace. Without one there is
-		// nothing to confine to, so changes are refused rather than allowed
-		// everywhere.
+		// Every run hidane starts names its workspace. Without one it cannot be
+		// told from hidane's own data, so changes are refused.
 		if call.Tool == "write" || call.Tool == "edit" || (call.Tool == "bash" && !IsReadOnly(call.Subject)) {
 			return "blocked by hidane guard: this run was given no workspace, so it may not change anything"
 		}
@@ -516,6 +518,20 @@ func confinement(call Call, env Env) string {
 	ws := resolved(env.Workspace)
 	roots := env.roots()
 	control := filepath.Join(ws, ".hidane")
+	protected := ""
+	if env.Protected != "" {
+		protected = resolved(env.Protected)
+	}
+	offLimits := func(path string) string {
+		r := resolved(path)
+		switch {
+		case inside(control, r):
+			return "blocked by hidane guard: .hidane holds this workspace's policy and traces; it is not for work products"
+		case protected != "" && inside(protected, r) && !insideAny(roots, r):
+			return fmt.Sprintf("blocked by hidane guard: %s is in hidane's own data directory (%s), which no worker may change", path, env.Protected)
+		}
+		return ""
+	}
 	dirs, known := bases(call, env)
 	switch call.Tool {
 	case "write", "edit":
@@ -526,14 +542,10 @@ func confinement(call Call, env Env) string {
 			for _, d := range dirs {
 				target := fileTarget(raw, d)
 				if target == "" {
-					return fmt.Sprintf("blocked by hidane guard: cannot resolve %s; use a path inside this work item's workspace (%s)", strings.TrimSpace(raw), env.Workspace)
+					return fmt.Sprintf("blocked by hidane guard: cannot resolve %s; give an absolute path or one relative to the workspace (%s)", strings.TrimSpace(raw), env.Workspace)
 				}
-				r := resolved(target)
-				if !insideAny(roots, r) {
-					return fmt.Sprintf("blocked by hidane guard: %s is outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
-				}
-				if inside(control, r) {
-					return "blocked by hidane guard: .hidane holds this workspace's policy and traces; it is not for work products"
+				if reason := offLimits(target); reason != "" {
+					return reason
 				}
 			}
 		}
@@ -561,25 +573,28 @@ func confinement(call Call, env Env) string {
 		if env.Protected != "" {
 			for _, v := range homeVariants(env.Protected) {
 				if strings.Contains(subject, v) {
-					return fmt.Sprintf("blocked by hidane guard: commands may not change hidane's data directory (%s); work inside this work item's workspace (%s)", env.Protected, env.Workspace)
+					return fmt.Sprintf("blocked by hidane guard: commands may not change hidane's own data directory (%s)", env.Protected)
 				}
 			}
 		}
 		// What a command changes without naming it (make, a script) lands where
-		// it runs: every directory it works in must be inside the workspace.
+		// it runs.
 		for _, d := range dirs {
-			if !insideAny(roots, resolved(d)) {
-				return fmt.Sprintf("blocked by hidane guard: this command works in %s, outside this work item's workspace (%s); keep every file inside it", d, env.Workspace)
+			if reason := offLimits(d); reason != "" {
+				return reason
 			}
 		}
 		for _, target := range shellWrites(call.Subject) {
 			if !known && !filepath.IsAbs(target) {
-				return fmt.Sprintf("blocked by hidane guard: this command changes into a directory that cannot be told from the command, then writes to %s; cd to a plain path inside this work item's workspace (%s)", target, env.Workspace)
+				return fmt.Sprintf("blocked by hidane guard: this command changes into a directory that cannot be told from the command, then writes to %s; cd to a plain path first", target)
 			}
 			for _, d := range dirs {
 				resolvedTarget := fileTarget(target, d)
-				if resolvedTarget == "" || !insideAny(roots, resolved(resolvedTarget)) {
-					return fmt.Sprintf("blocked by hidane guard: this command writes to %s, outside this work item's workspace (%s); keep every file inside it", target, env.Workspace)
+				if resolvedTarget == "" {
+					return fmt.Sprintf("blocked by hidane guard: cannot resolve %s; give an absolute path or one relative to the workspace (%s)", target, env.Workspace)
+				}
+				if reason := offLimits(resolvedTarget); reason != "" {
+					return reason
 				}
 			}
 		}

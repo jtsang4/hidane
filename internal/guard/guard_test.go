@@ -170,26 +170,35 @@ func TestAnUnreadablePolicyFileFailsClosed(t *testing.T) {
 	}
 }
 
-func TestWorkersStayInTheirWorkspace(t *testing.T) {
+// The workspace is where a worker starts, not a fence: it may change files
+// anywhere — except what hidane itself runs on.
+func TestWorkersKeepOffHidanesOwnData(t *testing.T) {
 	home := t.TempDir()
 	ws := filepath.Join(home, "workspaces", "wi_1")
 	_ = os.MkdirAll(ws, 0o755)
+	_ = os.MkdirAll(filepath.Join(home, "workspaces", "wi_2"), 0o755)
 	env := guard.Env{Workspace: ws, Protected: home}
 	for _, c := range []guard.Call{
 		{Tool: "write", Subject: filepath.Join(home, "POLICY.json")},
 		{Tool: "edit", Subject: "../../settings.json"},
-		{Tool: "write", Subject: "/etc/hosts"},
+		{Tool: "write", Subject: "../wi_2/notes.md"},
 		{Tool: "bash", Subject: "cd " + home + " && echo hi > hello.txt"},
 		{Tool: "bash", Subject: "rm " + filepath.Join(home, "hidane.db")},
+		{Tool: "bash", Subject: "cd ../wi_2 && touch x"},
 	} {
 		if d := guard.Evaluate(c, env); !d.Block || !d.Policy {
 			t.Errorf("%+v must be refused", c)
 		}
 	}
+	outside := t.TempDir()
 	for _, c := range []guard.Call{
 		{Tool: "write", Subject: "notes/a.md"},
 		{Tool: "write", Subject: filepath.Join(ws, "b.txt")},
+		{Tool: "write", Subject: filepath.Join(outside, "c.txt")},
+		{Tool: "edit", Subject: "~/.config/some-tool/config.toml"},
 		{Tool: "bash", Subject: "cd " + ws + " && echo hi > hello.txt"},
+		{Tool: "bash", Subject: "cd " + outside + " && git init && echo hi > README.md"},
+		{Tool: "bash", Subject: "mkdir -p ~/elsewhere && cp a.txt /tmp/"},
 		{Tool: "bash", Subject: "cat " + filepath.Join(home, "memory", "MEMORY.md")},
 		{Tool: "bash", Subject: "find " + home + " -name x 2>/dev/null"},
 		{Tool: "bash", Subject: "cat " + filepath.Join(home, "POLICY.json") + " 2>&1"},
@@ -209,7 +218,7 @@ func TestReviewedGuardBypassesAreClosed(t *testing.T) {
 	env := guard.Env{Workspace: ws, Protected: data}
 	refused := []guard.Call{
 		{Tool: "write", Subject: "~/.hidane-guard-test/settings.json"},
-		{Tool: "edit", Subject: "@/etc/hosts"},
+		{Tool: "edit", Subject: "@" + data + "/POLICY.json"},
 		{Tool: "write", Subject: "~root/x"},
 		{Tool: "write", Subject: ".hidane/POLICY.json"},
 		{Tool: "write", Subject: filepath.Join(ws, ".hidane", "pending-input")},
@@ -219,7 +228,7 @@ func TestReviewedGuardBypassesAreClosed(t *testing.T) {
 		{Tool: "bash", Subject: "rm -rf ~/.hidane-guard-test/hidane.db"},
 		{Tool: "bash", Subject: "rm .hidane/pending-input"},
 		{Tool: "bash", Subject: "cat x > " + filepath.Join(ws, ".hidane", "POLICY.json")},
-		{Tool: "edit", Subject: guard.Normalize("apply_patch", map[string]any{"patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: /tmp/evil.txt\n*** End Patch"}).Subject},
+		{Tool: "edit", Subject: guard.Normalize("apply_patch", map[string]any{"patch": "*** Begin Patch\n*** Update File: a.txt\n*** Move to: " + data + "/evil.txt\n*** End Patch"}).Subject},
 	}
 	for _, c := range refused {
 		if d := guard.Evaluate(c, env); !d.Block {
@@ -238,25 +247,26 @@ func TestReviewedGuardBypassesAreClosed(t *testing.T) {
 			t.Errorf("%q must pass: %s", c.Subject, d.Reason)
 		}
 	}
-	for cmd, ro := range map[string]bool{"git status": true, "git branch -D main": false, "tree -o x.txt": false, "find . -exec rm {} ;": false, "echo hi": true, "echo hi > f": false} {
+	for cmd, ro := range map[string]bool{"cat a.txt 2>/dev/nullx": false, "git status": true, "git branch -D main": false, "tree -o x.txt": false, "find . -exec rm {} ;": false, "echo hi": true, "echo hi > f": false} {
 		if guard.IsReadOnly(cmd) != ro {
 			t.Errorf("IsReadOnly(%q) != %v", cmd, ro)
 		}
 	}
 }
 
-func TestShellWritesStayInTheWorkspace(t *testing.T) {
-	ws := t.TempDir()
-	env := guard.Env{Workspace: ws, Protected: filepath.Join(t.TempDir(), "home")}
+func TestShellWritesKeepOffHidanesOwnData(t *testing.T) {
+	data := t.TempDir()
+	ws := filepath.Join(data, "workspaces", "wi_1")
+	_ = os.MkdirAll(ws, 0o755)
+	env := guard.Env{Workspace: ws, Protected: data}
 	refused := []string{
-		"echo hi > /tmp/hidane-guard-x.log",
-		"python3 -m http.server 8765 >/tmp/http_$PORT.log 2>&1 &",
-		"cd /tmp && touch a",
-		"cp a.txt /tmp/",
-		"rm -rf /tmp/thing",
-		"mkdir -p ~/elsewhere",
-		"ls | tee /tmp/listing",
-		`/bin/zsh -lc "echo x > /tmp/y"`,
+		"echo hi > " + data + "/x.log",
+		"python3 -m http.server 8765 >" + data + "/http_$PORT.log 2>&1 &",
+		"cd " + data + " && touch a",
+		"cp a.txt " + data + "/",
+		"rm -rf " + data + "/thing",
+		"ls | tee " + data + "/listing",
+		`/bin/zsh -lc "echo x > ` + data + `/y"`,
 		"date >> ../../outside.txt",
 		"cd $TMPDIR && echo x > y",
 	}
@@ -275,15 +285,21 @@ func TestShellWritesStayInTheWorkspace(t *testing.T) {
 		"python3 script.py --out result.json",
 		"FOO=1 ./run.sh 2>&1",
 		"mkdir -p sub && cd sub && touch x && cd .. && touch y",
+		"echo hi > /tmp/hidane-guard-x.log",
+		"cd /tmp && touch a",
+		"rm -rf /tmp/thing",
+		"mkdir -p ~/elsewhere",
+		"ls | tee /tmp/listing",
+		"date >> ../../../outside.txt",
 	}
 	for _, cmd := range allowed {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); d.Block {
 			t.Errorf("%q must pass: %s", cmd, d.Reason)
 		}
 	}
-	// A shell the CLI reports elsewhere writes there.
-	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "echo x > y", Dirs: []string{"/tmp"}}, env); !d.Block {
-		t.Error("a relative write from a directory outside the workspace must be refused")
+	// A shell the CLI reports in hidane's data directory writes there.
+	if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: "echo x > y", Dirs: []string{data}}, env); !d.Block {
+		t.Error("a relative write from hidane's data directory must be refused")
 	}
 }
 
@@ -299,9 +315,10 @@ func mustHome(t *testing.T) string {
 // Quoted text is data, not shell syntax; a chain of looks is still a look.
 // Both were refused for real workers, costing them wasted tool calls.
 func TestQuotesAndChainsAreReadAsTheShellReadsThem(t *testing.T) {
-	ws := filepath.Join(t.TempDir(), "wi_1")
+	data := t.TempDir()
+	ws := filepath.Join(data, "wi_1")
 	_ = os.MkdirAll(filepath.Join(ws, ".hidane"), 0o755)
-	env := guard.Env{Workspace: ws}
+	env := guard.Env{Workspace: ws, Protected: data}
 	for _, cmd := range []string{
 		`sed 's/=.*/=<set>/' .env.example`,
 		`echo 'a > /etc/x'`,
@@ -320,21 +337,22 @@ func TestQuotesAndChainsAreReadAsTheShellReadsThem(t *testing.T) {
 			t.Errorf("%q must pass: %s", cmd, d.Reason)
 		}
 	}
+	// The writes these hide must still be read off them: aimed at hidane's
+	// own data, every one is refused.
 	for _, cmd := range []string{
-		`echo x > '/etc/x'`,
-		`echo "a;b" > /tmp/z`,
-		`ls; echo x > /tmp/y`,
+		`echo x > '` + data + `/x'`,
+		`echo "a;b" > ` + data + `/z`,
+		`ls; echo x > ` + data + `/y`,
 		`cat a.txt; rm -rf .hidane`,
-		`echo 'unclosed > /etc/x`,
-		`cat a.txt 2>/dev/nullx`,
-		`ls 2>&1 > /tmp/out`,
-		`cp -t /tmp a.txt`,
-		`cp --target-directory=/tmp a.txt`,
-		`mv -t/tmp a.txt`,
-		`true && echo x > /tmp/y`,
-		`sort -o /tmp/y notes.md`,
-		`sort --output=/tmp/y notes.md`,
-		`uniq notes.md /tmp/y`,
+		`echo 'unclosed > ` + data + `/x`,
+		`ls 2>&1 > ` + data + `/out`,
+		`cp -t ` + data + ` a.txt`,
+		`cp --target-directory=` + data + ` a.txt`,
+		`mv -t` + data + ` a.txt`,
+		`true && echo x > ` + data + `/y`,
+		`sort -o ` + data + `/y notes.md`,
+		`sort --output=` + data + `/y notes.md`,
+		`uniq notes.md ` + data + `/y`,
 	} {
 		if d := guard.Evaluate(guard.Call{Tool: "bash", Subject: cmd}, env); !d.Block {
 			t.Errorf("%q must be refused", cmd)
@@ -386,36 +404,43 @@ func TestSettingsFileIsOffLimits(t *testing.T) {
 	}
 }
 
-// A directory the person lent to a work item is writable like its workspace;
-// everything else stays out of reach, and relative paths are relative to
-// where the worker runs.
+// Relative paths are relative to where the worker runs; a directory the
+// person lent stays writable even inside hidane's data directory, while the
+// rest of that directory is still off limits.
 func TestLentDirectoriesAndTheWorkingDirectory(t *testing.T) {
-	ws := t.TempDir()
+	data := t.TempDir()
+	ws := filepath.Join(data, "workspaces", "wi_1")
 	lent := t.TempDir()
+	lentInside := filepath.Join(data, "lent")
 	other := t.TempDir()
 	tree := filepath.Join(ws, "blog")
-	if err := os.MkdirAll(tree, 0o755); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{tree, lentInside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	env := guard.Env{Workspace: ws, Writable: []string{lent}, Cwd: tree}
+	env := guard.Env{Workspace: ws, Writable: []string{lent, lentInside}, Cwd: tree, Protected: data}
 	for _, call := range []guard.Call{
 		{Tool: "write", Subject: filepath.Join(lent, "a.txt")},
+		{Tool: "write", Subject: filepath.Join(lentInside, "a.txt")},
 		{Tool: "write", Subject: "src/a.txt"},
 		{Tool: "write", Subject: "../notes.md"},
+		{Tool: "write", Subject: filepath.Join(other, "a.txt")},
 		{Tool: "bash", Subject: "echo x > " + filepath.Join(lent, "b.txt")},
 		{Tool: "bash", Subject: "cd " + lent + " && touch c.txt"},
+		{Tool: "bash", Subject: "echo x > " + filepath.Join(other, "b.txt")},
 	} {
 		if d := guard.Evaluate(call, env); d.Block {
-			t.Errorf("%+v is inside what was lent: %s", call, d.Reason)
+			t.Errorf("%+v may be changed: %s", call, d.Reason)
 		}
 	}
 	for _, call := range []guard.Call{
-		{Tool: "write", Subject: filepath.Join(other, "a.txt")},
+		{Tool: "write", Subject: filepath.Join(data, "POLICY.json")},
 		{Tool: "write", Subject: "../../escape.txt"},
-		{Tool: "bash", Subject: "echo x > " + filepath.Join(other, "b.txt")},
+		{Tool: "bash", Subject: "echo x > " + filepath.Join(data, "b.txt")},
 	} {
 		if d := guard.Evaluate(call, env); !d.Block {
-			t.Errorf("%+v is outside: it must be refused", call)
+			t.Errorf("%+v is hidane's own data: it must be refused", call)
 		}
 	}
 	// Round trip through the environment the CLIs carry.
@@ -424,7 +449,7 @@ func TestLentDirectoriesAndTheWorkingDirectory(t *testing.T) {
 		t.Setenv(k, v)
 	}
 	got := guard.EnvFromOS()
-	if got.Cwd != tree || len(got.Writable) != 1 || got.Writable[0] != lent {
+	if got.Cwd != tree || len(got.Writable) != 2 || got.Writable[0] != lent {
 		t.Fatalf("env round trip: %+v", got)
 	}
 }

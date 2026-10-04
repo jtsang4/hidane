@@ -341,6 +341,7 @@ func (p *WorkerPool) runJob(j *job) {
 			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: cwd, Tools: true,
 			Model: r.Model, Effort: r.Effort, Provider: r.Provider, WritableRoots: roots,
 			SessionDir: filepath.Join(hidaneDir, "sessions"), Env: genv.Vars(), Timeout: k.Cfg.WorkerTimeout,
+			ReadOnly: []string{k.Cfg.Home, hidaneDir}, Hidden: []string{k.Cfg.SettingsPath()},
 			// Two-phase side-effect trail: intent before the tool acts, result after.
 			OnTool: func(e agentcli.ToolEvent) {
 				trailMu.Lock()

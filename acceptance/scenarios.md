@@ -560,10 +560,12 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 让任务「创建 hello.txt 与 forbidden.txt」。期望：
 
 - 三次都只有 `workspaces/<wi>/hello.txt`；`forbidden.txt` 不存在；各有 `policy.blocked`（rule 为该规则 id）
-- 文件都落在该工作项自己的工作区里，**不会**写进 `HIDANE_HOME` 根目录或 `/tmp` 等其他位置：闸门拒绝
-  文件工具写工作区外的路径，也拒绝 shell 命令写出工作区（重定向 `>`/`>>`、`tee`、`touch`/`mkdir`/`rm`、
-  `cp`/`mv` 的目标、`cd` 到工作区外再写），并禁止改动 hidane 自己的数据目录与工作区里的 `.hidane`。
-  可直接用 `hidane guard --format claude` 喂入 `{"tool_name":"Bash","tool_input":{"command":"echo x > /tmp/y"}}` 验证
+- 工作区是 worker 的起点和默认产物位置，不是围栏：写到工作区外（如 `/tmp`、`~` 下的其他目录）是允许的。
+  但闸门拒绝一切改动 hidane 自己数据目录（`HIDANE_HOME` 根目录、`POLICY.json`、其他工作项的工作区）与工作区里
+  `.hidane` 的操作——文件工具和 shell 命令都算（重定向 `>`/`>>`、`tee`、`touch`/`mkdir`/`rm`、`cp`/`mv` 的目标、
+  `cd` 到那里再写、从工作区用 `../` 走过去写）。可直接用 `hidane guard --format claude` 喂入
+  `{"tool_name":"Bash","tool_input":{"command":"echo x > $HIDANE_HOME/y"}}`（拒绝）与 `"echo x > /tmp/y"`（放行）验证；
+  codex worker 还由 codex 自己的沙箱拦住这些位置（即使命令用 `workdir` 指过去）
 - 只读的命令不被误拦：引号里的 `>`、`;` 是文字不是语法（`sed 's/=.*/=<set>/' f`、`echo 'a > /etc/x'` 放行），
   用 `;`/`&&`/`|` 串起来的只读命令仍算只读（`cat a; ls -R .hidane` 放行，`cat a; rm -rf .hidane` 被拒）；
   只把输出丢进设备或别的描述符（`2>&1`、`2>/dev/null`、`>/dev/null`）不算写（`ls .hidane 2>&1`、

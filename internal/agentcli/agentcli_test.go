@@ -165,6 +165,8 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 			req.SystemPrompt = workerCharter
 			req.Tools = true
 			req.Env = env.Vars()
+			req.ReadOnly = []string{"/data/hidane", filepath.Join(h.cwd, ".hidane")}
+			req.Hidden = []string{"/data/hidane/settings.json"}
 			req.OnTool = func(e agentcli.ToolEvent) { mu.Lock(); tools = append(tools, e); mu.Unlock() }
 			res := agentcli.Call(context.Background(), h.l, agent, req)
 			if !res.OK {
@@ -197,6 +199,20 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 			}
 			if starts != wantStarts || errs != wantErrs || res.ToolCalls != wantStarts {
 				t.Fatalf("tool events: %+v (calls %d)", tools, res.ToolCalls)
+			}
+			if agent == "codex" {
+				// The workspace is no fence; codex's sandbox keeps the worker
+				// off what it is told to leave alone, and nothing else.
+				args := strings.Join(h.invocations()[0].Args, " ")
+				for _, want := range []string{`default_permissions="hidane"`, `":root"="write"`, `"` + h.cwd + `"="write"`,
+					`"/data/hidane"="read"`, `"/data/hidane/settings.json"="deny"`, "permissions.hidane.network.enabled=true"} {
+					if !strings.Contains(args, want) {
+						t.Fatalf("codex worker sandbox: missing %s in %s", want, args)
+					}
+				}
+				if strings.Contains(args, "sandbox_mode") {
+					t.Fatalf("sandbox_mode would switch the permission profile off: %s", args)
+				}
 			}
 
 		})
