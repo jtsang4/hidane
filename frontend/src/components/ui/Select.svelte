@@ -48,7 +48,7 @@
 >
   <!-- A select-only combobox (WAI-ARIA): bits-ui renders a plain button, which cannot carry aria-activedescendant. -->
   <Select.Trigger
-    {id}
+    {...id ? { id } : {}}
     role="combobox"
     aria-label={label}
     class={cn(

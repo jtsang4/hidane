@@ -7,7 +7,7 @@
   import { setSidebarCollapsed, ui } from "../lib/ui.svelte.js";
   import { cn } from "../lib/utils.js";
 
-  let { title, actions }: { title: string; actions?: Snippet } = $props();
+  let { title, actions }: { title: string; actions?: Snippet | undefined } = $props();
 
   const desktop = boot().desktop;
   const mac = isMacPlatform();

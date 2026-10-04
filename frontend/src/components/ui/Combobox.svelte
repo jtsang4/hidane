@@ -97,7 +97,7 @@
 >
   <div class={cn("relative w-full min-w-0", className)}>
     <Combobox.Input
-      {id}
+      {...id ? { id } : {}}
       aria-label={label}
       placeholder={emptyLabel}
       autocomplete="off"

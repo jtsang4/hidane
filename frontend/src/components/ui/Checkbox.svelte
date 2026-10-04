@@ -19,7 +19,7 @@
 
 <Checkbox.Root
   bind:checked
-  {id}
+  {...id ? { id } : {}}
   {disabled}
   class={cn(
     "inline-flex size-3.5 shrink-0 items-center justify-center rounded-sm border border-input bg-field text-primary-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/70 disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary",

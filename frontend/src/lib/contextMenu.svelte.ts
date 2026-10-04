@@ -8,7 +8,7 @@ import type { Component } from "svelte";
 export interface MenuEntry {
   id: string;
   label: string;
-  icon?: Component<{ size?: number; class?: string }>;
+  icon?: Component<{ size?: number; class?: string }> | undefined;
   danger?: boolean;
 }
 

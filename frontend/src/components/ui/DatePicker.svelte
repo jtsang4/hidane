@@ -74,7 +74,7 @@
     >
       <Calendar.Root
         type="single"
-        value={date}
+        {...date ? { value: date } : {}}
         onValueChange={(next) => {
           if (next === undefined) return;
           open = false;
@@ -84,7 +84,7 @@
         calendarLabel={label}
         weekStartsOn={$language === "en" ? 0 : 1}
         weekdayFormat="short"
-        maxValue={maxDate}
+        {...maxDate ? { maxValue: maxDate } : {}}
         preventDeselect
         fixedWeeks
       >
