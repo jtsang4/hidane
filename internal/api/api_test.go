@@ -19,6 +19,7 @@ import (
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/agents"
 	"github.com/jtsang4/hidane/internal/api"
+	"github.com/jtsang4/hidane/internal/connectors"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
 	"github.com/jtsang4/hidane/internal/settings"
@@ -426,6 +427,63 @@ func TestPoliciesMemoriesSchedules(t *testing.T) {
 	}
 	if code, body := e.do("GET", "/api/worklog/today", "", nil); code != 200 || !strings.HasPrefix(body["markdown"].(string), "# Worklog") {
 		t.Fatalf("worklog: %v", body)
+	}
+}
+
+func TestScheduleDefinitionsAndRunHistory(t *testing.T) {
+	var k *kernel.Kernel
+	e := newEnv(t, api.Options{FireSchedule: func(ctx context.Context, sc kernel.Schedule) (string, error) {
+		return connectors.FireSchedule(ctx, k, sc)
+	}})
+	k = e.k
+	prompt := map[string]any{"prompt": "hi"}
+	for _, bad := range []map[string]any{
+		{"name": "x", "action": "prompt", "cron": "banana", "spec": prompt},
+		{"name": "x", "action": "prompt", "intervalSec": 1, "spec": prompt},
+		{"name": "x", "action": "http", "intervalSec": 60, "spec": map[string]any{"url": "file:///etc/passwd"}},
+		{"name": "x", "action": "prompt", "cron": "0 9 * * *", "intervalSec": 60, "spec": prompt},
+		{"name": "x", "action": "prompt", "spec": prompt},
+	} {
+		if code, body := e.do("POST", "/api/schedules", "", bad); code != 400 || body["error"] == nil {
+			t.Fatalf("%v must be refused: %d %v", bad, code, body)
+		}
+	}
+	create := func(name string) string {
+		code, body := e.do("POST", "/api/schedules", "", map[string]any{"name": name, "action": "prompt", "intervalSec": 60, "spec": prompt})
+		if code != 201 {
+			t.Fatalf("%d %v", code, body)
+		}
+		return body["schedule"].(map[string]any)["id"].(string)
+	}
+	a, b := create("a"), create("b")
+	if code, body := e.do("PATCH", "/api/schedules/"+b, "", map[string]any{"enabled": false}); code != 200 || body["schedule"].(map[string]any)["nextRunAt"] != nil {
+		t.Fatalf("disabled: %d %v", code, body)
+	}
+	for _, id := range []string{a, b, a} {
+		if code, body := e.do("POST", "/api/schedules/"+id+"/run", "", nil); code != 200 || !strings.HasPrefix(body["status"].(string), "posted ev_") {
+			t.Fatalf("run now: %d %v", code, body)
+		}
+	}
+	_, body := e.do("GET", "/api/schedules/"+a+"/runs", "", nil)
+	var kinds []string
+	last := int64(1 << 62)
+	for _, r := range body["runs"].([]any) {
+		run := r.(map[string]any)
+		if run["payload"].(map[string]any)["scheduleId"] != a {
+			t.Fatalf("another schedule's run in a's history: %v", run)
+		}
+		if seq := int64(run["seq"].(float64)); seq >= last {
+			t.Fatal("runs are newest first")
+		} else {
+			last = seq
+		}
+		kinds = append(kinds, run["kind"].(string))
+	}
+	if strings.Join(kinds, ",") != "schedule.prompt,schedule.fired,schedule.prompt,schedule.fired,schedule.created" {
+		t.Fatalf("a's history: %v", kinds)
+	}
+	if code, _ := e.do("GET", "/api/schedules/sc_nope/runs", "", nil); code != 404 {
+		t.Fatal("unknown schedule")
 	}
 }
 

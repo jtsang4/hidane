@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jtsang4/hidane/internal/connectors"
 	"github.com/jtsang4/hidane/internal/kernel"
@@ -97,7 +99,68 @@ func TestPromptScheduleSpeaksToThePrimary(t *testing.T) {
 		t.Fatal(status)
 	}
 	msgs := m(k.PendingMessages(ctx, kernel.Primary, 10))
-	if len(msgs) != 1 || msgs[0].Kind != "schedule.prompt" || msgs[0].Payload.Str("prompt") != "提醒我喝水" {
+	if len(msgs) != 1 || msgs[0].Kind != "schedule.prompt" || msgs[0].Payload.Str("prompt") != "提醒我喝水" || msgs[0].Source != "connector:schedule:"+sc.ID {
 		t.Fatalf("%+v", msgs)
+	}
+}
+
+// The loop, on a clock the test moves: an interval schedule fires once per
+// slot, its responses are recorded without waking a model, and a disabled
+// schedule never fires.
+func TestSchedulerFiresOncePerSlotUntilDisabled(t *testing.T) {
+	k := kerneltest.New(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("up")) }))
+	defer srv.Close()
+	var mu sync.Mutex
+	now := time.Now()
+	k.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(d time.Duration) { mu.Lock(); now = now.Add(d); mu.Unlock() }
+	name, action, interval := "health", "http", 15
+	spec := &kernel.ScheduleSpec{URL: srv.URL}
+	sc := m(k.CreateSchedule(ctx, kernel.ScheduleInput{Name: &name, Action: &action, IntervalSec: &interval, Spec: spec}, "test"))
+	off := m(k.CreateSchedule(ctx, kernel.ScheduleInput{Name: &name, Action: &action, IntervalSec: &interval, Spec: spec}, "test"))
+	disabled := false
+	if off = m(k.UpdateSchedule(ctx, off.ID, kernel.ScheduleInput{Enabled: &disabled}, "test")); off.NextRunAt != nil {
+		t.Fatalf("a disabled schedule has no next run: %s", *off.NextRunAt)
+	}
+
+	loop, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { connectors.Scheduler(loop, k, 5*time.Millisecond); close(done) }()
+	defer func() { stop(); <-done }()
+	fired := func(want int) []kernel.Event {
+		t.Helper()
+		var evs []kernel.Event
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if evs = m(k.ListEvents(ctx, kernel.ListFilter{Kind: "schedule.fired"})); len(evs) >= want {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond) // ten more ticks in the same slot
+		if evs = m(k.ListEvents(ctx, kernel.ListFilter{Kind: "schedule.fired"})); len(evs) != want {
+			t.Fatalf("fired %d times, want %d", len(evs), want)
+		}
+		return evs
+	}
+	fired(0)
+	advance(15 * time.Second)
+	fired(1)
+	advance(15 * time.Second)
+	for _, e := range fired(2) {
+		if e.Payload.Str("scheduleId") != sc.ID {
+			t.Fatalf("only the enabled schedule fires: %+v", e.Payload)
+		}
+	}
+	captured := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "connector.http"}))
+	if len(captured) != 2 || captured[1].Payload["status"] != float64(200) || captured[1].Payload.Str("body") != "up" {
+		t.Fatalf("each firing records the response: %+v", captured)
+	}
+	if _, woke, err := connectors.TriageOnce(ctx, k); err != nil || woke != 0 {
+		t.Fatalf("a recorded response wakes no model: woke=%d %v", woke, err)
+	}
+	for _, d := range m(k.ListEvents(ctx, kernel.ListFilter{Kind: "triage.decision"})) {
+		if d.Payload.Str("rule") != "scheduled-http-record-only" {
+			t.Fatalf("triage: %+v", d.Payload)
+		}
 	}
 }

@@ -129,23 +129,6 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 - 只有图片、没有文字时同样接受（202），文字与图片都没有时返回 400
 - 非图片 mimeType、超过 6MB、超过 4 张的部分被丢弃而不是让整条请求失败
 
-## 场景 4H：定时连接器（调度定义与执行）
-
-runtime 内置 5s 调度循环。通过 `/api/schedules` 定义、管理、触发。期望：
-
-- 创建一个 `intervalSec: 15`、`action: http`、指向本机 `/health` 的调度：40 秒内
-  自动 fire ≥2 次，每次落 `schedule.fired` + `connector.http`（含 status/body），
-  且 triage 决策为 `scheduled-http-record-only`（wake 未设时**不**唤醒模型）
-- 创建 `action: prompt` + `cron`（如 `0 17 * * *`，`timezone: Asia/Shanghai`）：
-  `nextRunAt` 与时区换算一致；`POST /api/schedules/:id/run` 立即返回（状态 `posted ev_…`），
-  向 primary 收件箱投递一条 `schedule.prompt`（source 为 `connector:schedule:<id>`），随后
-  Primary 的回复以它为 root 出现；之后 `nextRunAt` 仍是原 cron 的下一个时刻
-- 非法定义在创建时被 400 拒绝（如 `cron: "banana"`、`intervalSec: 1`、
-  http 动作但 url 不是 http(s)、cron 与 intervalSec 同时给或都不给）
-- PATCH `enabled: false` 后 `nextRunAt` 变 null，调度循环不再触发它
-- DELETE 落 `schedule.deleted` 事件
-- 结束后删除你创建的调度，不要留下每 15s 打点的常驻任务
-
 ## 场景 4I：长回复不截断、执行可中止、记忆可手写
 
 - **长回复**：`ChunkText`（`internal/feishu`）把超长文本按段落切块而非截断。构造一段 >8000 字的文本，
@@ -198,16 +181,6 @@ runtime 内置 5s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - `PATCH {status:"closed"}` 归档后：`GET /api/work-items` 默认列表**不含**它，
   `GET /api/work-items?all` **含**它，且事件与工作区产物均保留（归档不是删除）
 - `closed` 与 `done` 是两种状态，不要混用
-
-## 场景 4L：定时任务的运行历史可读回
-
-`GET /api/schedules/:id/runs`。期望：
-
-- 建两个调度 A、B，分别触发（A 两次、B 一次）→ A 的 runs **只**含 A 的事件，
-  绝不混入 B 的；含 `schedule.fired` 与对应结果事件
-- 顺序为**新的在前**（历史从下往上读是错的）
-- 未知 id → 404
-- 结束后删除你创建的调度
 
 ## 场景 4N：并发事件流不会返回空 body
 
