@@ -589,8 +589,3 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 - 桌面专用端点（`/api/desktop/open-url`、`clipboard`、`notify`、`badge`、`open-data-dir`、`/api/work-items/:id/reveal`）
   在 `hidane serve` 下一律 404；`open-url` 只接受 http(s)/mailto
 - 再次打开不会起第二个实例；桌面模式下 `/boot.js` 为 `desktop: true, auth: false`：不出现 token 输入框
-
-## 场景 6D：自动化测试全绿
-
-- `make test`（go vet 含 nogui 构建标签、`go test ./...`、前端 svelte-check 与 vitest）全部通过
-- `pnpm -C frontend e2e`（Playwright，chromium + webkit，对真实 Go 后端 + 假 CLI）全部通过

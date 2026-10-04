@@ -63,7 +63,6 @@ scenarios_for() {
     frontend/src/components/RunPicker.svelte | frontend/src/components/RunAsBar.svelte | frontend/src/components/Composer.svelte | frontend/src/lib/runAs.ts | frontend/src/lib/favorites.svelte.ts) echo "5I 6E" ;;
     frontend/src/components/WorktreesView.svelte | frontend/src/pages/ItemsPage.svelte | frontend/src/lib/worktrees.ts) echo "5I 7D" ;;
     frontend/*) echo "5I" ;;
-    cmd/fakeagent/* | Makefile | .github/*) echo "6D" ;;
   esac
 }
 
