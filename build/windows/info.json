@@ -6,7 +6,7 @@
 		"0000": {
 			"ProductVersion": "@PRODUCT_VERSION@",
 			"CompanyName": "jtsang4",
-			"FileDescription": "Hidane 火种",
+			"FileDescription": "Hidane",
 			"LegalCopyright": "MIT License",
 			"ProductName": "Hidane",
 			"Comments": "A persistent personal agent runtime"

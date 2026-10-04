@@ -104,7 +104,7 @@ func Run(cfg *config.Config) error {
 		wapp.Event.Emit(CommandEvent, map[string]any{"command": command})
 	}))
 	opts := application.WebviewWindowOptions{
-		Title: "Hidane 火种", Width: 1280, Height: 860, MinWidth: 900, MinHeight: 600, URL: "/",
+		Title: "Hidane", Width: 1280, Height: 860, MinWidth: 900, MinHeight: 600, URL: "/",
 		// The page draws its own title bar: traffic lights sit over the
 		// sidebar, and the toolbar row is the drag region (--wails-draggable).
 		Mac: application.MacWindow{
