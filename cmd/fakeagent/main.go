@@ -333,15 +333,29 @@ func workerPlan(prompt, cwd string) []toolCall {
 	return calls
 }
 
-func workerSummary(prompt string, blocked []string, done []string) string {
-	if strings.Contains(prompt, "NEEDS_INPUT") {
-		return "I need a decision before continuing.\nBLOCKED: Which server should I deploy to?"
+// worker tracks what the guard and the file system made of a worker's calls.
+type worker struct{ blocked, done []string }
+
+// run performs a call the hook did not refuse; it reports whether the call failed.
+func (w *worker) run(call toolCall, refused string) bool {
+	if refused != "" {
+		w.blocked = append(w.blocked, refused)
+		return true
 	}
+	if err := call.perform(); err != nil {
+		w.blocked = append(w.blocked, err.Error())
+		return true
+	}
+	w.done = append(w.done, fmt.Sprintf("%s ok: %v", call.tool, call.input["file_path"]))
+	return false
+}
+
+func (w *worker) summary() string {
 	var b strings.Builder
-	for _, d := range done {
+	for _, d := range w.done {
 		b.WriteString(d + "\n")
 	}
-	for _, r := range blocked {
+	for _, r := range w.blocked {
 		b.WriteString("Refused: " + r + "\n")
 	}
 	if b.Len() == 0 {
@@ -505,7 +519,7 @@ func runClaude(args []string) {
 		}
 		var answer string
 		if toolsOn && strings.Contains(system, "Worker execution") {
-			var blocked, done []string
+			var wk worker
 			var plan []toolCall
 			for _, part := range parts {
 				plan = append(plan, workerPlan(part, cwd)...)
@@ -515,20 +529,12 @@ func runClaude(args []string) {
 				emit(map[string]any{"type": "assistant", "session_id": session, "message": map[string]any{"role": "assistant",
 					"content": []any{map[string]any{"type": "tool_use", "id": id, "name": call.tool, "input": call.input}}}})
 				reason := runHook(hook, "claude", call.tool, call.input)
-				isErr := reason != ""
-				if isErr {
-					blocked = append(blocked, reason)
-				} else if err := call.perform(); err != nil {
-					isErr = true
-					blocked = append(blocked, err.Error())
-				} else {
-					done = append(done, fmt.Sprintf("%s ok: %v", call.tool, call.input["file_path"]))
-				}
+				isErr := wk.run(call, reason)
 				emit(map[string]any{"type": "user", "session_id": session, "message": map[string]any{"role": "user",
 					"content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": isErr, "content": reason}}}})
 			}
 			delay()
-			answer = workerSummary(prompt, blocked, done)
+			answer = wk.summary()
 		} else {
 			// A reasoning role with tools looks first when told to: LOOK_FIRST: <command>.
 			if m := lookFirst.FindStringSubmatch(prompt); toolsOn && m != nil {
@@ -671,7 +677,7 @@ func runCodex(args []string) {
 		item(t, "completed", um)
 		var answer string
 		if sandbox != "read-only" && strings.Contains(system, "Worker execution") {
-			var blocked, done []string
+			var wk worker
 			n := 0
 			for inputs := []string{prompt}; len(inputs) > 0; {
 				text := inputs[0]
@@ -696,28 +702,21 @@ func runCodex(args []string) {
 						notify("hook/completed", map[string]any{"threadId": t.thread, "turnId": t.id, "run": run})
 					}
 					if reason != "" {
-						blocked = append(blocked, reason)
+						wk.run(call, reason)
 						continue
 					}
 					ex := map[string]any{"type": "commandExecution", "id": id, "command": command, "cwd": cwd, "status": "inProgress"}
 					item(t, "started", ex)
-					exit := 0
-					if err := call.perform(); err != nil {
-						blocked = append(blocked, err.Error())
-						exit = 1
-					} else {
-						done = append(done, fmt.Sprintf("%s ok: %v", call.tool, call.input["file_path"]))
-					}
-					ex["exitCode"], ex["status"] = exit, "completed"
-					if exit != 0 {
-						ex["status"] = "failed"
+					ex["exitCode"], ex["status"] = 0, "completed"
+					if wk.run(call, "") {
+						ex["exitCode"], ex["status"] = 1, "failed"
 					}
 					item(t, "completed", ex)
 				}
 				delay()
 				inputs = append(inputs, takeSteers(t)...)
 			}
-			answer = workerSummary(prompt, blocked, done)
+			answer = wk.summary()
 		} else {
 			delay()
 			if more := takeSteers(t); len(more) > 0 {
@@ -910,24 +909,15 @@ func runPi(args []string) {
 				emit(map[string]any{"type": "agent_start"})
 				var answer string
 				if toolsOn && strings.Contains(system, "Worker execution") {
-					var blocked, done []string
+					var wk worker
 					for i, call := range workerPlan(prompt, cwd) {
 						name := strings.ToLower(call.tool)
 						emit(map[string]any{"type": "tool_execution_start", "toolCallId": fmt.Sprint(i), "toolName": name, "args": call.input})
-						reason := runHook(hook, "pi", name, call.input)
-						isErr := reason != ""
-						if isErr {
-							blocked = append(blocked, reason)
-						} else if err := call.perform(); err != nil {
-							isErr = true
-							blocked = append(blocked, err.Error())
-						} else {
-							done = append(done, fmt.Sprintf("%s ok: %v", call.tool, call.input["file_path"]))
-						}
+						isErr := wk.run(call, runHook(hook, "pi", name, call.input))
 						emit(map[string]any{"type": "tool_execution_end", "toolCallId": fmt.Sprint(i), "toolName": name, "isError": isErr})
 					}
 					delay()
-					answer = workerSummary(prompt, blocked, done)
+					answer = wk.summary()
 				} else {
 					delay()
 					answer = brain(system, prompt)
