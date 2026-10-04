@@ -13,7 +13,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 - One Go module at the root: `main.go` (desktop app + CLI dispatch), `gui_on.go` / `gui_off.go` (build tag `nogui` drops Wails and cgo), `internal/*`, `cmd/fakeagent` (test double for the agent CLIs).
 - `frontend/` is the Svelte 5 SPA (the only pnpm workspace). Its build output `frontend/dist` is embedded into the binary (`frontend/assets.go`).
 - Kernel code lives in `internal/kernel/` — its invariants below apply there. Agent roles live in `internal/agents/`, the CLI drivers in `internal/agentcli/`, the capture-phase guard in `internal/guard/`.
-- `docs/wails-migration.md` records how the Node/Postgres web version became this desktop app.
+- `docs/wails-migration.md` records why the Node/Postgres web version became this desktop app and the decisions real runs forced; `docs/desktop-ux.md` records the desktop interaction decisions.
 
 ## Toolchain
 

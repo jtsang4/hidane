@@ -22,8 +22,8 @@
 ## Runtime contracts
 
 - The existing API, bearer-token behavior, SSE event names, SSE query-token
-  behavior, event-derived pending state, cursor pagination, and browser
-  notification semantics are compatibility contracts.
+  behavior, event-derived pending state (`src/lib/conversation.ts`), cursor
+  pagination, and browser notification semantics are compatibility contracts.
 - `/api/events/stream` carries two event names: `hidane` for durable log events
   and `stream` for the text of a reply still being written. `stream` frames are
   ephemeral, are never appended to the log, and must not trigger a query
@@ -34,14 +34,10 @@
 - Open the live channel only through `src/lib/stream.ts` `openLiveStream`: SSE in
   the browser, Wails `Events.On("hidane:frame")` in the desktop app (falling back
   to SSE). Both deliver the same `hello`/`hidane`/`stream`/`ping` frames.
-- `src/lib/api.ts`, `grouping.ts`, `images.ts`, `live.ts`, `liveText.ts`,
-  `pending.ts`, `search.ts`, `notify.ts`, and their tests should be preserved
-  unless a change is required by the Svelte adapter.
 - Browser-only APIs (`window`, `document`, `localStorage`, `EventSource`,
   `Notification`, and `File`) must be accessed from client lifecycle code or
   guarded helpers.
-- Do not add an unauthenticated API call or change server routes as part of a
-  frontend framework migration.
+- Do not add an unauthenticated API call.
 
 ## UI and i18n
 
