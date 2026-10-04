@@ -10,7 +10,7 @@ export CGO_CFLAGS := -mmacosx-version-min=12.0
 export CGO_LDFLAGS := -mmacosx-version-min=12.0
 endif
 
-.PHONY: all frontend build build-nogui fakeagent test test-go test-frontend e2e screenshots smoke-gui smoke-live acceptance app clean
+.PHONY: all frontend build build-nogui fakeagent test test-go test-frontend e2e screenshots readme-shots smoke-gui smoke-live acceptance app clean
 
 all: build
 
@@ -51,6 +51,10 @@ e2e: build-nogui fakeagent
 # takes only the pages and states whose names start with those prefixes.
 screenshots: build-nogui fakeagent
 	ONLY="$(ONLY)" node frontend/e2e/screenshots.mjs bin/screenshots
+
+# The README's screenshots (docs/images/): English, a staged demo story.
+readme-shots: build-nogui fakeagent
+	node frontend/e2e/readme-shots.mjs docs/images
 
 # The real Wails window loads the app and receives pushed frames, then quits.
 smoke-gui: build

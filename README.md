@@ -12,6 +12,38 @@ your machine — **Claude Code (`claude`)**, **Codex (`codex`)** and **pi (`pi`)
 each role on whichever CLI, LLM provider and model you choose. The same binary
 also runs headless (`hidane serve`) and as a CLI.
 
+<p align="center">
+  <a href="docs/images/chat-task.png"><img src="docs/images/chat-task.png" alt="The hidane desktop app: the conversation on the left, a finished task opened beside it" width="900"></a>
+  <br>
+  <sub>One conversation for everything you ask. Each request becomes a task with its own agent, workspace and git branch;<br>
+  open one beside the chat to see what it understood, what it ran and what it answered.</sub>
+</p>
+
+<details>
+<summary><b>More screenshots</b> — questions, models per task, worktrees, memory, schedules, settings (click any image for full size)</summary>
+<br>
+<table>
+  <tr>
+    <td width="50%" valign="top"><a href="docs/images/chat.png"><img src="docs/images/chat.png" alt="Conversation with a running task, a question for the person and a status answer"></a><br><sub><b>Chat</b> — a task still running, another waiting on your answer, and a status answer from the Primary.</sub></td>
+    <td width="50%" valign="top"><a href="docs/images/run-on.png"><img src="docs/images/run-on.png" alt="The composer's picker for what a new task runs on"></a><br><sub><b>Run on</b> — pick the CLI, model and reasoning effort per task, or save favorite combinations.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><a href="docs/images/tasks.png"><img src="docs/images/tasks.png" alt="The task list"></a><br><sub><b>Tasks</b> — every work item, searchable, with the ones still working marked.</sub></td>
+    <td width="50%" valign="top"><a href="docs/images/worktrees.png"><img src="docs/images/worktrees.png" alt="Worktrees and registered repositories"></a><br><sub><b>Worktrees</b> — each task works on its own <code>hidane/&lt;task&gt;</code> branch; you decide when to archive one.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><a href="docs/images/memory.png"><img src="docs/images/memory.png" alt="Long-term memory, global and per task"></a><br><sub><b>Memory</b> — plain Markdown files, global and per task; anything can be forgotten.</sub></td>
+    <td width="50%" valign="top"><a href="docs/images/schedules.png"><img src="docs/images/schedules.png" alt="Scheduled prompts"></a><br><sub><b>Schedules</b> — hand the agent a task on a clock, or poll a URL.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><a href="docs/images/settings-roles.png"><img src="docs/images/settings-roles.png" alt="Settings: CLI, provider, model and effort per role"></a><br><sub><b>Roles</b> — each role on its own CLI, provider, model and effort.</sub></td>
+    <td width="50%" valign="top"><a href="docs/images/settings-rules.png"><img src="docs/images/settings-rules.png" alt="Settings: safety rules"></a><br><sub><b>Safety rules</b> — patterns every agent tool call is checked against, without a model.</sub></td>
+  </tr>
+</table>
+</details>
+
+<sub>The screenshots are staged with <code>make readme-shots</code>: the real app, with scripted stand-ins for the agent CLIs.</sub>
+
 ## Architecture
 
 The spine is an **append-only event log** (SQLite, append-only enforced by
@@ -191,6 +223,7 @@ curl -X POST localhost:2718/webhook/github -d '{"hello":"world"}' \
 make test        # go vet (also -tags nogui) + go test ./... + svelte-check + vitest
 make e2e         # Playwright (chromium + webkit) against the real Go backend with fake CLIs
 make screenshots # every page, zh/en, desktop/phone → bin/screenshots/ (real backend, fake CLIs)
+make readme-shots # this README's pictures → docs/images/ (English, a scripted demo story)
 make smoke-gui   # the real Wails window loads the UI and receives pushed frames, then quits
 make smoke-live  # one real round trip per role on your installed CLIs (spends tokens)
 make acceptance  # a Claude Code tester agent executes acceptance/scenarios.md (spends tokens)

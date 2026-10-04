@@ -26,11 +26,12 @@ pnpm -C frontend e2e              # everything: four projects
 pnpm -C frontend exec playwright test e2e/settings.spec.ts --project=webkit-desktop
 make screenshots                  # every page and settings section, zh/en, desktop/browser/phone → bin/screenshots/
 make screenshots ONLY=run-as      # only the pages and states whose names start with these prefixes (comma-separated)
+make readme-shots                 # the root README's pictures → docs/images/ (English; the fakes read their lines from FAKEAGENT_DEMO)
 ```
 
 Two servers run: the normal one on 2797, and a slow one on 2798
 (`FAKEAGENT_WORKER_DELAY_MS=8000`) for anything that must be caught mid-run.
-`screenshots.mjs` uses 2796. `HIDANE_E2E_PORT=<n>` moves them to n, n+1 and n−1,
+`screenshots.mjs` uses 2796, `readme-shots.mjs` 2795. `HIDANE_E2E_PORT=<n>` moves them to n, n+1, n−1 and n−2,
 so runs in two checkouts at once do not collide — keep the ranges apart (e.g.
 2897): a server clears its port's leftover temp homes before it binds. Tests
 share one server, so each uses unique text.

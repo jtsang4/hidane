@@ -169,9 +169,14 @@ func brain(system, prompt string) string {
 			return "<reasoning_effort>5</reasoning_effort>"
 		}
 		var list []map[string]any
+		demo := loadDemo()
 		for _, m := range msgLine.FindAllStringSubmatch(section(prompt, "Messages this turn:"), -1) {
 			id, kind, text := m[1], m[2], m[3]
 			lower := strings.ToLower(text)
+			if effect, ok := demoPrimary(demo, id, text); ok && kind == "user" {
+				list = append(list, effect)
+				continue
+			}
 			switch {
 			case kind == "external":
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "收到外部事件：" + firstRunes(text, 60)})
@@ -213,6 +218,9 @@ func brain(system, prompt string) string {
 		return "```json\n" + effects(list...) + "\n```"
 	case strings.Contains(system, "Manager of one work item"):
 		turn := section(prompt, "Messages this turn:")
+		if answer, ok := demoManager(loadDemo(), prompt, turn); ok {
+			return answer
+		}
 		if strings.Contains(turn, "(worker result") {
 			if late := section(turn, "the worker never saw it:\n- "); late != "" {
 				return effects(map[string]any{"type": "reply", "reply": "执行结束后才收到：" + firstRunes(late, 200)})
