@@ -144,13 +144,6 @@ type ValidationError struct{ Msg string }
 
 func (e ValidationError) Error() string { return e.Msg }
 
-func sv(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
 func iv(p *int) int {
 	if p == nil {
 		return 0
@@ -181,7 +174,7 @@ func scanSchedule(s scanner) (Schedule, error) {
 }
 
 func (k *Kernel) CreateSchedule(ctx context.Context, in ScheduleInput, source string) (Schedule, error) {
-	d := scheduleDef{Name: sv(in.Name), Action: sv(in.Action), Cron: sv(in.Cron), Timezone: sv(in.Timezone), IntervalSec: iv(in.IntervalSec), Enabled: true}
+	d := scheduleDef{Name: deref(in.Name), Action: deref(in.Action), Cron: deref(in.Cron), Timezone: deref(in.Timezone), IntervalSec: iv(in.IntervalSec), Enabled: true}
 	if in.Spec != nil {
 		d.Spec = *in.Spec
 	}
@@ -255,7 +248,7 @@ func (k *Kernel) UpdateSchedule(ctx context.Context, id string, patch ScheduleIn
 	if err != nil {
 		return cur, err
 	}
-	d := scheduleDef{Name: cur.Name, Action: cur.Action, Spec: cur.Spec, Cron: sv(cur.Cron), IntervalSec: iv(cur.IntervalSec), Timezone: sv(cur.Timezone), Enabled: cur.Enabled}
+	d := scheduleDef{Name: cur.Name, Action: cur.Action, Spec: cur.Spec, Cron: deref(cur.Cron), IntervalSec: iv(cur.IntervalSec), Timezone: deref(cur.Timezone), Enabled: cur.Enabled}
 	if patch.Name != nil {
 		d.Name = *patch.Name
 	}
@@ -266,13 +259,13 @@ func (k *Kernel) UpdateSchedule(ctx context.Context, id string, patch ScheduleIn
 		d.Spec = *patch.Spec
 	}
 	if patch.Present["cron"] || patch.Cron != nil {
-		d.Cron = sv(patch.Cron)
+		d.Cron = deref(patch.Cron)
 	}
 	if patch.Present["intervalSec"] || patch.IntervalSec != nil {
 		d.IntervalSec = iv(patch.IntervalSec)
 	}
 	if patch.Present["timezone"] || patch.Timezone != nil {
-		d.Timezone = sv(patch.Timezone)
+		d.Timezone = deref(patch.Timezone)
 	}
 	if patch.Enabled != nil {
 		d.Enabled = *patch.Enabled
@@ -330,7 +323,7 @@ func (k *Kernel) DueSchedules(ctx context.Context, now time.Time) ([]Schedule, e
 // skipped rather than replayed, so downtime costs one firing, not a storm.
 func NextAfterRun(sc Schedule, now time.Time) time.Time {
 	if sc.Cron != nil && *sc.Cron != "" {
-		t, err := ComputeNextRun(*sc.Cron, 0, sv(sc.Timezone), now)
+		t, err := ComputeNextRun(*sc.Cron, 0, deref(sc.Timezone), now)
 		if err == nil {
 			return t
 		}

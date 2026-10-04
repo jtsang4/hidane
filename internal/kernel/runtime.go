@@ -15,21 +15,14 @@ import (
 // later as another message.
 type TurnHandler func(ctx context.Context, address string, messages []Event) error
 
-type idleTask struct {
-	name    string
-	run     func(context.Context) error
-	min     time.Duration
-	max     time.Duration
-	lastRun time.Time
-	running bool
-}
-
-type timerTask struct {
-	name    string
-	run     func(context.Context) error
-	every   time.Duration
-	lastRun time.Time
-	running bool
+// bgTask is a timer (every) or an idle task (min, max).
+type bgTask struct {
+	name     string
+	run      func(context.Context) error
+	every    time.Duration
+	min, max time.Duration
+	lastRun  time.Time
+	running  bool
 }
 
 type handlerEntry struct {
@@ -48,8 +41,8 @@ type Runtime struct {
 	mu        sync.Mutex
 	handlers  []handlerEntry
 	active    map[string]chan struct{}
-	idle      []*idleTask
-	timers    []*timerTask
+	idle      []*bgTask
+	timers    []*bgTask
 	unhandled map[string]bool
 	ticking   bool
 	again     bool
@@ -83,14 +76,14 @@ func (r *Runtime) Register(prefix string, h TurnHandler) {
 func (r *Runtime) RegisterIdle(name string, run func(context.Context) error, min, max time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.idle = append(r.idle, &idleTask{name: name, run: run, min: min, max: max, lastRun: time.Now()})
+	r.idle = append(r.idle, &bgTask{name: name, run: run, min: min, max: max, lastRun: time.Now()})
 }
 
 // RegisterTimer adds housekeeping that runs on a clock regardless of load.
 func (r *Runtime) RegisterTimer(name string, run func(context.Context) error, every time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.timers = append(r.timers, &timerTask{name: name, run: run, every: every})
+	r.timers = append(r.timers, &bgTask{name: name, run: run, every: every})
 }
 
 // Start begins scheduling on appends and on a fallback poll.
@@ -205,7 +198,7 @@ func (r *Runtime) waitActive() {
 }
 
 // Drain runs until every handled mailbox is empty and no turn is in flight.
-// For tests and one-shot processes; the desktop app uses Start.
+// Tests use it; the app uses Start.
 func (r *Runtime) Drain(maxRounds int) error {
 	for round := 0; round < maxRounds; round++ {
 		if err := r.tick(); err != nil {
@@ -237,15 +230,6 @@ func (r *Runtime) Drain(maxRounds int) error {
 	return fmt.Errorf("runtime did not drain")
 }
 
-// Step runs one scheduling pass and the turns it started.
-func (r *Runtime) Step() error {
-	if err := r.tick(); err != nil {
-		return err
-	}
-	r.waitActive()
-	return nil
-}
-
 func (r *Runtime) tick() error {
 	now := time.Now()
 	r.mu.Lock()
@@ -253,19 +237,7 @@ func (r *Runtime) tick() error {
 		if t.running || now.Sub(t.lastRun) < t.every {
 			continue
 		}
-		t.running = true
-		t.lastRun = now
-		task := t
-		r.bg.Add(1)
-		go func() {
-			defer r.bg.Done()
-			if err := task.run(r.ctx); err != nil {
-				log.Printf("timer %s failed: %v", task.name, err)
-			}
-			r.mu.Lock()
-			task.running = false
-			r.mu.Unlock()
-		}()
+		r.launch("timer", t, now)
 	}
 	r.mu.Unlock()
 
@@ -319,21 +291,25 @@ func (r *Runtime) tick() error {
 		if !((idle && since >= t.min) || since >= t.max) {
 			continue
 		}
-		t.running = true
-		t.lastRun = now
-		task := t
-		r.bg.Add(1)
-		go func() {
-			defer r.bg.Done()
-			if err := task.run(r.ctx); err != nil {
-				log.Printf("idle task %s failed: %v", task.name, err)
-			}
-			r.mu.Lock()
-			task.running = false
-			r.mu.Unlock()
-		}()
+		r.launch("idle task", t, now)
 	}
 	return nil
+}
+
+// launch runs a background task; r.mu is held.
+func (r *Runtime) launch(kind string, t *bgTask, now time.Time) {
+	t.running = true
+	t.lastRun = now
+	r.bg.Add(1)
+	go func() {
+		defer r.bg.Done()
+		if err := t.run(r.ctx); err != nil {
+			log.Printf("%s %s failed: %v", kind, t.name, err)
+		}
+		r.mu.Lock()
+		t.running = false
+		r.mu.Unlock()
+	}()
 }
 
 func (r *Runtime) runTurn(address string, h TurnHandler) {

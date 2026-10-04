@@ -108,19 +108,6 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (e *Event) UnmarshalJSON(b []byte) error {
-	var j eventJSON
-	if err := json.Unmarshal(b, &j); err != nil {
-		return err
-	}
-	*e = Event{
-		Seq: j.Seq, ID: j.ID, TS: j.TS, Source: j.Source, Kind: j.Kind,
-		ThreadID: deref(j.ThreadID), WorkItemID: deref(j.WorkItemID), ExecutionID: deref(j.ExecutionID),
-		Payload: j.Payload, Mailbox: deref(j.Mailbox), Lane: deref(j.Lane), CausedBy: deref(j.CausedBy), Hop: j.Hop,
-	}
-	return nil
-}
-
 // EventInput is what a writer supplies; the kernel assigns seq, id and ts.
 type EventInput struct {
 	Source      string
@@ -266,7 +253,7 @@ type ListFilter struct {
 	BeforeSeq   *int64
 	// Day is `YYYY-MM-DD` in the local timezone.
 	Day string
-	// PayloadEquals matches a top-level payload key: some things are identified
+	// PayloadKey/PayloadValue match a top-level payload key: some things are identified
 	// only inside the payload (a schedule's firings), and a tail-window scan
 	// would silently lose history older than the window.
 	PayloadKey   string
@@ -300,8 +287,6 @@ func quoteList(xs []string) string {
 // ConversationSQL is the conversation predicate.
 var ConversationSQL = fmt.Sprintf(`((events.thread_id = 'main' AND events.kind IN (%s)) OR events.kind IN (%s))`,
 	quoteList(ConversationMainKinds), quoteList(ConversationAnyKinds))
-
-func Int64(v int64) *int64 { return &v }
 
 // DayBounds converts a local `YYYY-MM-DD` into the UTC [start, end) stamps.
 func DayBounds(day string) (string, string, error) {

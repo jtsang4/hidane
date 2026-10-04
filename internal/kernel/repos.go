@@ -187,7 +187,7 @@ func (k *Kernel) RegisterRepo(ctx context.Context, f RepoFacts, source string) (
 		return Repo{}, false, err
 	}
 	ev, err := k.appendTx(ctx, tx, EventInput{Source: source, Kind: "repo.registered",
-		Payload: Payload{"repoId": id, "name": name, "path": f.Path, "remote": nilIfEmpty(f.Remote), "defaultBranch": nilIfEmpty(f.DefaultBranch)}})
+		Payload: Payload{"repoId": id, "name": name, "path": f.Path, "remote": nullable(f.Remote), "defaultBranch": nullable(f.DefaultBranch)}})
 	if err != nil {
 		return Repo{}, false, err
 	}
@@ -376,7 +376,7 @@ func (k *Kernel) CreateCheckout(ctx context.Context, c Checkout, repoName, sourc
 	}
 	ev, err := k.appendTx(ctx, tx, EventInput{Source: source, Kind: "checkout.created", ThreadID: item.ThreadID, WorkItemID: item.ID,
 		Payload: Payload{"checkoutId": c.ID, "repoId": c.RepoID, "repo": repoName, "mode": c.Mode, "path": c.Path,
-			"branch": nilIfEmpty(c.Branch), "base": nilIfEmpty(c.Base)}})
+			"branch": nullable(c.Branch), "base": nullable(c.Base)}})
 	if err != nil {
 		return c, err
 	}
@@ -419,7 +419,7 @@ func (k *Kernel) ArchiveCheckout(ctx context.Context, id, source string, detail 
 	if _, err := k.DB.ExecContext(ctx, `UPDATE checkouts SET status = ?, updated_at = ? WHERE id = ?`, CheckoutArchived, k.stamp(), id); err != nil {
 		return c, err
 	}
-	payload := Payload{"checkoutId": c.ID, "repoId": c.RepoID, "mode": c.Mode, "path": c.Path, "branch": nilIfEmpty(c.Branch)}
+	payload := Payload{"checkoutId": c.ID, "repoId": c.RepoID, "mode": c.Mode, "path": c.Path, "branch": nullable(c.Branch)}
 	maps.Copy(payload, detail)
 	if _, err := k.Append(ctx, EventInput{Source: source, Kind: "checkout.archived", ThreadID: item.ThreadID, WorkItemID: item.ID, Payload: payload}); err != nil {
 		return c, err

@@ -55,8 +55,6 @@ func (k *Kernel) SetExecutionStatus(ctx context.Context, id string, status Execu
 	switch status {
 	case ExecRunning:
 		_, err = k.DB.ExecContext(ctx, `UPDATE executions SET status = ?, started_at = ? WHERE id = ?`, status, k.stamp(), id)
-	case ExecQueued:
-		_, err = k.DB.ExecContext(ctx, `UPDATE executions SET status = ? WHERE id = ?`, status, id)
 	default:
 		_, err = k.DB.ExecContext(ctx, `UPDATE executions SET status = ?, finished_at = ? WHERE id = ?`, status, k.stamp(), id)
 	}

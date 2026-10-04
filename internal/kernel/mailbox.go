@@ -41,7 +41,7 @@ func (k *Kernel) Post(ctx context.Context, in PostInput) (Event, bool, error) {
 		hop = in.CausedBy.Hop + 1
 		causedBy = in.CausedBy.ID
 	}
-	if hop > k.Cfg.MaxHops && !in.AlwaysDeliver {
+	if !in.AlwaysDeliver && k.OverBudget(in.CausedBy) {
 		return Event{}, false, k.BudgetEscalation(ctx, in.CausedBy, in.Kind, in.Mailbox, in.WorkItemID)
 	}
 	ev := in.EventInput
@@ -153,5 +153,4 @@ const (
 )
 
 func ManagerAddress(workItemID string) string { return ManagerPrefix + workItemID }
-func IsManagerAddress(address string) bool    { return strings.HasPrefix(address, ManagerPrefix) }
 func WorkItemIDOf(address string) string      { return strings.TrimPrefix(address, ManagerPrefix) }

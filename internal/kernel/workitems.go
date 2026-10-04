@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -90,7 +91,7 @@ func (k *Kernel) CreateWorkItem(ctx context.Context, title, source string, opts 
 	payload := Payload{
 		"title":     title,
 		"workspace": ws,
-		"parentId":  nilIfEmpty(opts.ParentID),
+		"parentId":  nullable(opts.ParentID),
 	}
 	if opts.Of != "" {
 		payload["of"] = opts.Of
@@ -106,13 +107,6 @@ func (k *Kernel) CreateWorkItem(ctx context.Context, title, source string, opts 
 	}
 	k.Hub.Publish(ev.Seq)
 	return k.GetWorkItem(ctx, id)
-}
-
-func nilIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 func (k *Kernel) GetWorkItem(ctx context.Context, id string) (WorkItem, error) {
@@ -178,38 +172,8 @@ func (k *Kernel) Subtree(ctx context.Context, id string) ([]WorkItem, error) {
 			UNION ALL
 			SELECT w.id, tree.depth + 1 FROM work_items w JOIN tree ON w.parent_id = tree.id
 		)
-		SELECT `+prefixCols("w", wiCols)+` FROM tree JOIN work_items w ON w.id = tree.id
+		SELECT w.`+strings.ReplaceAll(wiCols, ", ", ", w.")+` FROM tree JOIN work_items w ON w.id = tree.id
 		ORDER BY tree.depth ASC, w.created_at ASC, w.rowid ASC`, id)
-}
-
-func prefixCols(alias, cols string) string {
-	out := ""
-	for i, c := range splitCols(cols) {
-		if i > 0 {
-			out += ", "
-		}
-		out += alias + "." + c
-	}
-	return out
-}
-
-func splitCols(cols string) []string {
-	var out []string
-	cur := ""
-	for _, r := range cols {
-		switch r {
-		case ',':
-			out = append(out, cur)
-			cur = ""
-		case ' ', '\n', '\t':
-		default:
-			cur += string(r)
-		}
-	}
-	if cur != "" {
-		out = append(out, cur)
-	}
-	return out
 }
 
 // Ancestors from the parent up to the root.
