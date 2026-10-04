@@ -15,7 +15,6 @@ import (
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/repos"
-	"github.com/jtsang4/hidane/internal/settings"
 )
 
 // WorkerPool runs executions — the runtime's I/O. They are dispatched from a
@@ -286,45 +285,29 @@ func (p *WorkerPool) runJob(j *job) {
 		}
 		r := p.s.Settings.Get().ResolveWith("worker", ownRun(it))
 		// The worker starts in its first repository, where that repo's own
-		// agent instructions are found; the workspace stays its home. Codex
-		// cannot: its sandbox makes the git metadata of a worktree it starts
-		// in read-only, so nothing could be committed — it starts in the
-		// workspace and is pointed at the repository instead.
-		startInRepo := r.Agent != settings.Codex
+		// agent instructions are found; the workspace stays its home.
 		cwd := it.Workspace
 		roots := []string{it.Workspace}
-		var lent []string
+		var lent, reserved []string
 		for _, c := range held.list {
 			if !repos.Present(c.Path) {
 				continue
 			}
-			if cwd == it.Workspace && startInRepo {
+			if cwd == it.Workspace {
 				cwd = c.Path
 			}
 			if c.Mode == kernel.CheckoutInPlace {
 				lent = append(lent, c.Path)
 				roots = append(roots, c.Path)
+			} else {
+				// Worked on in a worktree, the person's own checkout stays theirs.
+				reserved = append(reserved, held.repos[c.RepoID].Path)
 			}
-			if dir := p.s.Repos.GitDir(ctx, c); dir != "" {
-				roots = append(roots, dir)
-			}
+			roots = append(roots, p.s.Repos.GitDirs(ctx, c)...)
 		}
 		header := []string{"Work item workspace (TASK.md and MEMORY.md live here): " + it.Workspace}
 		if l := held.long(); l != "" {
-			start := "You start in " + cwd + "."
-			if cwd == it.Workspace {
-				start += " Run git and make changes inside the repository's own directory."
-			}
-			header = append(header, "Repositories you work in:\n"+l, start)
-			if cwd == it.Workspace {
-				// What the CLI would have read itself, had it started there.
-				for _, c := range held.list {
-					if doc := kernel.ReadTextFile(filepath.Join(c.Path, "AGENTS.md")); strings.TrimSpace(doc) != "" {
-						header = append(header, fmt.Sprintf("%s/AGENTS.md — the repository's own instructions for agents; follow them for work in it:\n%s",
-							c.Path, clipNoted(doc, 16000)))
-					}
-				}
-			}
+			header = append(header, "Repositories you work in:\n"+l, "You start in "+cwd+".")
 		}
 		header = append(header, setupNotes...)
 		instructions = strings.Join(header, "\n\n") + "\n\nInstructions:\n" + instructions
@@ -336,12 +319,12 @@ func (p *WorkerPool) runJob(j *job) {
 		pending := filepath.Join(control, "pending-input")
 		blocks := filepath.Join(control, "policy-blocks.jsonl")
 		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks,
-			Workspace: it.Workspace, Writable: lent, Cwd: cwd, Protected: k.Cfg.Home}
+			Workspace: it.Workspace, Writable: lent, Reserved: reserved, Cwd: cwd, Protected: k.Cfg.Home}
 		req := agentcli.Request{
 			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: cwd, Tools: true,
 			Model: r.Model, Effort: r.Effort, Provider: r.Provider, WritableRoots: roots,
 			SessionDir: filepath.Join(hidaneDir, "sessions"), Env: genv.Vars(), Timeout: k.Cfg.WorkerTimeout,
-			ReadOnly: []string{k.Cfg.Home, hidaneDir}, Hidden: []string{k.Cfg.SettingsPath()},
+			ReadOnly: append([]string{k.Cfg.Home, hidaneDir}, reserved...), Hidden: []string{k.Cfg.SettingsPath()},
 			// Two-phase side-effect trail: intent before the tool acts, result after.
 			OnTool: func(e agentcli.ToolEvent) {
 				trailMu.Lock()

@@ -143,24 +143,30 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 			if b, err := os.ReadFile(filepath.Join(c.Path, ".setup-done")); err != nil || !strings.Contains(string(b), "ready") {
 				t.Fatalf("the setup script ran in the worktree: %q %v", b, err)
 			}
-			// Claude starts in the worktree, where the repo's own instructions
-			// are found. Codex starts in the workspace and is handed them.
-			start := c.Path
-			if agent == settings.Codex {
-				start = item.Workspace
-			}
-			if b, err := os.ReadFile(filepath.Join(start, "result.txt")); err != nil || !strings.Contains(string(b), "RSS") {
-				t.Fatalf("the worker starts in %s: %q %v", start, b, err)
+			// Every CLI starts in the worktree, where the repo's own
+			// instructions are found.
+			if b, err := os.ReadFile(filepath.Join(c.Path, "result.txt")); err != nil || !strings.Contains(string(b), "RSS") {
+				t.Fatalf("the worker works in the worktree: %q %v", b, err)
 			}
 			worker := workerCall(t, calls)
-			if got, _ := filepath.EvalSymlinks(worker.Cwd); got != m(filepath.EvalSymlinks(start)) {
-				t.Fatalf("worker cwd %s, want %s", worker.Cwd, start)
+			if got, _ := filepath.EvalSymlinks(worker.Cwd); got != m(filepath.EvalSymlinks(c.Path)) {
+				t.Fatalf("worker cwd %s, want %s", worker.Cwd, c.Path)
 			}
-			if agent == settings.Codex && !strings.Contains(strings.Join(worker.Args, " "), strconvQuote(item.Workspace)+`="write"`) {
-				t.Fatalf("codex may write the workspace: %v", worker.Args)
-			}
-			if agent == settings.Codex && !strings.Contains(strings.Join(worker.Args, " "), strconvQuote(filepath.Join(repo, ".git"))+`="write"`) {
-				t.Fatalf("codex may write the repo's git metadata: %v", worker.Args)
+			// Codex keeps a worktree's git metadata read-only unless it is
+			// named: only what its own branch needs is, and the person's
+			// checkout stays read-only.
+			args := strings.Join(worker.Args, " ")
+			if agent == settings.Codex {
+				git := filepath.Join(repo, ".git")
+				for _, dir := range []string{filepath.Join(git, "worktrees", "blog"), filepath.Join(git, "objects"),
+					filepath.Join(git, "refs", "heads", "hidane"), filepath.Join(git, "logs", "refs", "heads", "hidane")} {
+					if !strings.Contains(args, strconvQuote(dir)+`="write"`) {
+						t.Fatalf("codex may write %s: %v", dir, worker.Args)
+					}
+				}
+				if !strings.Contains(args, strconvQuote(repo)+`="read"`) || strings.Contains(args, strconvQuote(git)+`="write"`) {
+					t.Fatalf("the person's checkout is read-only to codex: %v", worker.Args)
+				}
 			}
 			if _, err := os.Stat(filepath.Join(repo, "result.txt")); err == nil {
 				t.Fatal("the person's own checkout is untouched")
@@ -340,6 +346,16 @@ func TestInPlaceOnlyWhenAskedAndOneAtATime(t *testing.T) {
 	if _, err := os.Stat(repo); err != nil {
 		t.Fatal("releasing an in-place checkout never removes the person's directory")
 	}
+	// Asked for without the person's words, it is a worktree like any other.
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "在 notes 里加个文件 INPLACE UNASKED REPO=notes", Source: "connector:web"}))
+	w.settle()
+	var last kernel.Checkout
+	for _, c := range m(w.k.ListCheckouts(ctx, kernel.CheckoutFilter{})) {
+		last = c
+	}
+	if last.Mode != kernel.CheckoutWorktree {
+		t.Fatalf("no quoted request, no in-place: %+v", last)
+	}
 }
 
 // Work picks up from an archived task's branch, and a finished task that still
@@ -430,5 +446,22 @@ func TestChildrenInheritTheParentsRepositories(t *testing.T) {
 	first, _ := list[0].(map[string]any)
 	if branches, _ := first["branches"].([]any); len(branches) != 1 || !strings.Contains(branches[0].(string), "site: hidane/") {
 		t.Fatalf("the parent is told each child's branch: %+v", first)
+	}
+}
+
+// A worker working on a repo in a worktree cannot change the person's own
+// checkout of it, even when its instructions name that directory.
+func TestTheOriginalCheckoutIsLeftAlone(t *testing.T) {
+	hermeticGit(t)
+	repo := newRepo(t, t.TempDir(), "site", "", nil)
+	w := newWorld(t, settings.Claude)
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "REPO=" + repo + " RUN: echo hi > " + filepath.Join(repo, "NOTES.md"), Source: "connector:web"}))
+	w.settle()
+	if _, err := os.Stat(filepath.Join(repo, "NOTES.md")); err == nil {
+		t.Fatal("the person's own checkout was changed")
+	}
+	blocks := w.events("policy.blocked")
+	if len(blocks) == 0 || !strings.Contains(blocks[0].Payload.Str("reason"), "worktree") {
+		t.Fatalf("the refusal points at the worktree: %+v", blocks)
 	}
 }

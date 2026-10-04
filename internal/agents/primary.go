@@ -346,7 +346,16 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		}
 		// Which repositories is settled before anything exists: a question
 		// goes to the person instead of work starting on a guess.
-		item, problem, err := s.StartWorkItem(ctx, title, "agent:primary", kernel.CreateWorkItemOpts{Of: subject.ID}, parseRepoRequests(e))
+		said := []string{subject.Payload.Str("text")}
+		if list, ok := e["also_of"].([]any); ok {
+			for _, id := range list {
+				if extra, ok := t.message(id); ok {
+					said = append(said, extra.Payload.Str("text"))
+				}
+			}
+		}
+		wanted := heldToWords(parseRepoRequests(e), strings.Join(said, "\n"))
+		item, problem, err := s.StartWorkItem(ctx, title, "agent:primary", kernel.CreateWorkItemOpts{Of: subject.ID}, wanted)
 		if err != nil {
 			return err
 		}

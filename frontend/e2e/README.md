@@ -5,7 +5,7 @@ Playwright drives the **real Go backend** (`bin/hidane-nogui serve`, started by
 in for the agent CLIs (`cmd/fakeagent`: real wire protocols, real guard hook,
 scripted answers — a message containing `hello`/`你好` is small talk, anything
 else becomes a work item whose worker writes `result.txt` (`REPO=<name or path>`,
-`FROM=<work item>`, `INPLACE`, `ROUTE=<work item>` steer the Primary's repo choices); `FAKE_FAIL` fails the
+`FROM=<work item>`, `INPLACE` (`UNASKED`: without quoting the person), `ROUTE=<work item>` steer the Primary's repo choices); `FAKE_FAIL` fails the
 CLI; `FAKEAGENT_DELAY_MS` slows each turn). Every spec runs in zh and fails on any
 uncaught page error, any console error, and any native `confirm()`/`alert()`/
 `prompt()` (the desktop webview implements none of them).

@@ -233,7 +233,14 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			return nil
 		}
 		inPlace, _ := e["in_place"].(bool)
-		wanted, problem := s.resolveRepos(ctx, []RepoRequest{{Ref: ref, Spec: repos.AttachSpec{Base: Str(e["base"]), InPlace: inPlace}}}, "agent:manager")
+		var said []string
+		for _, m := range t.batch {
+			if m.Kind == "user.message" {
+				said = append(said, m.Payload.Str("text"))
+			}
+		}
+		asked := heldToWords([]RepoRequest{{Ref: ref, Asked: Str(e["asked"]), Spec: repos.AttachSpec{Base: Str(e["base"]), InPlace: inPlace}}}, strings.Join(said, "\n"))
+		wanted, problem := s.resolveRepos(ctx, asked, "agent:manager")
 		if problem == "" {
 			if err := s.attachAll(ctx, item, wanted, "agent:manager"); err != nil {
 				problem = fmt.Sprintf("没能为这个任务准备仓库：%v", err)

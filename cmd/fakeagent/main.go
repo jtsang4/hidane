@@ -188,6 +188,9 @@ func brain(system, prompt string) string {
 				var repos []any
 				for _, m := range repoHint.FindAllStringSubmatch(text, -1) {
 					spec := map[string]any{"repo": m[1], "in_place": strings.Contains(text, "INPLACE")}
+					if strings.Contains(text, "INPLACE") && !strings.Contains(text, "UNASKED") {
+						spec["asked"] = "INPLACE"
+					}
 					if f := fromHint.FindStringSubmatch(text); f != nil {
 						spec["from"] = f[1]
 					}

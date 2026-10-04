@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jtsang4/hidane/internal/kernel"
@@ -119,6 +120,7 @@ func (ic itemCheckouts) long() string {
 			if c.Base != "" && c.Base != c.Branch {
 				l += " (started from " + c.Base + ")"
 			}
+			l += fmt.Sprintf(". Work there, not in the person's own checkout at %s, which stays theirs", r.Path)
 		}
 		switch c.Setup {
 		case kernel.SetupPending:
@@ -158,6 +160,27 @@ func (s *System) repoInventory(ctx context.Context) string {
 type RepoRequest struct {
 	Ref  string
 	Spec repos.AttachSpec
+	// Asked quotes the person's words asking to work in their own directory.
+	Asked string
+}
+
+var spaceRun = regexp.MustCompile(`\s+`)
+
+// heldToWords keeps the person's own directory for when they asked for it: a
+// model's request for it stands only with their words, found in what they
+// said; otherwise the repo gets a worktree like any other. Misread once, a
+// plain "work in repo X" changed the person's main branch.
+func heldToWords(reqs []RepoRequest, said string) []RepoRequest {
+	norm := func(s string) string { return strings.ToLower(spaceRun.ReplaceAllString(strings.TrimSpace(s), " ")) }
+	heard := norm(said)
+	out := make([]RepoRequest, len(reqs))
+	for i, rq := range reqs {
+		if rq.Spec.InPlace && (norm(rq.Asked) == "" || !strings.Contains(heard, norm(rq.Asked))) {
+			rq.Spec.InPlace = false
+		}
+		out[i] = rq
+	}
+	return out
 }
 
 // parseRepoRequests reads "repos" (objects or plain names) and the older
@@ -180,7 +203,8 @@ func parseRepoRequests(e Effect) []RepoRequest {
 					continue
 				}
 				inPlace, _ := v["in_place"].(bool)
-				out = append(out, RepoRequest{Ref: ref, Spec: repos.AttachSpec{Base: Str(v["base"]), From: Str(v["from"]), InPlace: inPlace}})
+				out = append(out, RepoRequest{Ref: ref, Asked: Str(v["asked"]),
+					Spec: repos.AttachSpec{Base: Str(v["base"]), From: Str(v["from"]), InPlace: inPlace}})
 			}
 		}
 	}

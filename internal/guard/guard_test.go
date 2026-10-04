@@ -453,3 +453,36 @@ func TestLentDirectoriesAndTheWorkingDirectory(t *testing.T) {
 		t.Fatalf("env round trip: %+v", got)
 	}
 }
+
+// The person's own checkout of a repo the task works on in a worktree stays
+// theirs: changing it is refused, working in the worktree is not.
+func TestTheReservedCheckoutStaysThePersons(t *testing.T) {
+	data := t.TempDir()
+	ws := filepath.Join(data, "workspaces", "wi_1")
+	tree := filepath.Join(ws, "blog")
+	repo := t.TempDir()
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := guard.Env{Workspace: ws, Reserved: []string{repo}, Cwd: tree, Protected: data}
+	for _, call := range []guard.Call{
+		{Tool: "write", Subject: filepath.Join(repo, "NOTES.md")},
+		{Tool: "bash", Subject: "echo hi > " + filepath.Join(repo, "NOTES.md")},
+		{Tool: "bash", Subject: "cd " + repo + " && git commit -am wip"},
+		{Tool: "bash", Subject: "git commit -am wip", Dirs: []string{repo}},
+	} {
+		if d := guard.Evaluate(call, env); !d.Block || !strings.Contains(d.Reason, "worktree") {
+			t.Errorf("%+v changes the person's checkout: %+v", call, d)
+		}
+	}
+	for _, call := range []guard.Call{
+		{Tool: "write", Subject: "NOTES.md"},
+		{Tool: "bash", Subject: "git add -A && git commit -m wip"},
+		{Tool: "bash", Subject: "cat " + filepath.Join(repo, "README.md")},
+		{Tool: "write", Subject: filepath.Join(t.TempDir(), "elsewhere.txt")},
+	} {
+		if d := guard.Evaluate(call, env); d.Block {
+			t.Errorf("%+v is allowed: %s", call, d.Reason)
+		}
+	}
+}

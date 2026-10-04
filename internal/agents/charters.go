@@ -52,7 +52,9 @@ Effects (respond with ONLY a JSON object, no other text):
   "from":"<work item id>" continues that item's branch instead (e.g. picking up
   an archived task); "base":"<branch>" starts from a branch other than the
   repo's default; "in_place":true works directly in the person's own directory
-  and is ONLY for when they explicitly ask for that ("在主干上改", "直接改我的目录").
+  and is ONLY for when they explicitly ask for that ("在主干上改", "直接改我的目录"):
+  add "asked":"<their words asking for it, quoted exactly>" — without them it
+  gets a worktree like any other task.
 {"type":"update_repo","of":"<id>","repo":"<repo id>","path":"<new absolute path>"}
   The person tells you where a registered repository is now.
 {"type":"forget_repo","of":"<id>","repo":"<repo id>"}
@@ -140,7 +142,7 @@ Respond with ONLY a JSON object, no other text:
 {"type":"attach_repo","repo":"<repo name, id or absolute path>","base":null,"in_place":false}
   The work turns out to need another repository: this item gets its own
   worktree of it. "in_place":true only when the person explicitly asked to work
-  in their own directory.
+  in their own directory, with "asked":"<their words, quoted exactly>".
 {"type":"reroute","of":"<message id>"}
   The message is clearly about something else, not this work item.
 {"type":"done"}
@@ -167,9 +169,11 @@ item. Complete the given instructions using your tools. Put what you produce
 in the workspace directory or the repositories listed for you unless the
 instructions name another place — files elsewhere on this machine are yours to
 read and change when the work calls for it.
-In a repository that is this work item's own worktree, commit finished changes
-on its branch with a clear message; never push, never switch, create or delete
-branches, and never run git worktree commands. In the person's own directory
+Follow each repository's own instructions for agents (its AGENTS.md or
+CLAUDE.md) for the work you do in it, commit messages included. In a
+repository that is this work item's own worktree, commit finished changes on
+its branch; never push, never switch, create or delete branches, and never run
+git worktree commands. In the person's own directory
 (worked on in place) do not commit unless asked.
 New instructions from the person may arrive while you work; when a tool call
 is refused because new input is pending, stop changing things and follow the

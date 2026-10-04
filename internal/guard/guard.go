@@ -232,6 +232,9 @@ type Env struct {
 	// Writable are further directories the person lent to this work item
 	// (an original checkout they asked it to work in).
 	Writable []string
+	// Reserved are the person's own checkouts of repositories this work item
+	// works on in worktrees of its own: those stay the person's.
+	Reserved []string
 	// Cwd is where the worker runs, which relative paths are relative to; it
 	// defaults to the workspace.
 	Cwd string
@@ -247,6 +250,7 @@ const (
 	EnvExtraDeny    = "HIDANE_GUARD_DENY"
 	EnvWorkspace    = "HIDANE_WORKSPACE"
 	EnvWritable     = "HIDANE_WRITABLE_DIRS"
+	EnvReserved     = "HIDANE_RESERVED_DIRS"
 	EnvCwd          = "HIDANE_CWD"
 	EnvProtected    = "HIDANE_PROTECTED_DIR"
 )
@@ -269,6 +273,7 @@ func EnvFromOS() Env {
 		ExtraDeny:        lines(os.Getenv(EnvExtraDeny)),
 		Workspace:        os.Getenv(EnvWorkspace),
 		Writable:         lines(os.Getenv(EnvWritable)),
+		Reserved:         lines(os.Getenv(EnvReserved)),
 		Cwd:              os.Getenv(EnvCwd),
 		Protected:        os.Getenv(EnvProtected),
 	}
@@ -282,6 +287,7 @@ func (e Env) Vars() []string {
 		EnvBlocksFile + "=" + e.BlocksFile,
 		EnvWorkspace + "=" + e.Workspace,
 		EnvWritable + "=" + strings.Join(e.Writable, "\n"),
+		EnvReserved + "=" + strings.Join(e.Reserved, "\n"),
 		EnvCwd + "=" + e.Cwd,
 		EnvProtected + "=" + e.Protected,
 	}
@@ -517,6 +523,12 @@ func confinement(call Call, env Env) string {
 	}
 	ws := resolved(env.Workspace)
 	roots := env.roots()
+	var reserved []string
+	for _, d := range env.Reserved {
+		if strings.TrimSpace(d) != "" {
+			reserved = append(reserved, resolved(d))
+		}
+	}
 	control := filepath.Join(ws, ".hidane")
 	protected := ""
 	if env.Protected != "" {
@@ -529,6 +541,8 @@ func confinement(call Call, env Env) string {
 			return "blocked by hidane guard: .hidane holds this workspace's policy and traces; it is not for work products"
 		case protected != "" && inside(protected, r) && !insideAny(roots, r):
 			return fmt.Sprintf("blocked by hidane guard: %s is in hidane's own data directory (%s), which no worker may change", path, env.Protected)
+		case insideAny(reserved, r) && !insideAny(roots, r):
+			return fmt.Sprintf("blocked by hidane guard: %s is in the person's own checkout of a repository this task works on in its own worktree; make the change in the worktree", path)
 		}
 		return ""
 	}
