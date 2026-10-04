@@ -54,7 +54,7 @@ scenarios_for() {
     internal/agents/*) echo "1 1B 2 4B 4F 4I 4R 5A 5B 5C 5D 5F 5H 6E 7A 7B 7C 7E 7F 7G" ;;
     internal/kernel/*) echo "3 4 5G 5H" ;;
     internal/projections/*) echo "3 4O 4P 4R" ;;
-    internal/api/*) echo "4E 4J 4K 4N 4O 4P 4Q 7D 7E" ;;
+    internal/api/*) echo "4J 4K 4O 4P 4Q 7D 7E" ;;
     internal/connectors/*) echo "2" ;;
     internal/feishu/*) echo "4C" ;;
     internal/settings/*) echo "6A 6E" ;;

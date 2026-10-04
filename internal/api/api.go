@@ -356,7 +356,7 @@ type Frame struct {
 	Data  any
 }
 
-const (
+var (
 	pingEvery = 15 * time.Second
 	pollEvery = 5 * time.Second
 )

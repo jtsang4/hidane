@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -487,55 +488,134 @@ func TestScheduleDefinitionsAndRunHistory(t *testing.T) {
 	}
 }
 
-func TestStreamDeliversHelloLogEventsAndLiveText(t *testing.T) {
-	e := newEnv(t, api.Options{})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+type frame struct{ id, event, data string }
+
+func (e *env) openStream(ctx context.Context) (*http.Response, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", e.srv.URL+"/api/events/stream", nil)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
-	frames := make(chan [2]string, 16)
+	return http.DefaultClient.Do(req)
+}
+
+// frames reads a server-sent event stream one frame at a time.
+func frames(t *testing.T, ctx context.Context, body io.Reader) func() frame {
+	ch := make(chan frame, 16)
 	go func() {
-		sc := bufio.NewScanner(res.Body)
-		var event string
+		sc := bufio.NewScanner(body)
+		var f frame
 		for sc.Scan() {
 			line := sc.Text()
-			if strings.HasPrefix(line, "event: ") {
-				event = strings.TrimPrefix(line, "event: ")
-			}
-			if strings.HasPrefix(line, "data: ") {
-				frames <- [2]string{event, strings.TrimPrefix(line, "data: ")}
+			switch {
+			case strings.HasPrefix(line, "id: "):
+				f.id = strings.TrimPrefix(line, "id: ")
+			case strings.HasPrefix(line, "event: "):
+				f.event = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				f.data = strings.TrimPrefix(line, "data: ")
+				ch <- f
+				f = frame{}
 			}
 		}
 	}()
-	next := func() [2]string {
+	return func() frame {
+		t.Helper()
 		select {
-		case f := <-frames:
+		case f := <-ch:
 			return f
 		case <-ctx.Done():
 			t.Fatal("no frame")
 		}
-		return [2]string{}
+		return frame{}
 	}
-	if f := next(); f[0] != "hello" {
+}
+
+func TestStreamDeliversHelloLogEventsAndLiveText(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := e.openStream(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	next := frames(t, ctx, res.Body)
+	if f := next(); f.event != "hello" {
 		t.Fatalf("first frame: %v", f)
 	}
 	time.Sleep(100 * time.Millisecond)
 	ev := m(e.k.Append(context.Background(), kernel.EventInput{Source: "test", Kind: "x.y", Payload: kernel.Payload{"a": 1}}))
-	f := next()
-	if f[0] != "hidane" || !strings.Contains(f[1], ev.ID) {
+	// The id is the seq, so a reconnecting EventSource resumes after it.
+	if f := next(); f.event != "hidane" || f.id != strconv.FormatInt(ev.Seq, 10) || !strings.Contains(f.data, ev.ID) {
 		t.Fatalf("log frame: %v", f)
 	}
 	h := e.s.Live.Begin("main")
 	h.Push("partial")
-	f = next()
-	if f[0] != "stream" || !strings.Contains(f[1], "partial") {
+	if f := next(); f.event != "stream" || !strings.Contains(f.data, "partial") {
 		t.Fatalf("live frame: %v", f)
 	}
 	h.End()
+}
+
+// A dead server leaves an EventSource open and silent: clients can only tell
+// a quiet system from a lost connection by the pings.
+func TestQuietStreamPings(t *testing.T) {
+	t.Cleanup(api.QuietStream(100*time.Millisecond, 20*time.Millisecond)) // after the server's Close, which runs first
+	e := newEnv(t, api.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := e.openStream(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	next := frames(t, ctx, res.Body)
+	if f := next(); f.event != "hello" {
+		t.Fatalf("first frame: %v", f)
+	}
+	if f := next(); f.event != "ping" {
+		t.Fatalf("a quiet stream pings: %v", f)
+	}
+}
+
+// Streams opened together each get a body: the stream once queried the
+// database before its first write and answered 200 with nothing under load.
+func TestConcurrentStreamsEachGreetAndFollow(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	responses := make([]*http.Response, 8)
+	errs := make([]error, 8)
+	var wg sync.WaitGroup
+	for i := range responses {
+		wg.Go(func() { responses[i], errs[i] = e.openStream(ctx) })
+	}
+	wg.Wait()
+	var streams []func() frame
+	for i, res := range responses {
+		if errs[i] != nil {
+			t.Fatal(errs[i])
+		}
+		defer res.Body.Close()
+		next := frames(t, ctx, res.Body)
+		if f := next(); f.event != "hello" {
+			t.Fatalf("stream %d: %v", i, f)
+		}
+		streams = append(streams, next)
+	}
+	time.Sleep(100 * time.Millisecond)
+	code, body := e.do("POST", "/api/chat", "", map[string]any{"text": "hello all"})
+	if code != 202 {
+		t.Fatalf("chat: %d %v", code, body)
+	}
+	for i, next := range streams {
+		if f := next(); f.event != "hidane" || !strings.Contains(f.data, body["messageId"].(string)) {
+			t.Fatalf("stream %d: %v", i, f)
+		}
+	}
+	for _, res := range responses {
+		res.Body.Close()
+	}
+	if code, body := e.do("GET", "/health", "", nil); code != 200 || body["db"] != "up" {
+		t.Fatalf("health after the streams: %d %v", code, body)
+	}
 }
 
 func TestResumeCursor(t *testing.T) {

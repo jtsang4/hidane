@@ -89,19 +89,6 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 - 若环境里有真实的 `FEISHU_APP_ID`/`FEISHU_APP_SECRET`（或 settings.json 的 `feishu` 段），启动 serve 后日志
   出现 `feishu channel enabled`，给机器人发一条单聊消息能在主线程看到 `connector.feishu` 与回复；没有凭证则 BLOCKED
 
-## 场景 4E：事件流保活与异步写口
-
-`/api/events/stream` 是前端所有实时性的唯一来源。期望：
-
-- 订阅后立即收到 `event: hello`
-- **在没有任何新事件的空闲期内，20 秒内必须收到 `event: ping`**——浏览器端的
-  EventSource 在服务端进程被杀死后仍会停留在 `readyState: OPEN` 且**不触发 error**，
-  客户端只能靠「静默」判断连接已死；没有 ping 就无法区分「系统很安静」和「连接已断」，
-  界面会一直显示过期数据却看起来一切正常。同时也防止空闲连接被反向代理掐断。
-- 有新事件时 `event: hidane` 正常推送，且 `id` 为事件 seq
-- 写口是异步的：`POST /api/chat` 立刻返回 202 与 `messageId`（不等模型），`user.message`
-  已落库，回复稍后作为 `payload.root = messageId` 的事件出现——请确认返回码与回复到达确实是分离的两件事
-
 ## 场景 4F：工作项状态可改
 
 - `PATCH /api/work-items/:id` 传 `{"status":"done"}` 返回 200，工作项状态变为 done，
@@ -181,15 +168,6 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 - `PATCH {status:"closed"}` 归档后：`GET /api/work-items` 默认列表**不含**它，
   `GET /api/work-items?all` **含**它，且事件与工作区产物均保留（归档不是删除）
 - `closed` 与 `done` 是两种状态，不要混用
-
-## 场景 4N：并发事件流不会返回空 body
-
-SSE 曾在并发下出现「200 头 + 空 body」——首次写入前先查库，查询失败时响应已提交。
-期望：
-
-- 同时开 8 条 `/api/events/stream` 连接，**每条**都能读到首个 `hello` 事件（无空 body）
-- 期间正常发一条 chat，各连接都能收到新事件
-- 全部断开后服务仍健康（`/health` ok）
 
 ## 场景 4O：对话历史分页加载
 
