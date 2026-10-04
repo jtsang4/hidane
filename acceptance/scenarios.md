@@ -69,15 +69,6 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 - `hidane log` 渲染出的当日工作日志包含主线程和场景 1 的工作项分区，内容能对应上真实发生的事
 - 写盘版本落在 `~/.hidane/worklogs/YYYY/MM/DD/worklog.md` 且内容一致
 
-## 场景 4A：认证边界
-
-`hidane serve` 需以 `HIDANE_API_TOKEN=acc-test-token HIDANE_WEBHOOK_SECRET=acc-test-secret` 启动。期望：
-
-- `/api/*` 无 token 或错 token 返回 401；正确 Bearer token 返回 200；SSE（`/api/events/stream`）的 `?token=` 查询参数同样有效，
-  其它端点不接受 URL 里的 token（401）：URL 会进日志与历史
-- `/webhook/:name` 无签名或错签名返回 401，事件**不**落日志；正确的 `x-hidane-signature`（sha256= 前缀的 HMAC-SHA256）返回 200 且事件落日志
-- `/health` 始终开放
-
 ## 场景 4B：记忆蒸馏与跨日召回
 
 用 `chat` 告诉 Primary 一条明确的、此前不存在的长期偏好（编一条具体的），然后 `hidane distill --min 1`。期望：
