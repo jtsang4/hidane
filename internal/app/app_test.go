@@ -93,6 +93,11 @@ func TestFirstRunPicksAnInstalledCLIAndHoldsTheLock(t *testing.T) {
 // The started runtime runs the scheduler and triage loops: a due schedule
 // fires on its own and its capture is recorded, waking nothing.
 func TestTheRuntimeFiresDueSchedules(t *testing.T) {
+	// The shortest interval is 10s: a tick of more than half of it would skip
+	// whole slots, and an external event would wait that long to be triaged.
+	if app.LoopEvery > 5*time.Second {
+		t.Fatalf("the loops tick every %v", app.LoopEvery)
+	}
 	onlyCodex(t)
 	a, err := app.Open(config.ForTest(t.TempDir()), app.Options{})
 	if err != nil {

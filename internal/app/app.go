@@ -178,6 +178,10 @@ type cachedCatalog struct {
 	at      time.Time
 }
 
+// loopEvery is how often the triage and scheduler loops look for work: a
+// capture is triaged, and a due schedule fires, at most this late.
+const loopEvery = 5 * time.Second
+
 // ErrLocked means another runtime already serves this home.
 var ErrLocked = fmt.Errorf("another hidane runtime holds the lock on this data directory")
 
@@ -211,8 +215,8 @@ func (a *App) Start() (int, error) {
 	a.Runtime = a.Sys.NewRuntime()
 	a.Runtime.Start()
 	a.goBackground(func() { connectors.Heartbeat(ctx, a.K, a.Cfg.HeartbeatInterval) })
-	a.goBackground(func() { connectors.TriageLoop(ctx, a.K, 5*time.Second) })
-	a.goBackground(func() { connectors.Scheduler(ctx, a.K, 5*time.Second) })
+	a.goBackground(func() { connectors.TriageLoop(ctx, a.K, loopEvery) })
+	a.goBackground(func() { connectors.Scheduler(ctx, a.K, loopEvery) })
 	a.startFeishu(ctx)
 	return lost, nil
 }
