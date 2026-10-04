@@ -1,13 +1,20 @@
 <script lang="ts">
-  import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+  import { createQueries, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { t } from "../../i18n/index.js";
-  import { api, type Role, type RoleConfig } from "../../lib/api.js";
-  import { ROLES } from "../../lib/settings.js";
+  import { api, type AgentCatalog, type AgentKind, type Role, type RoleConfig } from "../../lib/api.js";
+  import { AGENT_KINDS, ROLES } from "../../lib/settings.js";
   import RoleRow from "../../components/settings/RoleRow.svelte";
 
   const queryClient = useQueryClient();
   const settingsQuery = createQuery(() => ({ queryKey: ["settings"], queryFn: () => api.settings() }));
   let settings = $derived(settingsQuery.data);
+  // The same cache the composer's picker reads; the server asks each CLI at most every few minutes.
+  const catalogQueries = createQueries(() => ({
+    queries: AGENT_KINDS.map((agent) => ({ queryKey: ["agent-models", agent], queryFn: () => api.agentModels(agent), staleTime: 5 * 60_000 })),
+  }));
+  let catalogs = $derived<Partial<Record<AgentKind, AgentCatalog>>>(
+    Object.fromEntries(catalogQueries.flatMap((query, i) => (query.data ? [[AGENT_KINDS[i], query.data]] : []))),
+  );
 
   /** One role per request: the server merges, so rows saving at once cannot overwrite each other. */
   async function save(role: Role, config: RoleConfig): Promise<void> {
@@ -26,6 +33,7 @@
       {role}
       config={settings.roles[role]}
       providers={settings.providers}
+      {catalogs}
       onsave={(config) => save(role, config)}
       ontest={() => api.testAgent(role)}
     />

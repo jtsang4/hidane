@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n/index.js";
 import { zh } from "../src/i18n/resources.js";
-import type { AgentTestResult, ProviderView, RoleConfig } from "../src/lib/api.js";
+import { tick } from "svelte";
+import type { AgentCatalog, AgentTestResult, ProviderView, RoleConfig } from "../src/lib/api.js";
 import RoleRow from "../src/components/settings/RoleRow.svelte";
 import { choose } from "./choose.js";
 
@@ -120,6 +121,35 @@ describe("RoleRow", () => {
     expect(ontest).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("pong")).toBeInTheDocument();
     expect(screen.getByText(/1234 ms/)).toBeInTheDocument();
+  });
+
+  it("suggests the CLI's own models while no provider is chosen, and the provider's otherwise", async () => {
+    const codex: AgentCatalog = {
+      agent: "codex",
+      models: [{ id: "gpt-fake-mini", label: "GPT Fake Mini", efforts: ["low", "medium"], defaultEffort: "low" }],
+      efforts: ["low", "medium", "high"],
+      source: "cli",
+    };
+    const ontest = vi.fn(() => Promise.resolve({ ok: true, text: "", error: "", durationMs: 1, agent: "codex", model: "" }));
+    const config: RoleConfig = { agent: "codex", provider: "", model: "gpt-fake-mini", effort: "" };
+    const { rerender } = render(RoleRow, { props: { role: "manager", config, providers: [deepseek], catalogs: { codex }, onsave: vi.fn(() => Promise.resolve()), ontest } });
+    const model = screen.getByLabelText(text.roles.model);
+    await fireEvent.click(model);
+    await tick();
+    const options = (await screen.findAllByRole("option")).map((option) => option.textContent?.replace(/\s+/g, " ").trim());
+    expect(options).toEqual(["gpt-fake-mini GPT Fake Mini", zh.translation.runAs.defaultModel]);
+    await fireEvent.keyDown(model, { key: "Escape" });
+    // That model takes only low and medium; the effort list follows it.
+    await fireEvent.keyDown(screen.getByLabelText(text.roles.effort), { key: "Enter" });
+    await tick();
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent?.trim())).toEqual([text.effort.default, text.effort.low, text.effort.medium]);
+    await fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
+    await tick();
+
+    await rerender({ config: { agent: "pi", provider: "deepseek", model: "", effort: "" } });
+    await fireEvent.click(model);
+    await tick();
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent?.trim())).toEqual([zh.translation.runAs.defaultModel, "deepseek-chat"]);
   });
 
   it("shows a failed test's error", async () => {

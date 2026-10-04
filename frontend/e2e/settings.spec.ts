@@ -112,6 +112,10 @@ test.describe("settings", () => {
       await choose(worker.getByLabel("模型服务"), "CLI 自己的登录与默认设置");
       await expect(worker.getByRole("alert")).toHaveCount(0);
       await expect(worker.getByRole("button", { name: "测试" })).toBeEnabled();
+      // On its own login the model list is the CLI's catalog (the fake's here), opened by a click in the field.
+      await worker.getByRole("combobox", { name: "模型", exact: true }).click();
+      await page.getByRole("option", { name: /^gpt-fake-mini/ }).click();
+      await expect.poll(async () => (await api.settings()).roles.worker).toMatchObject({ agent: "codex", provider: "", model: "gpt-fake-mini" });
 
       // --- deleting a provider a role uses is refused with the server's reason ---
       await nav.getByRole("link", { name: "模型服务" }).click();

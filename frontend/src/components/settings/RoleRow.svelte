@@ -1,10 +1,11 @@
 <script lang="ts">
   import { FlaskConical, LoaderCircle, TriangleAlert } from "@lucide/svelte";
   import { t } from "../../i18n/index.js";
-  import type { AgentKind, AgentTestResult, Effort, ProviderView, Role, RoleConfig } from "../../lib/api.js";
+  import type { AgentCatalog, AgentKind, AgentTestResult, Effort, ProviderView, Role, RoleConfig } from "../../lib/api.js";
+  import { effortOptions } from "../../lib/runAs.js";
   import { AGENT_KINDS, effortsFor, errorText, roleCompatibility } from "../../lib/settings.js";
   import Button from "../ui/Button.svelte";
-  import Combobox from "../ui/Combobox.svelte";
+  import Combobox, { type ComboboxSuggestion } from "../ui/Combobox.svelte";
   import Select, { type SelectOption } from "../ui/Select.svelte";
   import SaveStatus from "./SaveStatus.svelte";
   import SettingsRow from "./SettingsRow.svelte";
@@ -13,6 +14,7 @@
     role,
     config,
     providers,
+    catalogs = {},
     onsave,
     ontest,
   }: {
@@ -20,6 +22,8 @@
     /** The saved configuration; the row edits a copy and saves each change as it is made. */
     config: RoleConfig;
     providers: readonly ProviderView[];
+    /** What each CLI runs on its own login, for the model and effort lists while no provider is chosen. */
+    catalogs?: Partial<Record<AgentKind, AgentCatalog>>;
     onsave: (config: RoleConfig) => Promise<unknown>;
     ontest: () => Promise<AgentTestResult>;
   } = $props();
@@ -50,7 +54,11 @@
   let status = $derived<"idle" | "saving" | "saved" | "error" | "unsaved">(
     saving ? "saving" : saveError ? "error" : issue && dirty ? "unsaved" : savedOnce && !dirty ? "saved" : "idle",
   );
-  let models = $derived(providers.find((provider) => provider.id === draft.provider)?.models ?? []);
+  let catalog = $derived(draft.provider === "" ? catalogs[draft.agent] : undefined);
+  let models = $derived.by((): ComboboxSuggestion[] => {
+    if (catalog) return catalog.models.map((model) => ({ value: model.id, label: model.label }));
+    return (providers.find((provider) => provider.id === draft.provider)?.models ?? []).map((model) => ({ value: model }));
+  });
   let ids = $derived({
     agent: `role-${role}-agent`,
     provider: `role-${role}-provider`,
@@ -162,7 +170,7 @@
         class="w-full sm:w-56"
         emptyLabel={$t("runAs.defaultModel")}
         value={draft.model}
-        suggestions={models.map((model) => ({ value: model }))}
+        suggestions={models}
         oninput={(text) => update({ model: text })}
         onchange={(next) => change({ model: next })}
       />
@@ -172,7 +180,7 @@
         id={ids.effort}
         class="w-full sm:w-56"
         value={draft.effort}
-        options={effortsFor(draft.agent).map((effort) => ({ value: effort, label: $t(`settings.effort.${effort || "default"}`) }))}
+        options={effortOptions(draft, catalog).map((effort) => ({ value: effort, label: $t(`settings.effort.${effort || "default"}`) }))}
         onchange={(next) => change({ effort: next as Effort })}
       />
     </SettingsRow>
