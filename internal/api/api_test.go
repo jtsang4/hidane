@@ -562,6 +562,10 @@ func TestStreamDeliversHelloLogEventsAndLiveText(t *testing.T) {
 // A dead server leaves an EventSource open and silent: clients can only tell
 // a quiet system from a lost connection by the pings.
 func TestQuietStreamPings(t *testing.T) {
+	// The client calls a stream lost after a stretch of silence; it must hear a ping within 20s.
+	if ping, poll := api.StreamIntervals(); ping+poll > 20*time.Second {
+		t.Fatalf("a quiet stream can go %v without a ping", ping+poll)
+	}
 	t.Cleanup(api.QuietStream(100*time.Millisecond, 20*time.Millisecond)) // after the server's Close, which runs first
 	e := newEnv(t, api.Options{})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
