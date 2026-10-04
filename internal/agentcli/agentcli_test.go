@@ -81,7 +81,7 @@ func (h *harness) invocations() []invocation {
 
 func (h *harness) req(prompt string) agentcli.Request {
 	return agentcli.Request{Prompt: prompt, Cwd: h.cwd, Timeout: 20 * time.Second, SessionDir: filepath.Join(h.cwd, ".sessions"),
-		Env: guard.Env{Workspace: h.cwd}.Vars()}
+		Env: guard.Env{}.Vars()}
 }
 
 func TestReasoningCallsOnEveryCLI(t *testing.T) {
@@ -158,18 +158,13 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 			h := newHarness(t, "CLAUDECODE=1")
 			blocks := filepath.Join(h.cwd, ".hidane", "blocks.jsonl")
 			_ = os.MkdirAll(filepath.Dir(blocks), 0o755)
-			env := guard.Env{BlocksFile: blocks, Workspace: h.cwd}
+			env := guard.Env{BlocksFile: blocks}
 			var mu sync.Mutex
 			var tools []agentcli.ToolEvent
 			req := h.req("WRITE result.txt: hello world\nRUN: sudo rm -rf /tmp/x")
 			req.SystemPrompt = workerCharter
 			req.Tools = true
 			req.Env = env.Vars()
-			// The pool names the workspace again among the roots: listed twice,
-			// it must still be one key, or codex cannot read the table.
-			req.WritableRoots = []string{h.cwd, "/repos/blog/.git"}
-			req.ReadOnly = []string{"/data/hidane", filepath.Join(h.cwd, ".hidane")}
-			req.Hidden = []string{"/data/hidane/settings.json"}
 			req.OnTool = func(e agentcli.ToolEvent) { mu.Lock(); tools = append(tools, e); mu.Unlock() }
 			res := agentcli.Call(context.Background(), h.l, agent, req)
 			if !res.OK {
@@ -204,20 +199,10 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 				t.Fatalf("tool events: %+v (calls %d)", tools, res.ToolCalls)
 			}
 			if agent == "codex" {
-				// The workspace is no fence; codex's sandbox keeps the worker
-				// off what it is told to leave alone, and nothing else.
+				// Codex's own bypass, like the other CLIs: no fence, no profile.
 				args := strings.Join(h.invocations()[0].Args, " ")
-				if n := strings.Count(args, `"`+h.cwd+`"=`); n != 1 {
-					t.Fatalf("the workspace must be one key of the table, not %d: %s", n, args)
-				}
-				for _, want := range []string{`default_permissions="hidane"`, `":root"="write"`, `"` + h.cwd + `"="write"`, `"/repos/blog/.git"="write"`,
-					`"/data/hidane"="read"`, `"/data/hidane/settings.json"="deny"`, "permissions.hidane.network.enabled=true"} {
-					if !strings.Contains(args, want) {
-						t.Fatalf("codex worker sandbox: missing %s in %s", want, args)
-					}
-				}
-				if strings.Contains(args, "sandbox_mode") {
-					t.Fatalf("sandbox_mode would switch the permission profile off: %s", args)
+				if !strings.Contains(args, `sandbox_mode="danger-full-access"`) || strings.Contains(args, "permissions.") {
+					t.Fatalf("codex worker runs in full access: %s", args)
 				}
 			}
 

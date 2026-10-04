@@ -59,15 +59,13 @@ Across the tree, facts propagate like DOM events:
   message that is not its own (`message.reroute_requested`) climbs one level at
   a time to the Primary and then to the person, carrying what each level tried.
   Which kinds bubble is declared per kind; tool traffic never does.
-- **Capture** — before any worker tool call runs, it passes the built-in deny
-  list, the policy files from the global one down through each ancestor
-  workspace to its own (`POLICY.json`), and a check that keeps workers off what
-  hidane itself runs on: no change to its data directory (other work items'
-  workspaces included) or to a workspace's `.hidane`, and no access at all to
-  its `settings.json`. The workspace is where a worker starts and puts its
-  work, not a fence — it may read and change files anywhere else. Any of them
-  can refuse a call. Rules only, no model. While a person's new message is
-  queued for a running worker, changes are paused until it has been read.
+- **Capture** — every agent tool call first passes the built-in deny list (a
+  few commands too dangerous for anyone: `sudo`, `rm -rf /`, a force push…) and
+  the person's policy files (`POLICY.json`, global down to the item's own).
+  Rules only, no model. Nothing else is fenced: the agents run in their CLI's
+  own bypass mode, and a workspace is where they start, not a limit. While a
+  person's new message is queued for a running worker, its changes pause until
+  it has been read.
 - **Cancel** flows down the tree; its source is a person, a deadline, or a spent
   budget (`HIDANE_MAX_HOPS` bounds any causal chain of messages).
 
@@ -110,8 +108,13 @@ Every role runs on a local agent CLI as a subprocess — no SDK is embedded:
 
 | Role | Uses tools | Runs as |
 |---|---|---|
-| Primary, Manager, distiller | no — they decide, they never act | the charter is the whole system prompt (codex: `baseInstructions`); tools disabled, MCP servers from the CLI's own config too (`claude --tools "" --strict-mcp-config`, codex read-only with its tool features and MCP servers off, `pi --no-tools`) |
-| Worker | yes, in its work item's workspace | the charter is appended; every tool call passes `hidane guard` (Claude Code / Codex PreToolUse hook, a pi extension) |
+| Primary, Manager | yes — quick looks and small changes; longer work goes to a worker | the charter is the whole system prompt (codex: `baseInstructions`), so they answer with an effect list |
+| Worker | yes, starting in its work item's workspace or repository | the charter is appended |
+| Distiller | no | the charter is the whole system prompt; tools and MCP servers off |
+
+Every run with tools uses its CLI's own bypass mode (`claude --permission-mode
+bypassPermissions`, codex `danger-full-access`, pi as is) and passes `hidane
+guard` on each call (a Claude Code / Codex PreToolUse hook, a pi extension).
 
 | CLI | Protocol hidane speaks | Steering a running worker | Cancel |
 |---|---|---|---|

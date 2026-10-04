@@ -75,7 +75,7 @@ func piArgs(l *Launcher, req Request) ([]string, []string) {
 	}
 	if req.SystemPrompt != "" {
 		flag := "--append-system-prompt"
-		if !req.Tools {
+		if !req.Tools || req.ReplacePrompt {
 			flag = "--system-prompt"
 		}
 		args = append(args, flag, req.SystemPrompt)

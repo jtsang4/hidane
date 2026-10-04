@@ -40,12 +40,18 @@ type ToolEvent struct {
 // Request is one run.
 type Request struct {
 	Prompt string
-	// SystemPrompt is the role charter: it replaces the CLI's own prompt for
-	// reasoning roles and is appended to it for workers.
+	// SystemPrompt is the role charter: it replaces the CLI's own prompt when
+	// ReplacePrompt is set or the run has no tools, and is appended to it for
+	// workers.
 	SystemPrompt string
-	Cwd          string
-	Images       []Image
-	// Tools: false for reasoning-only roles.
+	// ReplacePrompt: the charter is the role (Primary, Manager), even with
+	// tools — the CLI's own prompt would make it a coding agent that answers
+	// in prose instead of its effect list.
+	ReplacePrompt bool
+	Cwd           string
+	Images        []Image
+	// Tools: false for the roles that only read what they are given (the
+	// distiller, a connectivity check).
 	Tools    bool
 	Model    string
 	Effort   string
@@ -54,17 +60,8 @@ type Request struct {
 	ResumeID   string
 	SessionDir string
 	// Env is extra environment, e.g. the guard's policy files.
-	Env []string
-	// WritableRoots are directories besides Cwd a worker may change (its
-	// workspace, a worktree's repository metadata, a lent checkout); only a
-	// CLI with its own sandbox needs telling.
-	WritableRoots []string
-	// ReadOnly are paths a worker may read but not change, Hidden ones it may
-	// not even read (hidane's own data, its settings). The guard enforces them
-	// on every CLI; codex's own sandbox does as well.
-	ReadOnly []string
-	Hidden   []string
-	Timeout  time.Duration
+	Env     []string
+	Timeout time.Duration
 
 	OnText func(delta string)
 	OnTool func(ToolEvent)

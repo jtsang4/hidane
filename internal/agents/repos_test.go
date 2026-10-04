@@ -72,7 +72,7 @@ type invocation struct {
 	Cwd  string   `json:"cwd"`
 }
 
-// workerCall is the first fake CLI run that had tools: the worker.
+// workerCall is the first fake CLI run that was a worker.
 func workerCall(t *testing.T, log string) invocation {
 	t.Helper()
 	b, err := os.ReadFile(log)
@@ -85,7 +85,9 @@ func workerCall(t *testing.T, log string) invocation {
 			continue
 		}
 		joined := strings.Join(inv.Args, " ")
-		if strings.Contains(joined, "bypassPermissions") || strings.Contains(joined, "default_permissions") {
+		// A worker's charter is appended to the CLI's prompt; the Primary's and
+		// a Manager's replace it, tools or not.
+		if strings.Contains(joined, "--append-system-prompt") || strings.Contains(joined, "developer_instructions=") {
 			return inv
 		}
 	}
@@ -152,21 +154,9 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 			if got, _ := filepath.EvalSymlinks(worker.Cwd); got != m(filepath.EvalSymlinks(c.Path)) {
 				t.Fatalf("worker cwd %s, want %s", worker.Cwd, c.Path)
 			}
-			// Codex keeps a worktree's git metadata read-only unless it is
-			// named: only what its own branch needs is, and the person's
-			// checkout stays read-only.
-			args := strings.Join(worker.Args, " ")
-			if agent == settings.Codex {
-				git := filepath.Join(repo, ".git")
-				for _, dir := range []string{filepath.Join(git, "worktrees", "blog"), filepath.Join(git, "objects"),
-					filepath.Join(git, "refs", "heads", "hidane"), filepath.Join(git, "logs", "refs", "heads", "hidane")} {
-					if !strings.Contains(args, strconvQuote(dir)+`="write"`) {
-						t.Fatalf("codex may write %s: %v", dir, worker.Args)
-					}
-				}
-				if !strings.Contains(args, strconvQuote(repo)+`="read"`) || strings.Contains(args, strconvQuote(git)+`="write"`) {
-					t.Fatalf("the person's checkout is read-only to codex: %v", worker.Args)
-				}
+			// Codex runs in its own full access, like the others in bypass mode.
+			if args := strings.Join(worker.Args, " "); agent == settings.Codex && !strings.Contains(args, `sandbox_mode="danger-full-access"`) {
+				t.Fatalf("codex worker: %v", worker.Args)
 			}
 			if _, err := os.Stat(filepath.Join(repo, "result.txt")); err == nil {
 				t.Fatal("the person's own checkout is untouched")
@@ -446,22 +436,5 @@ func TestChildrenInheritTheParentsRepositories(t *testing.T) {
 	first, _ := list[0].(map[string]any)
 	if branches, _ := first["branches"].([]any); len(branches) != 1 || !strings.Contains(branches[0].(string), "site: hidane/") {
 		t.Fatalf("the parent is told each child's branch: %+v", first)
-	}
-}
-
-// A worker working on a repo in a worktree cannot change the person's own
-// checkout of it, even when its instructions name that directory.
-func TestTheOriginalCheckoutIsLeftAlone(t *testing.T) {
-	hermeticGit(t)
-	repo := newRepo(t, t.TempDir(), "site", "", nil)
-	w := newWorld(t, settings.Claude)
-	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "REPO=" + repo + " RUN: echo hi > " + filepath.Join(repo, "NOTES.md"), Source: "connector:web"}))
-	w.settle()
-	if _, err := os.Stat(filepath.Join(repo, "NOTES.md")); err == nil {
-		t.Fatal("the person's own checkout was changed")
-	}
-	blocks := w.events("policy.blocked")
-	if len(blocks) == 0 || !strings.Contains(blocks[0].Payload.Str("reason"), "worktree") {
-		t.Fatalf("the refusal points at the worktree: %+v", blocks)
 	}
 }

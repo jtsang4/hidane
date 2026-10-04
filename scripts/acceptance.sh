@@ -51,7 +51,7 @@ scenarios_for() {
     internal/guard/*) echo "5E 6B 7F" ;;
     internal/repos/*) echo "7A 7B 7C 7D 7E 7F 7G" ;;
     internal/agentcli/*) echo "1 5B 6A 6B 6E" ;;
-    internal/agents/*) echo "1 2 4B 4F 4I 4R 5A 5B 5C 5D 5F 5H 6E 7A 7B 7C 7E 7F 7G" ;;
+    internal/agents/*) echo "1 1B 2 4B 4F 4I 4R 5A 5B 5C 5D 5F 5H 6E 7A 7B 7C 7E 7F 7G" ;;
     internal/kernel/*) echo "3 4 5G 5H" ;;
     internal/projections/*) echo "3 4O 4P 4R" ;;
     internal/api/*) echo "4A 4E 4J 4K 4L 4N 4O 4P 4Q 7D 7E" ;;

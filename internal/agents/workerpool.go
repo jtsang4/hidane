@@ -287,23 +287,11 @@ func (p *WorkerPool) runJob(j *job) {
 		// The worker starts in its first repository, where that repo's own
 		// agent instructions are found; the workspace stays its home.
 		cwd := it.Workspace
-		roots := []string{it.Workspace}
-		var lent, reserved []string
 		for _, c := range held.list {
-			if !repos.Present(c.Path) {
-				continue
-			}
-			if cwd == it.Workspace {
+			if repos.Present(c.Path) {
 				cwd = c.Path
+				break
 			}
-			if c.Mode == kernel.CheckoutInPlace {
-				lent = append(lent, c.Path)
-				roots = append(roots, c.Path)
-			} else {
-				// Worked on in a worktree, the person's own checkout stays theirs.
-				reserved = append(reserved, held.repos[c.RepoID].Path)
-			}
-			roots = append(roots, p.s.Repos.GitDirs(ctx, c)...)
 		}
 		header := []string{"Work item workspace (TASK.md and MEMORY.md live here): " + it.Workspace}
 		if l := held.long(); l != "" {
@@ -318,13 +306,11 @@ func (p *WorkerPool) runJob(j *job) {
 		defer os.RemoveAll(control)
 		pending := filepath.Join(control, "pending-input")
 		blocks := filepath.Join(control, "policy-blocks.jsonl")
-		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks,
-			Workspace: it.Workspace, Writable: lent, Reserved: reserved, Cwd: cwd, Protected: k.Cfg.Home}
+		genv := guard.Env{PolicyFiles: k.PolicyFilesFor(ctx, it), PendingInputFile: pending, BlocksFile: blocks}
 		req := agentcli.Request{
 			Prompt: instructions, SystemPrompt: WorkerCharter, Cwd: cwd, Tools: true,
-			Model: r.Model, Effort: r.Effort, Provider: r.Provider, WritableRoots: roots,
+			Model: r.Model, Effort: r.Effort, Provider: r.Provider,
 			SessionDir: filepath.Join(hidaneDir, "sessions"), Env: genv.Vars(), Timeout: k.Cfg.WorkerTimeout,
-			ReadOnly: append([]string{k.Cfg.Home, hidaneDir}, reserved...), Hidden: []string{k.Cfg.SettingsPath()},
 			// Two-phase side-effect trail: intent before the tool acts, result after.
 			OnTool: func(e agentcli.ToolEvent) {
 				trailMu.Lock()
@@ -388,6 +374,18 @@ func (p *WorkerPool) runJob(j *job) {
 	}
 }
 
+// blockPayload is a refusal as policy.blocked records it: the rule id and its
+// own words, without the guard's English prefix.
+func blockPayload(b guard.Block) kernel.Payload {
+	payload := kernel.Payload{"tool": b.Tool, "rule": nil, "reason": b.Reason}
+	if rest, ok := strings.CutPrefix(b.Reason, "blocked by hidane policy "); ok {
+		if i := strings.Index(rest, ": "); i > 0 {
+			payload["rule"], payload["reason"] = rest[:i], rest[i+2:]
+		}
+	}
+	return payload
+}
+
 var blockedLine = regexp.MustCompile(`(?m)^\s*BLOCKED:\s*(.+)$`)
 
 // BlockedQuestion: a worker that cannot proceed ends with `BLOCKED: <question>`.
@@ -425,13 +423,7 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 	var blocks []any
 	for _, b := range run.PolicyBlocks {
 		blocks = append(blocks, map[string]any{"tool": b.Tool, "reason": b.Reason})
-		payload := kernel.Payload{"tool": b.Tool, "rule": nil, "reason": b.Reason}
-		if strings.HasPrefix(b.Reason, "blocked by hidane policy ") {
-			rest := strings.TrimPrefix(b.Reason, "blocked by hidane policy ")
-			if i := strings.Index(rest, ": "); i > 0 {
-				payload["rule"], payload["reason"] = rest[:i], rest[i+2:]
-			}
-		}
+		payload := blockPayload(b)
 		for key, v := range rootP {
 			payload[key] = v
 		}

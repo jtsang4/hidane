@@ -535,6 +535,8 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		_ = json.Unmarshal(b, &saved)
 	}
 	opts := thinkOpts{Role: "manager", Own: ownRun(item), Charter: ManagerCharter, Cwd: item.Workspace,
+		Tools: true, PolicyFiles: k.PolicyFilesFor(ctx, item),
+		Trail:      kernel.EventInput{Source: "agent:manager", ThreadID: item.ThreadID, WorkItemID: item.ID, CausedBy: cause.ID},
 		SessionDir: filepath.Dir(sessionPath), Images: imagesOf(messages), LiveThreadID: item.ThreadID}
 	if saved.Agent == agent {
 		opts.ResumeID = saved.SessionID

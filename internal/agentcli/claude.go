@@ -50,7 +50,7 @@ func claudeArgs(l *Launcher, req Request) (args []string, env []string) {
 		// is Claude Code with file tools, a model claimed edits it never made.
 		// The charter replaces the prompt there; workers keep it and append.
 		flag := "--append-system-prompt"
-		if !req.Tools {
+		if !req.Tools || req.ReplacePrompt {
 			flag = "--system-prompt"
 		}
 		args = append(args, flag, req.SystemPrompt)

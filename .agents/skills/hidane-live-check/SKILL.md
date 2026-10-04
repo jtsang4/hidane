@@ -51,10 +51,11 @@ The script prints the decisions, executions, refusals and replies, and every
 file the workers produced. Check all of these:
 
 1. **Routing**: a task became a `work_item.created`; small talk did not. A
-   `reply` effect that claims work was done, with no work item, is a fabrication.
+   `reply` that claims work was done is true only if the Primary did it with
+   its own tools (`side_effect.*` from `agent:primary`) or a work item did.
 2. **Briefs carry no paths of hidane's own** (the role directory, `HIDANE_HOME`).
-3. **Artifacts are inside `workspaces/<wi>/`**: nothing next to `settings.json`
-   or under `runtime/`.
+3. **Artifacts land where the task said**, by default its `workspaces/<wi>/`
+   (or its worktree); nothing stray next to `settings.json` or under `runtime/`.
 4. **Policy**: the refused file does not exist, and there is a `policy.blocked`
    naming the rule.
 5. **The final reply matches the files on disk**, not just the worker's prose.

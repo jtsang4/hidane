@@ -122,6 +122,8 @@ func emit(v any) {
 
 var msgLine = regexp.MustCompile(`(?m)^\[(ev_[0-9a-z]+)\] \(([a-z]+)[^)]*\)\s?(.*)$`)
 
+var lookFirst = regexp.MustCompile(`LOOK_FIRST: ([^\n]+?)(?: END|$)`)
+
 // Hints a test puts in a message to steer the fake Primary: REPO=<name or
 // path> (several allowed), FROM=<work item>, INPLACE, ROUTE=<work item>.
 var (
@@ -528,6 +530,21 @@ func runClaude(args []string) {
 			delay()
 			answer = workerSummary(prompt, blocked, done)
 		} else {
+			// A reasoning role with tools looks first when told to: LOOK_FIRST: <command>.
+			if m := lookFirst.FindStringSubmatch(prompt); toolsOn && m != nil {
+				id := fmt.Sprintf("toolu_%d_look", n)
+				input := map[string]any{"command": strings.TrimSpace(m[1])}
+				emit(map[string]any{"type": "assistant", "session_id": session, "message": map[string]any{"role": "assistant",
+					"content": []any{map[string]any{"type": "tool_use", "id": id, "name": "Bash", "input": input}}}})
+				reason := runHook(hook, "claude", "Bash", input)
+				if reason == "" {
+					c := exec.Command("sh", "-c", strings.TrimSpace(m[1]))
+					c.Dir = cwd
+					_ = c.Run()
+				}
+				emit(map[string]any{"type": "user", "session_id": session, "message": map[string]any{"role": "user",
+					"content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": reason != "", "content": reason}}}})
+			}
 			delay()
 			answer = brain(system, prompt)
 		}

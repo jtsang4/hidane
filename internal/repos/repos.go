@@ -661,27 +661,6 @@ func (s *Service) Archive(ctx context.Context, id string, force bool, source str
 	return s.K.ArchiveCheckout(ctx, id, source, detail)
 }
 
-// GitDirs are the repository metadata a checkout's commits write to, which a
-// sandboxed CLI keeps read-only unless they are named. For a worktree that is
-// only what its own branch needs, so the person's checkout and branches stay
-// out of reach; a lent checkout's whole git dir is the person's to lend.
-func (s *Service) GitDirs(ctx context.Context, c kernel.Checkout) []string {
-	out, err := s.git(ctx, c.Path, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
-	if err != nil {
-		return nil
-	}
-	parts := strings.Split(out, "\n")
-	if len(parts) != 2 {
-		return nil
-	}
-	own, common := filepath.Clean(parts[0]), filepath.Clean(parts[1])
-	if c.Mode == kernel.CheckoutInPlace {
-		return []string{common}
-	}
-	ns := filepath.FromSlash("refs/heads/" + strings.TrimSuffix(BranchFor(""), "/"))
-	return []string{own, filepath.Join(common, "objects"), filepath.Join(common, ns), filepath.Join(common, "logs", ns)}
-}
-
 // Present reports whether a checkout's directory is still a git checkout.
 func Present(path string) bool { return present(path) }
 

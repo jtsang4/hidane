@@ -29,7 +29,7 @@
   用真实 CLI 时会产生真实模型调用，单次链路可能需要 1–3 分钟
 ## 场景 1：快车道完整闭环
 
-用 `hidane chat` 提出一个需要实际动手的小任务（例如：创建一个输出当前日期的 shell 脚本并运行验证）。
+用 `hidane chat` 让它开一个任务做件事（例如：「开个任务：创建一个输出当前日期的 shell 脚本并运行验证」）。
 期望：
 
 - primary 将其路由为新工作项（而不是直接回复敷衍）
@@ -41,6 +41,14 @@
 - 所有回复的 `payload.root` 都指向最初那条 `user.message` 的 id（界面靠它把回复放在问题下面）
 - 最终回复内容与实际产物一致（不是编造的）
 - `hidane chat` 等到 Manager 的最终回复（「已完成…」一类）打印出来才退出，不会停在「已安排执行」
+
+## 场景 1B：小事 Primary 自己动手
+
+Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的高危命令与规则约束）。期望：
+
+- 问一个看一眼就能答的问题（例如「/tmp 下某个你刚建的文件里写了什么」）：Primary 自己用工具查完直接回答，
+  不开工作项；它的工具调用记为 `agent:primary` 的 `side_effect.intent` / `side_effect.result`；回答与文件内容一致
+- 明显要多步完成、值得跟进的活，仍然开工作项交给 worker
 
 ## 场景 2：后台车道与分诊
 
@@ -560,18 +568,11 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 让任务「创建 hello.txt 与 forbidden.txt」。期望：
 
 - 三次都只有 `workspaces/<wi>/hello.txt`；`forbidden.txt` 不存在；各有 `policy.blocked`（rule 为该规则 id）
-- 工作区是 worker 的起点和默认产物位置，不是围栏：写到工作区外（如 `/tmp`、`~` 下的其他目录）是允许的。
-  但闸门拒绝一切改动 hidane 自己数据目录（`HIDANE_HOME` 根目录、`POLICY.json`、其他工作项的工作区）与工作区里
-  `.hidane` 的操作——文件工具和 shell 命令都算（重定向 `>`/`>>`、`tee`、`touch`/`mkdir`/`rm`、`cp`/`mv` 的目标、
-  `cd` 到那里再写、从工作区用 `../` 走过去写）。可直接用 `hidane guard --format claude` 喂入
-  `{"tool_name":"Bash","tool_input":{"command":"echo x > $HIDANE_HOME/y"}}`（拒绝）与 `"echo x > /tmp/y"`（放行）验证；
-  codex worker 还由 codex 自己的沙箱拦住这些位置（即使命令用 `workdir` 指过去）
-- 只读的命令不被误拦：引号里的 `>`、`;` 是文字不是语法（`sed 's/=.*/=<set>/' f`、`echo 'a > /etc/x'` 放行），
-  用 `;`/`&&`/`|` 串起来的只读命令仍算只读（`cat a; ls -R .hidane` 放行，`cat a; rm -rf .hidane` 被拒）；
-  只把输出丢进设备或别的描述符（`2>&1`、`2>/dev/null`、`>/dev/null`）不算写（`ls .hidane 2>&1`、
-  `find <HIDANE_HOME> -name x 2>/dev/null` 放行），`cp -t /tmp a` / `--target-directory=` 的目标照样检查（被拒）
-- worker 读不到 `HIDANE_HOME/settings.json`（里面有模型服务的 API key）：读文件工具、`cat` 绝对路径或
-  `../../settings.json` 都被闸门拒绝；工作区里自己的 `settings.json` 不受影响
+- 闸门只拦内置的高危命令（`sudo`、`rm -rf /`、强制 push 等）和你的规则；工作区只是起点和默认产物位置，不是围栏：
+  写到工作区外（`/tmp`、`~` 下其他目录）都放行。可直接用 `hidane guard --format claude` 喂入
+  `{"tool_name":"Bash","tool_input":{"command":"sudo ls"}}`（拒绝）与 `"echo x > /tmp/y"`（放行）验证——
+  验证时只用无害的命令，不要真的执行高危操作
+- 只读的命令不被规则误拦：引号里的 `>`、`;` 是文字不是语法，用 `;`/`&&`/`|` 串起来的只读命令仍算只读
 - 把 `POLICY.json` 改成非法 JSON 后再派一次写操作：被拒（「policy file … is unreadable」），而不是规则静默失效
 - 最终回复如实说明哪个成功、哪个被策略阻止
 

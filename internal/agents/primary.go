@@ -654,6 +654,8 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	opts := thinkOpts{
 		Role: "primary", Charter: PrimaryCharter, Cwd: roleDir(k, "primary"), SessionDir: k.Cfg.SessionsDir(),
 		Images: imagesOf(batch), LiveThreadID: "main",
+		Tools: true, PolicyFiles: []string{k.GlobalPolicyPath()},
+		Trail: kernel.EventInput{Source: "agent:primary", ThreadID: "main", CausedBy: latest(batch).ID},
 	}
 	thought := s.think(ctx, prompt, opts)
 	if thought.Aborted {

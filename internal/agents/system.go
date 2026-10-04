@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli"
+	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/repos"
 	"github.com/jtsang4/hidane/internal/settings"
@@ -64,6 +65,13 @@ type thinkOpts struct {
 	Images       []agentcli.Image
 	LiveThreadID string
 	ResumeID     string
+	// Tools hands the role the CLI's own tools in its bypass mode, behind the
+	// guard: it may look things up and change files itself. Its charter still
+	// replaces the CLI's prompt, so it answers with its effect list.
+	Tools       bool
+	PolicyFiles []string
+	// Trail says where the role's tool calls are recorded as side effects.
+	Trail kernel.EventInput
 }
 
 // think is the shared half of every agent loop: one model call over the
@@ -95,7 +103,35 @@ func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought 
 	if live != nil {
 		req.OnText = func(d string) { live.Push(extract(d)) }
 	}
+	var blocks string
+	if o.Tools {
+		req.Tools, req.ReplacePrompt = true, true
+		// A refusal of the role's own call is a fact like a worker's.
+		control := filepath.Join(s.K.Cfg.RuntimeDir(), "turns", kernel.GenID("turn", 8))
+		_ = os.MkdirAll(control, 0o755)
+		defer os.RemoveAll(control)
+		blocks = filepath.Join(control, "policy-blocks.jsonl")
+		req.Env = guard.Env{PolicyFiles: o.PolicyFiles, BlocksFile: blocks}.Vars()
+		// Two-phase, as a worker's: intent before the tool acts, result after.
+		var trailMu sync.Mutex
+		req.OnTool = func(e agentcli.ToolEvent) {
+			trailMu.Lock()
+			defer trailMu.Unlock()
+			in := o.Trail
+			if e.Phase == "start" {
+				in.Kind, in.Payload = "side_effect.intent", kernel.Payload{"tool": e.Tool, "input": e.Detail}
+			} else {
+				in.Kind, in.Payload = "side_effect.result", kernel.Payload{"tool": e.Tool, "isError": e.IsError}
+			}
+			_, _ = s.K.Append(context.WithoutCancel(ctx), in)
+		}
+	}
 	res := agentcli.Call(ctx, s.Agents, r.Agent, req)
+	for _, b := range guard.ReadBlocks(blocks) {
+		in := o.Trail
+		in.Kind, in.Payload = "policy.blocked", blockPayload(b)
+		_, _ = s.K.Append(context.WithoutCancel(ctx), in)
+	}
 	live.End()
 	if ctx.Err() != nil {
 		return Thought{Error: ctx.Err().Error(), Aborted: true, DurationMs: res.DurationMs}
