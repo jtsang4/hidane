@@ -84,6 +84,7 @@ try {
   // Something on every page: a finished task, a memory, a rule, a schedule.
   await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "创建一个文件写上 screenshot" }) });
   await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "你好" }) });
+  await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "给我一个代码示例" }) });
   await api("/api/memories", { method: "POST", body: JSON.stringify({ kind: "preference", content: "回答保持简洁" }) });
   await api("/api/policies", { method: "POST", body: JSON.stringify({ pattern: "\\bsudo\\b", reason: "no sudo" }) });
   await api("/api/schedules", {

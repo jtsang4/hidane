@@ -233,6 +233,38 @@ test("a message's menu, from a right click or its ⋯ button: copy the text, hid
   await waitForEvent(api, `after=${message.seq}`, (e) => e.kind === "message.redacted" && JSON.stringify(e.payload).includes(messageId), "message.redacted");
 });
 
+test("a code block in a reply: its copy button copies the code and says so", async ({ page, api, desktop, hostCalls }) => {
+  await api.setAllRoles("claude");
+  if (!desktop) {
+    await page.addInitScript(() => {
+      const copied: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = copied;
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => void copied.push(text) } });
+    });
+  }
+  await page.goto("/");
+  const asked = turn(page, await say(page, `给我一个代码示例 ${unique("e2e-code")}`));
+  const block = asked.locator("pre").filter({ hasText: "make test" });
+  await expect(block).toBeVisible();
+
+  const copy = asked.getByRole("button", { name: "复制代码" });
+  // Out of the way until the pointer comes to the block (hovered again while the new reply still rises in or scrolls).
+  await expect(copy).toHaveCSS("opacity", "0");
+  await expect(async () => {
+    await block.hover();
+    await expect(copy).toHaveCSS("opacity", "1", { timeout: 1_000 });
+  }).toPass();
+  await copy.click();
+  await expect(asked.getByRole("button", { name: "已复制" })).toBeVisible();
+  const code = "make test\npnpm -C frontend test";
+  if (desktop) {
+    expect(hostCalls).toContainEqual({ path: "/api/desktop/clipboard", body: { text: code } });
+  } else {
+    expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual([code]);
+  }
+  await expect(asked.getByRole("button", { name: "复制代码" })).toBeVisible();
+});
+
 test("a task's menu: open, mark done, archive — and in the desktop app, show its workspace", async ({ page, api, desktop, hostCalls }) => {
   const title = unique("e2e-task-menu");
   const { item } = await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201);

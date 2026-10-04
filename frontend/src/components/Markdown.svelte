@@ -1,7 +1,9 @@
 <script lang="ts">
   import DOMPurify from "dompurify";
   import { marked } from "marked";
+  import { mount, unmount } from "svelte";
   import { cn } from "../lib/utils.js";
+  import CodeCopyButton from "./CodeCopyButton.svelte";
 
   const BASE = [
     "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
@@ -18,7 +20,7 @@
     "[&_hr]:my-3 [&_hr]:border-border",
     "[&_a]:underline [&_a]:underline-offset-2",
     "[&_code]:rounded-sm [&_code]:bg-well [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-code",
-    "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-sm [&_pre]:bg-well [&_pre]:p-2",
+    "[&_pre]:overflow-x-auto [&_pre]:rounded-sm [&_pre]:bg-well [&_pre]:p-2",
     "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
     "[&_table]:my-2 [&_table]:block [&_table]:w-full [&_table]:overflow-x-auto [&_table]:border-collapse",
     "[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium",
@@ -35,8 +37,26 @@
     ),
   );
 
-  function renderMarkdown(node: HTMLDivElement): void {
+  /** Holds a code block and its copy button: the button stays put while a wide block scrolls sideways under it.
+      On a touch screen the button is always shown, so the code makes room for it. */
+  const CODE_FRAME = "group/code relative my-2 coarse:[&>pre]:min-h-11 coarse:[&>pre]:pr-11";
+
+  function codeText(pre: HTMLPreElement): string {
+    return ((pre.querySelector("code") ?? pre).textContent ?? "").replace(/\n$/, "");
+  }
+
+  function renderMarkdown(node: HTMLDivElement): () => void {
     node.innerHTML = html;
+    const buttons = [...node.querySelectorAll("pre")].map((pre) => {
+      const frame = document.createElement("div");
+      frame.className = CODE_FRAME;
+      pre.replaceWith(frame);
+      frame.append(pre);
+      return mount(CodeCopyButton, { target: frame, props: { text: codeText(pre) } });
+    });
+    return () => {
+      for (const button of buttons) void unmount(button);
+    };
   }
 </script>
 

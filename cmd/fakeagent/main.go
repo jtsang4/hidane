@@ -180,6 +180,8 @@ func brain(system, prompt string) string {
 			switch {
 			case kind == "external":
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "收到外部事件：" + firstRunes(text, 60)})
+			case strings.Contains(text, "代码示例"):
+				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "可以这样跑测试：\n\n```sh\nmake test\npnpm -C frontend test\n```"})
 			case strings.Contains(lower, "hello") || strings.Contains(text, "你好"):
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "你好！我是 hidane 的主代理。"})
 			case kind == "recall":
