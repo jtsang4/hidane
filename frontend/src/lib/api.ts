@@ -16,7 +16,7 @@ export interface HidaneEvent {
 
 export type WorkItemStatus = "open" | "done" | "closed";
 
-export interface EventsPage {
+interface EventsPage {
   events: HidaneEvent[];
   hasMore: boolean;
   /** Only false when the page reaches the live edge. */
@@ -208,14 +208,14 @@ export interface ArtifactEntry {
   modifiedAt: string;
 }
 
-export interface ArtifactContent {
+interface ArtifactContent {
   path: string;
   size: number;
   text?: string;
   reason?: "binary" | "too-large";
 }
 
-export interface StatusInfo {
+interface StatusInfo {
   latestSeq: number;
   triageLag: number;
   lastHeartbeatAt: string | null;
@@ -406,13 +406,6 @@ export const api = {
   /** Tells the desktop shell the page loaded and reached the backend. */
   uiReady: (transport: string) =>
     apiFetch<{ ok: boolean }>(`/api/ui-ready`, { method: "POST", body: JSON.stringify({ transport }) }),
-  events: (params: Record<string, string | number | undefined>) => {
-    const q = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== "") q.set(k, String(v));
-    }
-    return apiFetch<{ events: HidaneEvent[] }>(`/api/events?${q}`);
-  },
   /** Cursor page walking backwards; omit `before` for the newest page.
    *  `around` opens a window centred on one event and `after` walks forwards
    *  from a seq — both for reading history far from the live edge.

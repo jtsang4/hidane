@@ -56,7 +56,7 @@
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Four text sizes for the interface; 13px is the body of a desktop tool.
-     `lg` and `xl` are display sizes, kept for brand moments (sign-in, empty states). */
+     `xl` is a display size, kept for brand moments (sign-in). */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
   --text-xs: 0.75rem;
@@ -65,8 +65,6 @@
   --text-sm--line-height: 1.25rem;
   --text-base: 0.875rem;
   --text-base--line-height: 1.375rem;
-  --text-lg: 1rem;
-  --text-lg--line-height: 1.5rem;
   --text-xl: 1.25rem;
   --text-xl--line-height: 1.75rem;
   /* Inline code, relative to the text around it. */

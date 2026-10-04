@@ -10,13 +10,13 @@ describe("i18n", () => {
   it("defaults to Chinese", () => {
     expect(storedLanguage()).toBe("zh");
     expect(i18n.t("nav.chat")).toBe("会话");
-    expect(i18n.t("status.title")).toBe("运行状态");
+    expect(i18n.t("status.logTitle")).toBe("事件日志与分诊");
   });
 
   it("switches to English and persists the choice", () => {
     switchLanguage("en");
     expect(i18n.t("nav.chat")).toBe("Chat");
-    expect(i18n.t("items.updatedAt", { time: "T" })).toBe("updated T");
+    expect(i18n.t("items.updated")).toBe("updated");
     expect(localStorage.getItem("hidane-lang")).toBe("en");
     expect(storedLanguage()).toBe("en");
   });

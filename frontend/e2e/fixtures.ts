@@ -4,8 +4,8 @@ import { TOKEN, WEBHOOK_SECRET } from "./env.js";
 
 export { expect };
 
-export const AUTH = { authorization: `Bearer ${TOKEN}` } as const;
-export const ROLES: readonly Role[] = ["primary", "manager", "worker", "distiller"];
+const AUTH = { authorization: `Bearer ${TOKEN}` } as const;
+const ROLES: readonly Role[] = ["primary", "manager", "worker", "distiller"];
 
 /** A short suffix that keeps one test's texts apart from every other test on the shared server. */
 export function unique(prefix: string): string {
@@ -139,7 +139,7 @@ export async function choose(trigger: Locator, option: string | RegExp): Promise
 }
 
 /** A call the page made to the desktop host, as the fake host recorded it. */
-export interface HostCall {
+interface HostCall {
   path: string;
   body: Record<string, unknown>;
 }
@@ -150,7 +150,7 @@ export interface HostCall {
  * still sits in localStorage, and `apiFetch` sends it whenever present), and
  * no Wails runtime, so the live stream falls back to SSE.
  */
-export const DESKTOP_BOOT = `window.hidaneBoot = {"desktop":true,"auth":false,"version":"e2e"};`;
+const DESKTOP_BOOT = `window.hidaneBoot = {"desktop":true,"auth":false,"version":"e2e"};`;
 
 type Fixtures = {
   /** Put the API token where the SPA's token gate looks for it before any script runs. */

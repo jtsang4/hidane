@@ -16,25 +16,14 @@ export interface Toast {
  */
 let toasts: Toast[] = [];
 let nextId = 1;
-const listeners = new Set<() => void>();
 export const toastStore = writable<Toast[]>([]);
 
 function emit(): void {
   toastStore.set(toasts);
-  for (const fn of listeners) fn();
-}
-
-export function getToasts(): Toast[] {
-  return toasts;
-}
-
-export function subscribeToasts(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
 }
 
 /** How long a toast stays: confirmations are glanced at, failures need time to be read. */
-export const TOAST_MS: Record<Toast["tone"], number> = { default: 4_000, danger: 10_000 };
+const TOAST_MS: Record<Toast["tone"], number> = { default: 4_000, danger: 10_000 };
 
 export function pushToast(message: string, tone: Toast["tone"] = "danger"): number {
   const id = nextId++;

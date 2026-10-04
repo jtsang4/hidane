@@ -69,7 +69,7 @@ never a new literal.
 | `text-xs` | 12px | Secondary text, small controls |
 | `text-sm` | 13px | Body and controls (the default) |
 | `text-base` | 14px | Page and panel titles |
-| `text-lg`, `text-xl` | 16px, 20px | Brand moments only (sign-in, About) |
+| `text-xl` | 20px | Brand moments only (sign-in) |
 | `text-code` | 0.85em | Inline code, relative to its text |
 
 Latin is Geist (`font-sans`) and Geist Mono (`font-mono`), bundled; CJK falls

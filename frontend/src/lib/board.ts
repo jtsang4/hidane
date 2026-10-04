@@ -11,7 +11,7 @@ export function stateTone(state: CardState): "default" | "success" | "danger" | 
   return "muted";
 }
 
-export function isActive(card: BoardCard): boolean {
+function isActive(card: BoardCard): boolean {
   return ACTIVE.has(card.state);
 }
 

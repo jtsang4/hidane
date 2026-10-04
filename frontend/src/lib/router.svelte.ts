@@ -17,7 +17,7 @@ export const SETTINGS_GROUPS: readonly { id: "app" | "agents" | "diagnostics"; s
   { id: "diagnostics", sections: ["status", "events"] },
 ];
 
-export function isSettingsSection(value: string): value is SettingsSection {
+function isSettingsSection(value: string): value is SettingsSection {
   return (SETTINGS_SECTIONS as readonly string[]).includes(value);
 }
 

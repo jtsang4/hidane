@@ -11,7 +11,6 @@ import {
   loadedRange,
   mergeHistory,
   HISTORY_EVENT_LIMIT,
-  rootOfEvent,
   searchTerms,
 } from "../src/lib/history.js";
 import { invalidationFor } from "../src/lib/live.js";
@@ -44,12 +43,6 @@ describe("history links", () => {
     expect(focusHref("wi_a")).toBe("/?focus=wi_a");
     expect(atFrom("?focus=wi_a&at=ev_1")).toBe("ev_1");
     expect(atFrom("?at=")).toBeNull();
-  });
-
-  it("finds the turn a search hit belongs to", () => {
-    expect(rootOfEvent(ev("user.message", { text: "hi" }, { id: "m1" }))).toBe("m1");
-    expect(rootOfEvent(ev("agent.reply", { text: "ok", root: "m1" }, { threadId: "th_x" }))).toBe("m1");
-    expect(rootOfEvent(ev("escalation", { question: "?", of: "m2" }))).toBe("m2");
   });
 });
 

@@ -6,7 +6,7 @@ import { defaultImportRuntime, eventsFrom } from "./stream.js";
  * events; every mode also binds the same shortcuts in the page, so the browser
  * build behaves the same and nothing depends on the menu being present.
  */
-export const COMMANDS = [
+const COMMANDS = [
   "open-settings",
   "new-task",
   "focus-composer",
@@ -23,7 +23,7 @@ export type Command = (typeof COMMANDS)[number];
 /** The name the desktop menu emits commands under. */
 export const WAILS_COMMAND_EVENT = "hidane:command";
 
-export function isCommand(value: unknown): value is Command {
+function isCommand(value: unknown): value is Command {
   return typeof value === "string" && (COMMANDS as readonly string[]).includes(value);
 }
 

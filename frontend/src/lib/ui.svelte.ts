@@ -41,10 +41,3 @@ export function setPref(key: "notify" | "badge", value: boolean): void {
   prefs[key] = value;
   writeFlag(key === "notify" ? NOTIFY_KEY : BADGE_KEY, value);
 }
-
-/** Re-read persisted state; tests reset localStorage between cases. */
-export function reloadUiState(): void {
-  ui.sidebarCollapsed = readFlag(SIDEBAR_KEY, false);
-  prefs.notify = readFlag(NOTIFY_KEY, true);
-  prefs.badge = readFlag(BADGE_KEY, true);
-}

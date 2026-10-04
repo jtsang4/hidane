@@ -16,7 +16,7 @@ export interface EventSourceLike {
   addEventListener(type: string, listener: (event: MessageEvent) => void): void;
   close(): void;
 }
-export type EventSourceFactory = (url: string) => EventSourceLike;
+type EventSourceFactory = (url: string) => EventSourceLike;
 
 /** The name the desktop host emits every frame under. */
 export const WAILS_FRAME_EVENT = "hidane:frame";

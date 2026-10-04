@@ -133,7 +133,7 @@ export function parseModels(text: string): string[] {
   return [...seen];
 }
 
-export function formatModels(models: readonly string[]): string {
+function formatModels(models: readonly string[]): string {
   return models.join("\n");
 }
 

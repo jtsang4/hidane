@@ -161,8 +161,3 @@ export function turnRouting(turn: Turn, now = Date.now()): boolean {
     turn.answers.length === 0
   );
 }
-
-/** Work item a turn belongs to now, if any. */
-export function turnWorkItem(turn: Turn): string | null {
-  return turn.attribution?.workItemId ?? null;
-}

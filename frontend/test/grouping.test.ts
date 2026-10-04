@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conversationEvents, executionGroups, payloadText } from "../src/lib/grouping.js";
+import { executionGroups, payloadText } from "../src/lib/grouping.js";
 import type { HidaneEvent } from "../src/lib/api.js";
 
 let seq = 0;
@@ -20,19 +20,6 @@ function ev(partial: Partial<HidaneEvent>): HidaneEvent {
 }
 
 describe("grouping", () => {
-  it("filters conversation kinds only", () => {
-    const events = [
-      ev({ kind: "user.message", payload: { text: "hi" } }),
-      ev({ kind: "route.decision" }),
-      ev({ kind: "agent.reply", payload: { text: "hello" } }),
-      ev({ kind: "connector.heartbeat" }),
-    ];
-    expect(conversationEvents(events).map((e) => e.kind)).toEqual([
-      "user.message",
-      "agent.reply",
-    ]);
-  });
-
   it("groups execution lifecycle by executionId with ok verdict", () => {
     const events = [
       ev({ kind: "execution.started", executionId: "ex_1", payload: { instructions: "do" } }),

@@ -47,7 +47,9 @@
   let olderPages = $state<HidaneEvent[][]>([]);
   let loadingOlder = $state(false);
   let exhausted = $state(false);
-  /** Append-only union across the sliding newest page and older pages. */
+  /** Union by id of every page seen: the newest page slides forward on every
+   *  live event, so an event can drop out of it into no page at all. The log
+   *  is append-only — an event no longer returned slid away, it was not removed. */
   const seen = new SvelteMap<string, HidaneEvent>();
 
   const itemQuery = createQuery(() => ({

@@ -10,7 +10,7 @@ function dateLocale(): string {
   return i18n.language === "en" ? "en-US" : "zh-CN";
 }
 
-export function fmtTime(iso: string): string {
+function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(dateLocale(), { hour12: false });
 }
 

@@ -61,20 +61,13 @@ export function excerpt(text: string, terms: readonly string[], radius = 60): st
   return `${start > 0 ? "…" : ""}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`;
 }
 
-/** The turn an event belongs to: a person's message is its own root. */
-export function rootOfEvent(event: HidaneEvent): string {
-  if (event.kind === "user.message" && event.threadId === "main") return event.id;
-  const root = event.payload["root"] ?? event.payload["of"];
-  return typeof root === "string" && root ? root : event.id;
-}
-
 /** When a turn happened: its message, or the first sign of it that is loaded. */
-export function turnTime(turn: Turn): string | null {
+function turnTime(turn: Turn): string | null {
   return turn.message?.ts ?? turn.attribution?.ts ?? turn.answers[0]?.ts ?? turn.ambiguous?.ts ?? null;
 }
 
 /** `YYYY-MM-DD` of an instant in a timezone (the reader's by default). */
-export function dayOf(iso: string, timeZone?: string): string {
+function dayOf(iso: string, timeZone?: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "2-digit",
