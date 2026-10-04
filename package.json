@@ -5,12 +5,5 @@
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=24"
-  },
-  "scripts": {
-    "build": "make build",
-    "test": "make test",
-    "typecheck": "go vet ./... && pnpm -C frontend check",
-    "e2e": "make e2e",
-    "smoke:gui": "make smoke-gui"
   }
 }
