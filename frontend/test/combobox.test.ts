@@ -27,6 +27,15 @@ describe("Combobox", () => {
     expect(options.map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual(["Default model", "gpt-6.1-sol GPT-6.1-Sol", "gpt-6-astra"]);
   });
 
+  it("opens the list on a click in the field, not only on the chevron", async () => {
+    const { input } = renderBox("gpt-6-astra");
+    expect(screen.queryByRole("option")).toBeNull();
+    await fireEvent.click(input);
+    await tick();
+    const options = await screen.findAllByRole("option");
+    expect(options[0]).toHaveTextContent("gpt-6-astra");
+  });
+
   it("takes what was typed on Enter, even when it is the start of a suggestion", async () => {
     const { input, onchange } = renderBox();
     await type(input, "gpt-6");

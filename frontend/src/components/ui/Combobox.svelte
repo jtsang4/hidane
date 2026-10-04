@@ -114,6 +114,10 @@
         query = text;
         oninput?.(text);
       }}
+      onclick={() => {
+        // bits-ui opens only on typing or the chevron; a click on the field should show the choices too.
+        open = true;
+      }}
       onkeydown={(event: KeyboardEvent) => {
         // An open list takes Enter for its highlighted option, which is what was typed unless the person moved.
         if (event.key === "Enter" && !event.isComposing && !open) {
