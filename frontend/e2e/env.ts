@@ -1,7 +1,7 @@
 /** Shared between playwright.config.ts and the specs. */
 
 /** Another checkout running its E2E at the same time sets this to keep clear of ours. */
-const base = Number(process.env.HIDANE_E2E_PORT ?? 2797);
+const base = Number(process.env.HIDANE_E2E_PORT || 2797);
 /** The normal backend: fake agents answer immediately. */
 export const PORT = base;
 /** A second backend whose fake workers sleep, so a run can be caught mid-flight. */
