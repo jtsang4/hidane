@@ -34,12 +34,6 @@ type File struct {
 	Rules []Rule `json:"rules"`
 }
 
-// ReadFile returns the rules in a policy file; a missing or broken file has none.
-func ReadFile(path string) File {
-	f, _ := Load(path)
-	return f
-}
-
 // Load reads a policy file. A missing file is no rules and no error; a file
 // that exists but cannot be read or parsed is an error, so the guard can fail
 // closed on it instead of silently dropping every rule it holds.

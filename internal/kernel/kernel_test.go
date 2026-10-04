@@ -434,6 +434,23 @@ func TestPromotionIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestRuleEditsRefuseABrokenPolicyFile(t *testing.T) {
+	k := kerneltest.New(t)
+	broken := []byte(`{"rules":[{"id":"mine","pattern":"\.env"}]}`)
+	if err := os.WriteFile(k.GlobalPolicyPath(), broken, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.AddGlobalRule("rm", "no", nil); err == nil {
+		t.Fatal("adding a rule to a broken policy file must fail")
+	}
+	if _, err := k.RemoveGlobalRule("mine"); err == nil {
+		t.Fatal("removing a rule from a broken policy file must fail")
+	}
+	if b, _ := os.ReadFile(k.GlobalPolicyPath()); string(b) != string(broken) {
+		t.Fatalf("the hand-written file was overwritten: %s", b)
+	}
+}
+
 func TestResolveInsideRefusesEscapes(t *testing.T) {
 	ws := t.TempDir()
 	_ = os.WriteFile(filepath.Join(ws, "ok.txt"), []byte("hi"), 0o644)

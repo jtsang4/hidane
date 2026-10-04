@@ -31,7 +31,11 @@ func (k *Kernel) PolicyFilesFor(ctx context.Context, item WorkItem) []string {
 
 func (k *Kernel) AddGlobalRule(pattern, reason string, tools []string) (guard.Rule, error) {
 	path := k.GlobalPolicyPath()
-	f := guard.ReadFile(path)
+	// A broken file is refused rather than overwritten with this one rule.
+	f, err := guard.Load(path)
+	if err != nil {
+		return guard.Rule{}, err
+	}
 	rule := guard.Rule{ID: GenID("pol", 6), Pattern: pattern, Reason: reason}
 	if len(tools) > 0 {
 		rule.Tools = tools
@@ -42,7 +46,10 @@ func (k *Kernel) AddGlobalRule(pattern, reason string, tools []string) (guard.Ru
 
 func (k *Kernel) RemoveGlobalRule(id string) (bool, error) {
 	path := k.GlobalPolicyPath()
-	f := guard.ReadFile(path)
+	f, err := guard.Load(path)
+	if err != nil {
+		return false, err
+	}
 	kept := make([]guard.Rule, 0, len(f.Rules))
 	for _, r := range f.Rules {
 		if r.ID != id {
