@@ -165,6 +165,9 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 			req.SystemPrompt = workerCharter
 			req.Tools = true
 			req.Env = env.Vars()
+			// The pool names the workspace again among the roots: listed twice,
+			// it must still be one key, or codex cannot read the table.
+			req.WritableRoots = []string{h.cwd, "/repos/blog/.git"}
 			req.ReadOnly = []string{"/data/hidane", filepath.Join(h.cwd, ".hidane")}
 			req.Hidden = []string{"/data/hidane/settings.json"}
 			req.OnTool = func(e agentcli.ToolEvent) { mu.Lock(); tools = append(tools, e); mu.Unlock() }
@@ -204,7 +207,10 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 				// The workspace is no fence; codex's sandbox keeps the worker
 				// off what it is told to leave alone, and nothing else.
 				args := strings.Join(h.invocations()[0].Args, " ")
-				for _, want := range []string{`default_permissions="hidane"`, `":root"="write"`, `"` + h.cwd + `"="write"`,
+				if n := strings.Count(args, `"`+h.cwd+`"=`); n != 1 {
+					t.Fatalf("the workspace must be one key of the table, not %d: %s", n, args)
+				}
+				for _, want := range []string{`default_permissions="hidane"`, `":root"="write"`, `"` + h.cwd + `"="write"`, `"/repos/blog/.git"="write"`,
 					`"/data/hidane"="read"`, `"/data/hidane/settings.json"="deny"`, "permissions.hidane.network.enabled=true"} {
 					if !strings.Contains(args, want) {
 						t.Fatalf("codex worker sandbox: missing %s in %s", want, args)

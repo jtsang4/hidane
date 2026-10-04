@@ -555,7 +555,10 @@ func chunks(s string, n int) []string {
 
 // ---- codex ------------------------------------------------------------------
 
-var tomlCommand = regexp.MustCompile(`command="((?:[^"\\]|\\.)*)"`)
+var (
+	tomlCommand = regexp.MustCompile(`command="((?:[^"\\]|\\.)*)"`)
+	tomlKey     = regexp.MustCompile(`[{,]"((?:[^"\\]|\\.)*)"=`)
+)
 
 // codexTurn is the running turn of the fake app-server.
 type codexTurn struct {
@@ -594,6 +597,16 @@ func runCodex(args []string) {
 			}
 		case strings.HasPrefix(v, "sandbox_mode="):
 			_ = json.Unmarshal([]byte(strings.TrimPrefix(v, "sandbox_mode=")), &sandbox)
+		case strings.HasPrefix(v, "permissions.") && strings.Contains(v, ".filesystem={"):
+			// As the real one: a key twice makes the table unreadable TOML.
+			seen := map[string]bool{}
+			for _, m := range tomlKey.FindAllStringSubmatch(v, -1) {
+				if seen[m[1]] {
+					fmt.Fprintf(os.Stderr, "Error: invalid type: string %q, expected a map (duplicate key %s)\n", v, m[1])
+					os.Exit(1)
+				}
+				seen[m[1]] = true
+			}
 		}
 	}
 	cwd, _ := os.Getwd()

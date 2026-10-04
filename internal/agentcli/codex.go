@@ -93,21 +93,9 @@ func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 		// files anywhere, and fetch things. The sandbox still keeps it off what
 		// it is told to leave alone — where the guard cannot follow, since
 		// codex does not show the hook a command's workdir.
-		fs := []string{tomlString(":root") + "=" + tomlString("write"), tomlString(req.Cwd) + "=" + tomlString("write")}
-		// Named, so they stay writable inside a read-only path: a worktree's
-		// git metadata, a checkout the person lent.
-		for _, p := range req.WritableRoots {
-			fs = append(fs, tomlString(p)+"="+tomlString("write"))
-		}
-		for _, p := range req.ReadOnly {
-			fs = append(fs, tomlString(p)+"="+tomlString("read"))
-		}
-		for _, p := range req.Hidden {
-			fs = append(fs, tomlString(p)+"="+tomlString("deny"))
-		}
 		cfg = append(cfg,
 			"default_permissions="+tomlString(codexProfile),
-			"permissions."+codexProfile+".filesystem={"+strings.Join(fs, ",")+"}",
+			"permissions."+codexProfile+".filesystem="+codexFilesystem(req),
 			"permissions."+codexProfile+".network.enabled=true",
 			`hooks.PreToolUse=[{matcher="*",hooks=[{type="command",command=`+tomlString(hookCommand(l.GuardCommand, "codex"))+`,timeout=30}]}]`)
 		if req.SystemPrompt != "" {
@@ -143,6 +131,45 @@ func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 	}
 	env = append(env, req.Env...)
 	return cfg, env
+}
+
+// codexFilesystem is a worker's filesystem table: the root writable, and
+// besides it its working directory and the roots it was given (named, so they
+// stay writable inside a read-only path: a worktree's git metadata, a lent
+// checkout), what it may only read and what it may not touch. A path listed
+// twice takes the stronger access, as codex ranks them — a duplicate key makes
+// the whole table unreadable to codex, and it would not start.
+func codexFilesystem(req Request) string {
+	rank := map[string]int{"read": 1, "write": 2, "deny": 3}
+	access := map[string]string{}
+	var order []string
+	set := func(path, mode string) {
+		if path == "" {
+			return
+		}
+		if cur, ok := access[path]; !ok {
+			order = append(order, path)
+		} else if rank[cur] >= rank[mode] {
+			return
+		}
+		access[path] = mode
+	}
+	set(":root", "write")
+	set(req.Cwd, "write")
+	for _, p := range req.WritableRoots {
+		set(p, "write")
+	}
+	for _, p := range req.ReadOnly {
+		set(p, "read")
+	}
+	for _, p := range req.Hidden {
+		set(p, "deny")
+	}
+	entries := make([]string, len(order))
+	for i, p := range order {
+		entries[i] = tomlString(p) + "=" + tomlString(access[p])
+	}
+	return "{" + strings.Join(entries, ",") + "}"
 }
 
 func codexArgs(l *Launcher, req Request) ([]string, []string) {
