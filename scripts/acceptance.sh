@@ -56,7 +56,7 @@ scenarios_for() {
     internal/projections/*) echo "3 4O 4P 4R" ;;
     internal/api/*) echo "4E 4J 4K 4L 4N 4O 4P 4Q 7D 7E" ;;
     internal/connectors/*) echo "2 4H 4L" ;;
-    internal/feishu/*) echo "4C 4D 4M" ;;
+    internal/feishu/*) echo "4C" ;;
     internal/settings/*) echo "6A 6E" ;;
     internal/desktop/* | gui_on.go | gui_off.go | build/*) echo "6C" ;;
     internal/app/* | main.go) echo "1 6A 6C" ;;

@@ -34,7 +34,7 @@ func TestSDKSendsCardsAsInteractive(t *testing.T) {
 	defer srv.Close()
 	s := &SDK{client: lark.NewClient("cli_test", "secret", lark.WithOpenBaseUrl(srv.URL))}
 	ctx := context.Background()
-	if id, err := s.SendText(ctx, "oc_1", "**hi**", true); err != nil || id != "om_1" {
+	if id, err := s.SendText(ctx, "oc_1", "**hi**\n```\ncode\n```", true); err != nil || id != "om_1" {
 		t.Fatalf("rich send: %q %v", id, err)
 	}
 	if _, err := s.SendText(ctx, "oc_1", "plain", false); err != nil {
@@ -51,9 +51,16 @@ func TestSDKSendsCardsAsInteractive(t *testing.T) {
 			t.Fatalf("request %d: msg_type %v, want %s (%+v)", i, sent[i]["msg_type"], want, sent[i])
 		}
 	}
-	var card map[string]any
-	if err := json.Unmarshal([]byte(sent[0]["content"].(string)), &card); err != nil || card["schema"] != "2.0" {
-		t.Fatalf("card 2.0 content: %v %v", card, err)
+	// Card 1.0 renders only a subset of markdown, and neither version renders a code block.
+	var card struct {
+		Schema string
+		Body   struct {
+			Elements []struct{ Tag, Content string }
+		}
+	}
+	if err := json.Unmarshal([]byte(sent[0]["content"].(string)), &card); err != nil || card.Schema != "2.0" ||
+		len(card.Body.Elements) != 1 || card.Body.Elements[0].Tag != "markdown" || card.Body.Elements[0].Content != "**hi**\n    code" {
+		t.Fatalf("card 2.0 content: %+v %v", card, err)
 	}
 	if sent[2]["reply_in_thread"] != true || !strings.Contains(sent[2]["_path"].(string), "om_root/reply") {
 		t.Fatalf("thread reply: %+v", sent[2])

@@ -127,6 +127,10 @@ func TestImagesAreDownloadedOrHonestlyReported(t *testing.T) {
 		t.Fatalf("image message: %+v", msg.Payload)
 	}
 	_ = ch.HandleMessage(ctx, feishu.Inbound{SenderType: "user", MessageID: "om_j", ChatID: "oc_1", ChatType: "p2p", MessageType: "image", Content: `{"image_key":"img_gone"}`})
+	captured := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "connector.feishu"}))
+	if failed, _ := captured[len(captured)-1].Payload["imageFailures"].([]any); len(failed) != 1 {
+		t.Fatalf("a message whose image could not be fetched is still captured, with the failure: %+v", captured[len(captured)-1].Payload)
+	}
 	errs := m(k.ListEvents(ctx, kernel.ListFilter{Kind: "agent.error"}))
 	if len(errs) != 1 || !strings.Contains(fmt.Sprint(errs[0].Payload["detail"]), "File not in msg") {
 		t.Fatalf("the failure reason is kept: %+v", errs)

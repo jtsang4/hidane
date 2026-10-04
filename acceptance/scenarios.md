@@ -89,15 +89,6 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 - 若环境里有真实的 `FEISHU_APP_ID`/`FEISHU_APP_SECRET`（或 settings.json 的 `feishu` 段），启动 serve 后日志
   出现 `feishu channel enabled`，给机器人发一条单聊消息能在主线程看到 `connector.feishu` 与回复；没有凭证则 BLOCKED
 
-## 场景 4D：连接器只捕获、不判断
-
-读不懂的消息也不许丢（曾经的缺陷：纯图片消息在落日志之前就被丢掉）。期望（依据 `go test ./internal/feishu/`
-与源码之外的实际运行输出）：
-
-- 图片下载失败时 `connector.feishu` 照样落库，带 `imageFailures`，另有一条 `agent.error` 记录飞书给出的真实原因
-- 转给 Agent 的文本诚实说明图片无法查看
-- 无文字无图片的消息（贴纸）落库但**不**投递给 Primary
-
 ## 场景 4E：事件流保活与异步写口
 
 `/api/events/stream` 是前端所有实时性的唯一来源。期望：
@@ -217,19 +208,6 @@ runtime 内置 5s 调度循环。通过 `/api/schedules` 定义、管理、触�
 - 顺序为**新的在前**（历史从下往上读是错的）
 - 未知 id → 404
 - 结束后删除你创建的调度
-
-## 场景 4M：飞书回复以卡片 2.0 下发
-
-飞书 msg_type=text 会把 Markdown 当字面文本显示（一堆 `#` 和 `**`）。
-出站形态由 `internal/feishu` 的 `MarkdownCard`/`OutboxOnce` 决定（`go test ./internal/feishu/` 覆盖；
-`TestSDKSendsCardsAsInteractive` 用假的飞书 API 检查 SDK 真正发出的请求体）。期望：
-
-- 出站 `msg_type` 为 `interactive`（不是 `text`）
-- 卡片 JSON 的 `schema` 为 `"2.0"`（**1.0 只支持 Markdown 子集**，列表与表格会退化成
-  字面文本——这是本场景要守住的回归）
-- 卡片正文元素 `tag` 为 `markdown`
-- 代码围栏（```）在发送前被压平为缩进块（飞书两个卡片版本都不渲染 CodeBlock）
-- 工作项线程根消息「📋 wi_x — title」仍是 `text`（它是回复话题挂载点，不是正文）
 
 ## 场景 4N：并发事件流不会返回空 body
 
