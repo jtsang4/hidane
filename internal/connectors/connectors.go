@@ -78,35 +78,10 @@ func TriageOnce(ctx context.Context, k *kernel.Kernel) (handled, woke int, err e
 // TriageLoop runs triage on every append and on a fallback poll. Its own
 // decisions wake it too; the cursor makes those wake-ups cheap no-ops.
 func TriageLoop(ctx context.Context, k *kernel.Kernel, every time.Duration) {
-	wake, cancel := k.Hub.Subscribe()
-	defer cancel()
-	t := time.NewTicker(every)
-	defer t.Stop()
-	run := func() {
-		for {
-			n, _, err := TriageOnce(ctx, k)
-			if err != nil {
-				if ctx.Err() == nil {
-					log.Printf("triage loop error: %v", err)
-				}
-				return
-			}
-			if n < 50 {
-				return
-			}
-		}
-	}
-	run()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-wake:
-			run()
-		case <-t.C:
-			run()
-		}
-	}
+	k.Consume(ctx, "triage loop", every, 50, func(ctx context.Context) (int, error) {
+		n, _, err := TriageOnce(ctx, k)
+		return n, err
+	})
 }
 
 const (

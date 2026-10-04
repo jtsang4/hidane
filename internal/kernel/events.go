@@ -400,12 +400,18 @@ func (k *Kernel) LatestSeq(ctx context.Context) (int64, error) {
 
 // GetCursor returns a consumer's committed position (0 when absent).
 func (k *Kernel) GetCursor(ctx context.Context, consumer string) (int64, error) {
+	seq, _, err := k.LookupCursor(ctx, consumer)
+	return seq, err
+}
+
+// LookupCursor also says whether the consumer has a cursor at all.
+func (k *Kernel) LookupCursor(ctx context.Context, consumer string) (int64, bool, error) {
 	var seq int64
 	err := k.DB.QueryRowContext(ctx, `SELECT seq FROM cursors WHERE consumer = ?`, consumer).Scan(&seq)
 	if err == sql.ErrNoRows {
-		return 0, nil
+		return 0, false, nil
 	}
-	return seq, err
+	return seq, err == nil, err
 }
 
 // CommitCursor moves a consumer's position.

@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"sync"
@@ -523,20 +522,16 @@ var outboundKinds = []string{"agent.reply", "escalation", "attribution.ambiguous
 // the tail: history is never re-sent. Delivery failures are recorded and skipped.
 func (c *Channel) OutboxOnce(ctx context.Context) (int, error) {
 	k := c.K
-	var exists int
-	if err := k.DB.QueryRowContext(ctx, `SELECT count(*) FROM cursors WHERE consumer = ?`, outbox).Scan(&exists); err != nil {
+	after, ok, err := k.LookupCursor(ctx, outbox)
+	if err != nil {
 		return 0, err
 	}
-	if exists == 0 {
+	if !ok {
 		last, err := k.LatestSeq(ctx)
 		if err != nil {
 			return 0, err
 		}
 		return 0, k.CommitCursor(ctx, outbox, last)
-	}
-	after, err := k.GetCursor(ctx, outbox)
-	if err != nil {
-		return 0, err
 	}
 	batch, err := k.ListEvents(ctx, kernel.ListFilter{AfterSeq: &after, Kinds: outboundKinds, Limit: 50})
 	if err != nil {
@@ -556,35 +551,7 @@ func (c *Channel) OutboxOnce(ctx context.Context) (int, error) {
 
 // RunOutbox consumes on every append and on a fallback poll.
 func (c *Channel) RunOutbox(ctx context.Context) {
-	wake, cancel := c.K.Hub.Subscribe()
-	defer cancel()
-	t := time.NewTicker(5 * time.Second)
-	defer t.Stop()
-	run := func() {
-		for {
-			n, err := c.OutboxOnce(ctx)
-			if err != nil {
-				if ctx.Err() == nil {
-					log.Printf("feishu outbox: %v", err)
-				}
-				return
-			}
-			if n < 50 {
-				return
-			}
-		}
-	}
-	run()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-wake:
-			run()
-		case <-t.C:
-			run()
-		}
-	}
+	c.K.Consume(ctx, "feishu outbox", 5*time.Second, 50, c.OutboxOnce)
 }
 
 func kernelError(err error) kernel.EventInput {

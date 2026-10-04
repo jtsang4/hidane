@@ -1,8 +1,11 @@
 package kernel
 
 import (
+	"context"
 	"crypto/rand"
+	"log"
 	"sync"
+	"time"
 )
 
 const idAlphabet = "0123456789abcdefghjkmnpqrstvwxyz"
@@ -53,6 +56,35 @@ func (h *Hub) Publish(seq int64) {
 		select {
 		case ch <- seq:
 		default:
+		}
+	}
+}
+
+// Consume runs a consumer's pass now, on every append and on a fallback poll,
+// until ctx ends. A pass that handled a full batch runs again at once.
+func (k *Kernel) Consume(ctx context.Context, name string, poll time.Duration, batch int, pass func(context.Context) (int, error)) {
+	wake, cancel := k.Hub.Subscribe()
+	defer cancel()
+	t := time.NewTicker(poll)
+	defer t.Stop()
+	for {
+		for {
+			n, err := pass(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("%s: %v", name, err)
+				}
+				break
+			}
+			if n < batch {
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		case <-t.C:
 		}
 	}
 }

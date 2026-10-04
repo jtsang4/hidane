@@ -94,6 +94,50 @@ func TestCursorsAndReplay(t *testing.T) {
 	if again := m(k.NextBatch(ctx, "c1", 10)); len(again) != 3 {
 		t.Fatalf("replay after reset: %d", len(again))
 	}
+	if _, ok := m3(k.LookupCursor(ctx, "never")); ok {
+		t.Fatal("a consumer that never committed has no cursor")
+	}
+}
+
+func m3[A, B any](a A, b B, err error) (A, B) {
+	if err != nil {
+		panic(err)
+	}
+	return a, b
+}
+
+func TestConsumeWakesOnAppendAndDrainsFullBatches(t *testing.T) {
+	k := kerneltest.New(t)
+	for i := 0; i < 5; i++ {
+		m(k.Append(ctx, kernel.EventInput{Source: "test", Kind: "n"}))
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var handled atomic.Int64
+	pass := func(ctx context.Context) (int, error) {
+		batch, err := k.NextBatch(ctx, "c", 2)
+		if err != nil || len(batch) == 0 {
+			return 0, err
+		}
+		handled.Add(int64(len(batch)))
+		return len(batch), k.CommitCursor(ctx, "c", batch[len(batch)-1].Seq)
+	}
+	done := make(chan struct{})
+	go func() { k.Consume(cctx, "test", time.Hour, 2, pass); close(done) }()
+	waitFor := func(n int64) {
+		deadline := time.Now().Add(5 * time.Second)
+		for handled.Load() != n {
+			if time.Now().After(deadline) {
+				t.Fatalf("handled %d, want %d", handled.Load(), n)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	waitFor(5) // full batches run again without waiting for the hour-long poll
+	m(k.Append(ctx, kernel.EventInput{Source: "test", Kind: "n"}))
+	waitFor(6)
+	cancel()
+	<-done
 }
 
 func TestRedactionIsAReadTimeMask(t *testing.T) {
