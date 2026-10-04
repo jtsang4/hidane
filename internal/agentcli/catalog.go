@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"strings"
 	"time"
@@ -110,13 +111,9 @@ func runQuiet(ctx context.Context, path string, env []string, args ...string) ([
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
-			return nil, &cliError{firstLine(string(ee.Stderr))}
+			return nil, errors.New(firstLine(string(ee.Stderr)))
 		}
 		return nil, err
 	}
 	return out, nil
 }
-
-type cliError struct{ msg string }
-
-func (e *cliError) Error() string { return e.msg }

@@ -55,6 +55,20 @@ type Thought struct {
 	Aborted bool
 }
 
+// decision is the payload of route.decision / manager.decision: what a turn
+// over the messages `of` decided.
+func (th Thought) decision(of []kernel.Event) kernel.Payload {
+	ids := []any{}
+	for _, m := range of {
+		ids = append(ids, m.ID)
+	}
+	recorded := []any{}
+	for _, e := range th.Effects {
+		recorded = append(recorded, map[string]any(e))
+	}
+	return kernel.Payload{"ok": th.OK, "durationMs": th.DurationMs, "of": ids, "effects": recorded}
+}
+
 type thinkOpts struct {
 	Role string
 	// Own is a work item's own choice of agent, in place of the role's.
@@ -247,20 +261,10 @@ func joinNonEmpty(parts []string, sep string) string {
 	return strings.Join(out, sep)
 }
 
-// originOf marks an answer whose conversation began outside the person — a
-// webhook or a schedule — the way the Primary marks its own answers, so the
-// conversation's "only mine" filter treats a work item's later replies alike.
+// originOf marks a work item's later replies the way the Primary marks its own
+// answers (markOrigin).
 func (s *System) originOf(ctx context.Context, rootID string, payload kernel.Payload) {
-	root, ok, err := s.K.GetEvent(ctx, rootID)
-	if err != nil || !ok {
-		return
-	}
-	switch root.Kind {
-	case "triage.decision":
-		payload["rootKind"] = "external"
-		payload["rootText"] = clipRunes(root.Payload.Str("summary"), 200)
-	case "schedule.prompt":
-		payload["rootKind"] = "scheduled"
-		payload["rootText"] = root.Payload.Str("name")
+	if root, ok, err := s.K.GetEvent(ctx, rootID); err == nil && ok {
+		markOrigin(root, payload)
 	}
 }

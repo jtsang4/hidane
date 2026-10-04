@@ -33,13 +33,7 @@ func describePrimary(m kernel.Event) string {
 		return fmt.Sprintf("[%s] (recall: you searched earlier conversation for %q to answer %s; answer that message now with of=%q. Do not recall again.)\nThe message: %s\nFound:\n%s",
 			m.ID, p.Str("query"), p.Str("of"), m.ID, p.Str("original"), p.Str("text"))
 	case "message.reroute_requested":
-		var ex []string
-		if list, ok := p["exclude"].([]any); ok {
-			for _, x := range list {
-				ex = append(ex, fmt.Sprint(x))
-			}
-		}
-		return fmt.Sprintf("[%s] (reroute: work item %s says this is not theirs — do not route it back there) %s", m.ID, strings.Join(ex, ", "), p.Str("text"))
+		return fmt.Sprintf("[%s] (reroute: work item %s says this is not theirs — do not route it back there) %s", m.ID, strings.Join(excludedOf(p), ", "), p.Str("text"))
 	}
 	images := ""
 	if n, ok := p.Num("imageCount"); ok && n > 0 {
@@ -48,24 +42,43 @@ func describePrimary(m kernel.Event) string {
 	return fmt.Sprintf("[%s] (user%s) %s", m.ID, images, p.Str("text"))
 }
 
+// excludedOf lists the work items a rerouted message must not go back to.
+func excludedOf(p kernel.Payload) []string {
+	var out []string
+	if list, ok := p["exclude"].([]any); ok {
+		for _, x := range list {
+			out = append(out, fmt.Sprint(x))
+		}
+	}
+	return out
+}
+
 // rootMeta says where an answer to this message belongs, and how to title it.
 func rootMeta(m kernel.Event) kernel.Payload {
 	meta := kernel.Payload{"of": m.ID, "root": kernel.RootOf(m)}
-	switch m.Kind {
-	case "conversation.recalled":
+	if m.Kind == "conversation.recalled" {
 		for _, key := range []string{"rootKind", "rootText"} {
 			if v, ok := m.Payload[key]; ok {
 				meta[key] = v
 			}
 		}
-	case "triage.decision":
-		meta["rootKind"] = "external"
-		meta["rootText"] = clipRunes(m.Payload.Str("summary"), 200)
-	case "schedule.prompt":
-		meta["rootKind"] = "scheduled"
-		meta["rootText"] = m.Payload.Str("name")
+	} else {
+		markOrigin(m, meta)
 	}
 	return meta
+}
+
+// markOrigin marks an answer whose conversation began outside the person — a
+// webhook or a schedule — so the conversation's "only mine" filter can drop it.
+func markOrigin(root kernel.Event, payload kernel.Payload) {
+	switch root.Kind {
+	case "triage.decision":
+		payload["rootKind"] = "external"
+		payload["rootText"] = clipRunes(root.Payload.Str("summary"), 200)
+	case "schedule.prompt":
+		payload["rootKind"] = "scheduled"
+		payload["rootText"] = root.Payload.Str("name")
+	}
 }
 
 // surfaceEscalation: a bubbled question that reached the top goes to the
@@ -244,12 +257,9 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 				hitIDs = append(hitIDs, h.ID)
 			}
 		}
-		meta := rootMeta(m)
-		payload := kernel.Payload{"of": m.ID, "root": meta["root"], "query": query, "original": describePrimary(m),
-			"hits": hitIDs, "text": projections.DescribeRecall(hits)}
-		if v, ok := meta["rootKind"]; ok {
-			payload["rootKind"], payload["rootText"] = v, meta["rootText"]
-		}
+		payload := rootMeta(m)
+		payload["query"], payload["original"] = query, describePrimary(m)
+		payload["hits"], payload["text"] = hitIDs, projections.DescribeRecall(hits)
 		_, _, err = k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{Source: "agent:primary", Kind: "conversation.recalled",
 			Mailbox: kernel.Primary, Lane: kernel.LaneInterrupt, ThreadID: "main", Payload: payload}, CausedBy: &m})
 		return err
@@ -262,12 +272,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		return t.reply(ctx, m, Str(e["reply"]))
 
 	case "ambiguous", "route":
-		var excluded []string
-		if list, ok := m.Payload["exclude"].([]any); ok {
-			for _, x := range list {
-				excluded = append(excluded, fmt.Sprint(x))
-			}
-		}
+		excluded := excludedOf(m.Payload)
 		isExcluded := func(id string) bool {
 			for _, x := range excluded {
 				if x == id {
@@ -661,19 +666,11 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	if thought.Aborted {
 		return ctx.Err()
 	}
-	var ofIDs []any
-	for _, m := range batch {
-		ofIDs = append(ofIDs, m.ID)
-	}
 	record := func(th Thought, nudged bool) error {
-		recorded := []any{}
-		for _, e := range th.Effects {
-			recorded = append(recorded, map[string]any(e))
-		}
+		payload := th.decision(batch)
 		if th.Effects == nil {
-			recorded = []any{map[string]any{"type": "reply", "raw": clipRunes(th.Raw, 500)}}
+			payload["effects"] = []any{map[string]any{"type": "reply", "raw": clipRunes(th.Raw, 500)}}
 		}
-		payload := kernel.Payload{"ok": th.OK, "durationMs": th.DurationMs, "of": ofIDs, "effects": recorded}
 		if nudged {
 			payload["nudged"] = true
 		}

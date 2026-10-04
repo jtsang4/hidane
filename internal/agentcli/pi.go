@@ -73,13 +73,7 @@ func piArgs(l *Launcher, req Request) ([]string, []string) {
 	if req.SessionDir != "" {
 		args = append(args, "--session-dir", req.SessionDir)
 	}
-	if req.SystemPrompt != "" {
-		flag := "--append-system-prompt"
-		if !req.Tools || req.ReplacePrompt {
-			flag = "--system-prompt"
-		}
-		args = append(args, flag, req.SystemPrompt)
-	}
+	args = append(args, systemPromptArgs(req)...)
 	if req.Tools {
 		args = append(args, "-e", l.piShimPath())
 	} else {
@@ -95,7 +89,7 @@ func piArgs(l *Launcher, req Request) ([]string, []string) {
 		args = append(args, "--model", req.Model)
 	}
 	if req.Effort != "" {
-		args = append(args, "--thinking", effortFor("pi", req.Effort))
+		args = append(args, "--thinking", req.Effort)
 	}
 	if req.ResumeID != "" {
 		args = append(args, "--session", req.ResumeID)
@@ -182,7 +176,6 @@ func (r *piRun) onLine(line []byte) {
 	var m struct {
 		Type      string          `json:"type"`
 		ID        string          `json:"id"`
-		Command   string          `json:"command"`
 		Success   bool            `json:"success"`
 		Error     string          `json:"error"`
 		Data      json.RawMessage `json:"data"`
@@ -213,7 +206,6 @@ func (r *piRun) onLine(line []byte) {
 		case "state":
 			var st struct {
 				SessionFile string `json:"sessionFile"`
-				SessionID   string `json:"sessionId"`
 			}
 			_ = json.Unmarshal(m.Data, &st)
 			r.mu.Lock()

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -190,18 +191,19 @@ func (p *WorkerPool) Pump() {
 
 func (p *WorkerPool) remove(id string) {
 	p.mu.Lock()
-	delete(p.jobs, id)
 	delete(p.running, id)
-	for i, x := range p.order {
-		if x == id {
-			p.order = append(p.order[:i], p.order[i+1:]...)
-			break
-		}
-	}
+	p.dequeueLocked(id)
 	p.mu.Unlock()
 }
 
-// Wait blocks until running jobs finish (tests, shutdown).
+func (p *WorkerPool) dequeueLocked(id string) {
+	delete(p.jobs, id)
+	if i := slices.Index(p.order, id); i >= 0 {
+		p.order = slices.Delete(p.order, i, i+1)
+	}
+}
+
+// Wait blocks until running jobs finish (tests).
 func (p *WorkerPool) Wait() { p.wg.Wait() }
 
 type runOutcome struct {
@@ -515,13 +517,7 @@ func (p *WorkerPool) CancelTree(ctx context.Context, workItemID, reason, source 
 		j := p.jobs[ex.ID]
 		isRunning := p.running[ex.ID] != nil
 		if !isRunning && j != nil {
-			delete(p.jobs, ex.ID)
-			for i, x := range p.order {
-				if x == ex.ID {
-					p.order = append(p.order[:i], p.order[i+1:]...)
-					break
-				}
-			}
+			p.dequeueLocked(ex.ID)
 		}
 		p.mu.Unlock()
 		if isRunning && j != nil {

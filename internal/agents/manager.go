@@ -555,17 +555,8 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		b, _ := json.Marshal(managerSession{Agent: agent, SessionID: thought.SessionID})
 		_ = os.WriteFile(sessionPath, b, 0o644)
 	}
-	var ofIDs []any
-	for _, m := range messages {
-		ofIDs = append(ofIDs, m.ID)
-	}
-	recorded := []any{}
-	for _, e := range thought.Effects {
-		recorded = append(recorded, map[string]any(e))
-	}
 	if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "manager.decision", ThreadID: item.ThreadID,
-		WorkItemID: item.ID, CausedBy: cause.ID,
-		Payload: kernel.Payload{"ok": thought.OK, "durationMs": thought.DurationMs, "of": ofIDs, "effects": recorded}}); err != nil {
+		WorkItemID: item.ID, CausedBy: cause.ID, Payload: thought.decision(messages)}); err != nil {
 		return err
 	}
 	if !thought.OK {
@@ -596,14 +587,11 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		if retry.Aborted {
 			return ctx.Err()
 		}
-		retried := []any{}
-		for _, e := range retry.Effects {
-			retried = append(retried, map[string]any(e))
-		}
 		// The follow-up is its own decision: what was decided must be on record.
+		payload := retry.decision(messages)
+		payload["nudged"] = true
 		if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "manager.decision", ThreadID: item.ThreadID,
-			WorkItemID: item.ID, CausedBy: cause.ID,
-			Payload: kernel.Payload{"ok": retry.OK, "durationMs": retry.DurationMs, "of": ofIDs, "effects": retried, "nudged": true}}); err != nil {
+			WorkItemID: item.ID, CausedBy: cause.ID, Payload: payload}); err != nil {
 			return err
 		}
 		if retry.OK && hasAction(retry.Effects) {

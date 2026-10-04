@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/jtsang4/hidane/internal/settings"
 )
 
 // Claude Code in print mode with stream-json on both sides: the prompt is the
@@ -45,21 +43,12 @@ func hookCommand(guardBin, format string) string {
 func claudeArgs(l *Launcher, req Request) (args []string, env []string) {
 	args = []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json",
 		"--verbose", "--include-partial-messages", "--replay-user-messages"}
-	if req.SystemPrompt != "" {
-		// A reasoning role is a router or planner, not a coding agent: told it
-		// is Claude Code with file tools, a model claimed edits it never made.
-		// The charter replaces the prompt there; workers keep it and append.
-		flag := "--append-system-prompt"
-		if !req.Tools || req.ReplacePrompt {
-			flag = "--system-prompt"
-		}
-		args = append(args, flag, req.SystemPrompt)
-	}
+	args = append(args, systemPromptArgs(req)...)
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
-	if e := effortFor(settings.Claude, req.Effort); e != "" {
-		args = append(args, "--effort", e)
+	if req.Effort != "" {
+		args = append(args, "--effort", req.Effort)
 	}
 	if req.ResumeID != "" {
 		args = append(args, "--resume", req.ResumeID)

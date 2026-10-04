@@ -135,22 +135,24 @@ func Call(ctx context.Context, s Starter, agent string, req Request) Result {
 	return run.Wait()
 }
 
+// systemPromptArgs passes the charter to claude and pi. A reasoning role is a
+// router or planner, not a coding agent: told it is a coding agent with file
+// tools, a model claimed edits it never made. The charter replaces the prompt
+// there and wherever ReplacePrompt says the charter is the role; workers keep
+// the CLI's prompt and append.
+func systemPromptArgs(req Request) []string {
+	if req.SystemPrompt == "" {
+		return nil
+	}
+	if !req.Tools || req.ReplacePrompt {
+		return []string{"--system-prompt", req.SystemPrompt}
+	}
+	return []string{"--append-system-prompt", req.SystemPrompt}
+}
+
 func shellQuote(s string) string {
 	if s != "" && !strings.ContainsAny(s, " \t\n'\"\\$`!*?[]{}()<>|&;#~") {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// effort maps hidane's low/medium/high onto each CLI's own scale.
-func effortFor(agent, effort string) string {
-	if effort == "" {
-		return ""
-	}
-	switch agent {
-	case settings.Pi:
-		return effort // off|minimal|low|medium|high|xhigh|max
-	default:
-		return effort
-	}
 }
