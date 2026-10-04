@@ -47,12 +47,10 @@ describe("following the live edge", () => {
 });
 
 describe("escalation text", () => {
-  it("says budget and deadline stops in the reader's language, not the runtime's Chinese", async () => {
+  it("says a budget stop in the reader's language, not the runtime's Chinese", async () => {
     await i18n.changeLanguage("en");
     const budget = escalationText({ reason: "budget", question: "「x」已经执行了 8 次，已暂停。" });
     expect(budget).toMatch(/^Paused after reaching its limit/);
-    expect(escalationText({ reason: "deadline", stopped: true, question: "「x」已到截止时间，正在进行的执行已停止。" })).toMatch(/running execution was stopped/);
-    expect(escalationText({ reason: "deadline", stopped: false, question: "「x」已到截止时间。" })).toBe("The deadline has passed. Reply to this task to continue.");
     expect(escalationText({ reason: "repo_missing", name: "blog", repoPath: "/code/blog", question: "仓库「blog」不在 /code/blog 了。" })).toBe(
       "Repository “blog” is no longer at /code/blog. If it moved, tell me where; if it is gone for good, remove it under Tasks → Worktrees.",
     );

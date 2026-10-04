@@ -488,7 +488,7 @@ func (p *WorkerPool) Recover(ctx context.Context) (int, error) {
 }
 
 // CancelTree stops a work item and everything under it — the cancel flows
-// down the tree. The reason names the source: a person, a deadline, a budget.
+// down the tree. The reason names who asked: the person, directly or through the Primary.
 func (p *WorkerPool) CancelTree(ctx context.Context, workItemID, reason, source string) ([]string, error) {
 	k := p.s.K
 	nodes, err := k.Subtree(ctx, workItemID)

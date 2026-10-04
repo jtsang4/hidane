@@ -349,11 +349,6 @@ func TestWorkItemTree(t *testing.T) {
 	if len(files) != 4 || files[0] != k.GlobalPolicyPath() || !strings.HasPrefix(files[1], root.Workspace) {
 		t.Fatalf("policy chain must run outermost first: %v", files)
 	}
-	past := time.Now().Add(-time.Minute)
-	m(k.SetWorkItemDeadline(ctx, root.ID, kernel.FormatTime(past), "test"))
-	if overdue := m(k.OverdueWorkItems(ctx, time.Now())); len(overdue) != 1 {
-		t.Fatalf("overdue: %d", len(overdue))
-	}
 }
 
 func TestSchedulesValidateAndStayOnGrid(t *testing.T) {
@@ -545,7 +540,7 @@ func TestRunNowDoesNotPostponeTheSchedule(t *testing.T) {
 }
 
 // A database from before work items could pin an agent opens with the column
-// added and its items intact.
+// added and its items intact; its unused deadline_at column does no harm.
 func TestOpenAddsColumnsToAnOlderDatabase(t *testing.T) {
 	cfg := config.ForTest(t.TempDir())
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(cfg.DBPath()))

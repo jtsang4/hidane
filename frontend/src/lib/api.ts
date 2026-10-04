@@ -62,7 +62,6 @@ export interface WorkItem {
   workspace: string;
   threadId: string;
   parentId: string | null;
-  deadlineAt: string | null;
   createdAt: string;
   updatedAt: string;
   /** Pinned agent for this task; `null` follows the role settings. */

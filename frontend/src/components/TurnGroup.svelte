@@ -109,7 +109,7 @@
         <div class={cn("max-w-[85%] rounded-lg border px-3 py-2.5 text-sm", openEscalation.has(answer.id) ? "border-danger/40 bg-danger/5" : "border-border bg-surface")}>
           <p class="flex items-center gap-1.5 text-xs font-medium text-danger">
             <CircleHelp size={13} aria-hidden="true" />
-            {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "deadline" || answer.payload["reason"] === "repo_missing" ? answer.payload["reason"] : "question"}`)}
+            {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "repo_missing" ? answer.payload["reason"] : "question"}`)}
           </p>
           <p class="mt-1 whitespace-pre-wrap select-text">{escalationText(answer.payload)}</p>
           {#if path.some((step) => step.tried)}

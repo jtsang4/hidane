@@ -656,37 +656,6 @@ func TestDistillerReplayDoesNotDuplicateWorkItemMemory(t *testing.T) {
 	}
 }
 
-// Every answer names the message it is about — a passed deadline included.
-func TestDeadlineEscalationCarriesItsRoot(t *testing.T) {
-	w := newWorld(t, settings.Claude)
-	item := m(w.k.CreateWorkItem(ctx, "report", "test", kernel.CreateWorkItemOpts{}))
-	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写一个文件 deadline", Source: "connector:web", Target: item.ID}))
-	w.settle()
-	m(w.k.SetWorkItemDeadline(ctx, item.ID, kernel.FormatTime(time.Now().Add(-time.Minute)), "test"))
-	if err := w.s.EnforceDeadlines(ctx); err != nil {
-		t.Fatal(err)
-	}
-	var esc []kernel.Event
-	for _, e := range w.events("escalation") {
-		if e.Payload.Str("reason") == "deadline" {
-			esc = append(esc, e)
-		}
-	}
-	if len(esc) != 1 || esc[0].Payload.Str("root") != msg.ID || esc[0].Payload.Bool("stopped") {
-		t.Fatalf("deadline escalation root: %+v (message %s)", esc, msg.ID)
-	}
-	direct := m(w.k.CreateWorkItem(ctx, "opened directly", "test", kernel.CreateWorkItemOpts{}))
-	m(w.k.SetWorkItemDeadline(ctx, direct.ID, kernel.FormatTime(time.Now().Add(-time.Minute)), "test"))
-	if err := w.s.EnforceDeadlines(ctx); err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range w.events("escalation") {
-		if e.WorkItemID == direct.ID && e.Payload.Str("root") == "" {
-			t.Fatalf("an item with no message still roots its notice: %+v", e)
-		}
-	}
-}
-
 func TestHopBudgetStopsRunawayChains(t *testing.T) {
 	w := newWorld(t, settings.Claude)
 	w.k.Cfg.MaxHops = 1

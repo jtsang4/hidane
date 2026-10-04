@@ -375,12 +375,10 @@ export const zh = {
       latestReply: "最新回复",
       thread: "对话",
       noThread: "还没有对话。",
-      reason: { budget: "预算用完", deadline: "到截止时间", question: "提问", repo_missing: "仓库不见了" },
+      reason: { budget: "预算用完", question: "提问", repo_missing: "仓库不见了" },
       escalation: {
         repoMissing: "仓库「{{name}}」不在 {{path}} 了。挪了位置的话告诉我新路径；不再需要的话，可以在任务页的「工作树」里移除它。",
         budget: "已达到执行或转发次数的上限，已自动暂停。需要继续的话，直接回复这个任务。",
-        deadline: "已到截止时间，进行中的执行已停止。需要继续的话，直接回复这个任务。",
-        deadlineIdle: "已到截止时间。需要继续的话，直接回复这个任务。",
       },
     },
     runAs: {
@@ -974,12 +972,10 @@ export const en = {
       latestReply: "Latest reply",
       thread: "Conversation",
       noThread: "No conversation yet.",
-      reason: { budget: "Budget spent", deadline: "Deadline passed", question: "Question", repo_missing: "Repository gone" },
+      reason: { budget: "Budget spent", question: "Question", repo_missing: "Repository gone" },
       escalation: {
         repoMissing: "Repository “{{name}}” is no longer at {{path}}. If it moved, tell me where; if it is gone for good, remove it under Tasks → Worktrees.",
         budget: "Paused after reaching its limit of runs or hand-offs. Reply to this task to continue.",
-        deadline: "The deadline has passed and the running execution was stopped. Reply to this task to continue.",
-        deadlineIdle: "The deadline has passed. Reply to this task to continue.",
       },
     },
     runAs: {

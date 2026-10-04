@@ -66,7 +66,7 @@ Across the tree, facts propagate like DOM events:
   own bypass mode, and a workspace is where they start, not a limit. While a
   person's new message is queued for a running worker, its changes pause until
   it has been read.
-- **Cancel** flows down the tree; its source is a person, a deadline, or a spent
+- **Cancel** flows down the tree; its source is a person or a spent
   budget (`HIDANE_MAX_HOPS` bounds any causal chain of messages).
 
 Every message a person sends lands on the main thread and is **attributed** to a

@@ -255,57 +255,6 @@ func (s *System) RecallForManager(item kernel.WorkItem) string {
 	return clipRunes(joinNonEmpty([]string{scoped, global}, "\n\n"), recallCap)
 }
 
-// EnforceDeadlines: a deadline is one of the three cancel sources. An overdue
-// item is stopped with everything under it, and the person is told.
-func (s *System) EnforceDeadlines(ctx context.Context) error {
-	k := s.K
-	overdue, err := k.OverdueWorkItems(ctx, k.Now())
-	if err != nil {
-		return err
-	}
-	for _, item := range overdue {
-		if _, err := k.SetWorkItemDeadline(ctx, item.ID, "", "kernel:runtime"); err != nil {
-			return err
-		}
-		stopped, err := s.Pool.CancelTree(ctx, item.ID, "deadline passed", "kernel:runtime")
-		if err != nil {
-			return err
-		}
-		note := ""
-		if len(stopped) > 0 {
-			note = "，正在进行的执行已停止"
-		}
-		if _, err := k.Append(ctx, kernel.EventInput{Source: "kernel:runtime", Kind: "escalation", ThreadID: "main", WorkItemID: item.ID,
-			Payload: kernel.Payload{"reason": "deadline", "root": s.itemRoot(ctx, item.ID), "stopped": len(stopped) > 0,
-				"question": fmt.Sprintf("「%s」已到截止时间%s。需要继续的话，直接回复这个任务。", item.Title, note)}}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// itemRoot is what a notice about a whole work item answers: the message
-// that started it, or — opened directly, with no message — its creation.
-func (s *System) itemRoot(ctx context.Context, workItemID string) string {
-	k := s.K
-	created, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "work_item.created", WorkItemID: workItemID, Limit: 1})
-	if err != nil || len(created) == 0 {
-		return ""
-	}
-	of := created[0].Payload.Str("of")
-	if of == "" {
-		if att, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "message.attributed", WorkItemID: workItemID, Limit: 1}); err == nil && len(att) > 0 {
-			of = att[0].Payload.Str("of")
-		}
-	}
-	if of != "" {
-		if m, ok, err := k.GetEvent(ctx, of); err == nil && ok {
-			return kernel.RootOf(m)
-		}
-	}
-	return created[0].ID
-}
-
 // NewRuntime is the event loop with every role and housekeeping task wired in.
 func (s *System) NewRuntime() *kernel.Runtime {
 	k := s.K
@@ -313,7 +262,6 @@ func (s *System) NewRuntime() *kernel.Runtime {
 	rt.Register(kernel.Primary, s.PrimaryTurn)
 	rt.Register(kernel.ManagerPrefix, s.ManagerTurn)
 	rt.RegisterTimer("worker-pump", func(context.Context) error { s.Pool.Pump(); return nil }, 2*time.Second)
-	rt.RegisterTimer("deadlines", s.EnforceDeadlines, 30*time.Second)
 	rt.RegisterIdle("distill", func(ctx context.Context) error {
 		_, err := s.RunDistillation(ctx, 10)
 		return err

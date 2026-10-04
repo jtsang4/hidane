@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 )
 
 type WorkItemStatus = string
@@ -21,15 +20,14 @@ func ValidStatus(s string) bool { return s == StatusOpen || s == StatusDone || s
 
 // WorkItem: the thread is the interaction lane, the workspace the execution home.
 type WorkItem struct {
-	ID         string  `json:"id"`
-	Title      string  `json:"title"`
-	Status     string  `json:"status"`
-	Workspace  string  `json:"workspace"`
-	ThreadID   string  `json:"threadId"`
-	ParentID   *string `json:"parentId"`
-	DeadlineAt *string `json:"deadlineAt"`
-	CreatedAt  string  `json:"createdAt"`
-	UpdatedAt  string  `json:"updatedAt"`
+	ID        string  `json:"id"`
+	Title     string  `json:"title"`
+	Status    string  `json:"status"`
+	Workspace string  `json:"workspace"`
+	ThreadID  string  `json:"threadId"`
+	ParentID  *string `json:"parentId"`
+	CreatedAt string  `json:"createdAt"`
+	UpdatedAt string  `json:"updatedAt"`
 	// RunAs pins what the item's Manager and workers run on; nil follows the
 	// role settings.
 	RunAs *RunAs `json:"runAs"`
@@ -46,14 +44,13 @@ type RunAs struct {
 
 func (w WorkItem) Parent() string { return deref(w.ParentID) }
 
-const wiCols = `id, title, status, workspace, thread_id, parent_id, deadline_at, created_at, updated_at, run_as`
+const wiCols = `id, title, status, workspace, thread_id, parent_id, created_at, updated_at, run_as`
 
 func scanWorkItem(s scanner) (WorkItem, error) {
 	var w WorkItem
-	var parent, deadline, runAs sql.NullString
-	err := s.Scan(&w.ID, &w.Title, &w.Status, &w.Workspace, &w.ThreadID, &parent, &deadline, &w.CreatedAt, &w.UpdatedAt, &runAs)
+	var parent, runAs sql.NullString
+	err := s.Scan(&w.ID, &w.Title, &w.Status, &w.Workspace, &w.ThreadID, &parent, &w.CreatedAt, &w.UpdatedAt, &runAs)
 	w.ParentID = ptr(str(parent))
-	w.DeadlineAt = ptr(str(deadline))
 	if runAs.Valid && runAs.String != "" {
 		var r RunAs
 		if json.Unmarshal([]byte(runAs.String), &r) == nil && r.Agent != "" {
@@ -191,32 +188,6 @@ func (k *Kernel) Ancestors(ctx context.Context, item WorkItem) ([]WorkItem, erro
 	return chain, nil
 }
 
-// SetWorkItemDeadline sets or clears (empty) a deadline.
-func (k *Kernel) SetWorkItemDeadline(ctx context.Context, id, deadlineAt, source string) (WorkItem, error) {
-	item, err := k.GetWorkItem(ctx, id)
-	if err != nil {
-		return item, err
-	}
-	var stored any
-	if deadlineAt != "" {
-		t, err := ParseTime(deadlineAt)
-		if err != nil {
-			return item, fmt.Errorf("deadlineAt must be an ISO timestamp: %w", err)
-		}
-		stored = FormatTime(t)
-	}
-	if _, err := k.DB.ExecContext(ctx, `UPDATE work_items SET deadline_at = ?, updated_at = ? WHERE id = ?`, stored, k.stamp(), id); err != nil {
-		return item, err
-	}
-	if _, err := k.Append(ctx, EventInput{
-		Source: source, Kind: "work_item.deadline_set", ThreadID: item.ThreadID, WorkItemID: id,
-		Payload: Payload{"deadlineAt": stored},
-	}); err != nil {
-		return item, err
-	}
-	return k.GetWorkItem(ctx, id)
-}
-
 // SetWorkItemRunAs pins (or, with nil, releases) what a work item runs on.
 // The change is a fact in the log; the column is what the runtime reads.
 func (k *Kernel) SetWorkItemRunAs(ctx context.Context, id string, runAs *RunAs, source string) (WorkItem, error) {
@@ -252,12 +223,6 @@ func equalRunAs(a, b *RunAs) bool {
 		return a == b
 	}
 	return *a == *b
-}
-
-// OverdueWorkItems are open items whose deadline has passed.
-func (k *Kernel) OverdueWorkItems(ctx context.Context, now time.Time) ([]WorkItem, error) {
-	return k.queryWorkItems(ctx, `SELECT `+wiCols+` FROM work_items
-		WHERE status = 'open' AND deadline_at IS NOT NULL AND deadline_at <= ?`, FormatTime(now))
 }
 
 // TitlesFor maps work item ids to titles.

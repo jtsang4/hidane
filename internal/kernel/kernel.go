@@ -100,7 +100,6 @@ var schema = []string{
 		workspace TEXT NOT NULL,
 		thread_id TEXT NOT NULL,
 		parent_id TEXT,
-		deadline_at TEXT,
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,

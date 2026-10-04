@@ -312,40 +312,29 @@ func (s *server) file(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) patchWorkItem(w http.ResponseWriter, r *http.Request) {
-	var body map[string]any
+	var body struct {
+		Status *string         `json:"status"`
+		RunAs  json.RawMessage `json:"runAs"`
+	}
 	if err := readJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("invalid json"))
 		return
 	}
-	status, hasStatus := body["status"]
-	deadline, hasDeadline := body["deadlineAt"]
-	rawRunAs, hasRunAs := body["runAs"]
-	if !hasStatus && !hasDeadline && !hasRunAs {
-		writeJSON(w, http.StatusBadRequest, errBody("status, deadlineAt or runAs required"))
+	if body.Status == nil && body.RunAs == nil {
+		writeJSON(w, http.StatusBadRequest, errBody("status or runAs required"))
 		return
 	}
 	var runAs *kernel.RunAs
-	if hasRunAs {
-		b, _ := json.Marshal(rawRunAs)
+	if body.RunAs != nil {
 		var err error
-		if runAs, err = s.runAsFrom(b); err != nil {
+		if runAs, err = s.runAsFrom(body.RunAs); err != nil {
 			writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
 			return
 		}
 	}
-	st, _ := status.(string)
-	if hasStatus && !kernel.ValidStatus(st) {
+	if body.Status != nil && !kernel.ValidStatus(*body.Status) {
 		writeJSON(w, http.StatusBadRequest, errBody("status must be open | done | closed"))
 		return
-	}
-	dl := ""
-	if hasDeadline && deadline != nil {
-		d, ok := deadline.(string)
-		if _, err := kernel.ParseTime(d); !ok || err != nil {
-			writeJSON(w, http.StatusBadRequest, errBody("deadlineAt must be an ISO timestamp or null"))
-			return
-		}
-		dl = d
 	}
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -354,19 +343,13 @@ func (s *server) patchWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errBody("not found"))
 		return
 	}
-	if hasStatus {
-		if item, err = s.Sys.ChangeStatus(ctx, id, st, "connector:web", nil); err != nil {
+	if body.Status != nil {
+		if item, err = s.Sys.ChangeStatus(ctx, id, *body.Status, "connector:web", nil); err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 			return
 		}
 	}
-	if hasDeadline {
-		if item, err = s.K.SetWorkItemDeadline(ctx, id, dl, "connector:web"); err != nil {
-			writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
-			return
-		}
-	}
-	if hasRunAs {
+	if body.RunAs != nil {
 		if item, err = s.K.SetWorkItemRunAs(ctx, id, runAs, "connector:web"); err != nil {
 			writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 			return

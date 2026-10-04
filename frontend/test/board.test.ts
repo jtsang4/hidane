@@ -14,7 +14,6 @@ function card(id: string, state: CardState, lastSeq = 10, status: "open" | "done
       workspace: "/w",
       threadId: `th_${id}`,
       parentId: null,
-      deadlineAt: null,
       createdAt: `2026-09-24T10:00:0${id.length}Z`,
       updatedAt: "2026-09-24T10:00:00Z",
     },
