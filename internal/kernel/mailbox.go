@@ -81,8 +81,9 @@ func (k *Kernel) OverBudget(cause *Event) bool {
 func (k *Kernel) BudgetEscalation(ctx context.Context, cause *Event, kind, mailbox, workItemID string) error {
 	hop := cause.Hop + 1
 	payload := Payload{
-		"reason":      "budget",
-		"question":    fmt.Sprintf("这条因果链已经连续触发 %d 次，已自动暂停。需要继续的话，直接回复这个任务。", hop),
+		"reason": "budget",
+		// Counts the hops the chain took: the one refused here never happened.
+		"question":    fmt.Sprintf("这条因果链已经连续触发 %d 次，已自动暂停。需要继续的话，直接回复这个任务。", cause.Hop),
 		"blockedKind": kind,
 		"mailbox":     mailbox,
 		"root":        RootOf(*cause),
