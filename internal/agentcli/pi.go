@@ -23,7 +23,6 @@ type piRun struct {
 
 	mu          sync.Mutex
 	cancelled   bool
-	timedOut    bool
 	settled     bool
 	rejected    string
 	sessionFile string
@@ -117,7 +116,7 @@ func startPi(ctx context.Context, l *Launcher, bin string, req Request) (Run, er
 		}
 	}
 	args, env := piArgs(l, req)
-	p, err := startProc(bin, args, req.Cwd, env, true)
+	p, err := startProc(bin, args, req.Cwd, env)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +130,7 @@ func startPi(ctx context.Context, l *Launcher, bin string, req Request) (Run, er
 		p.kill()
 		return nil, err
 	}
-	p.supervise(ctx, req.Timeout, func() {
-		r.mu.Lock()
-		r.timedOut = true
-		r.mu.Unlock()
-	})
+	p.supervise(ctx, req.Timeout)
 	return r, nil
 }
 
@@ -309,7 +304,7 @@ func (r *piRun) Wait() Result {
 	switch {
 	case r.cancelled:
 		res.Cancelled, res.Error = true, "cancelled"
-	case r.timedOut:
+	case r.p.timedOut.Load():
 		res.Error = "timed out after " + r.req.Timeout.String()
 	case r.rejected != "":
 		res.Error = "pi rejected the prompt: " + r.rejected

@@ -40,7 +40,6 @@ func LoginShellPath() string {
 		defer cancel()
 		const marker = "__HIDANE_PATH__"
 		cmd := exec.CommandContext(ctx, shell, "-l", "-i", "-c", "printf '"+marker+"%s"+marker+"' \"$PATH\"")
-		cmd.Stdin = nil
 		out, err := cmd.Output()
 		if err != nil && len(out) == 0 {
 			return

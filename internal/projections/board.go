@@ -154,9 +154,6 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 		}
 		r.executionID = exec.String
 		_ = json.Unmarshal([]byte(payload), &r.payload)
-		if r.payload == nil {
-			r.payload = kernel.Payload{}
-		}
 		if byItem[r.workItemID] == nil {
 			byItem[r.workItemID] = map[string]latestRow{}
 		}

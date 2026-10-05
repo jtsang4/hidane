@@ -189,11 +189,10 @@ func scanBinding(s scanner) (ChannelBinding, error) {
 	return b, err
 }
 
-func (k *Kernel) CreateBinding(ctx context.Context, b ChannelBinding) (ChannelBinding, error) {
-	b.ID = GenID("cb", 6)
+func (k *Kernel) CreateBinding(ctx context.Context, b ChannelBinding) error {
 	_, err := k.DB.ExecContext(ctx, `INSERT INTO channel_bindings (id, channel, kind, work_item_id, chat_id, root_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, b.ID, b.Channel, b.Kind, nullable(b.WorkItemID), b.ChatID, nullable(b.RootID), k.stamp())
-	return b, err
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, GenID("cb", 6), b.Channel, b.Kind, nullable(b.WorkItemID), b.ChatID, nullable(b.RootID), k.stamp())
+	return err
 }
 
 func (k *Kernel) findBinding(ctx context.Context, q string, args ...any) (ChannelBinding, bool, error) {

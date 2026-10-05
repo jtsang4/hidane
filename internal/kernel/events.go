@@ -180,7 +180,6 @@ func (k *Kernel) Append(ctx context.Context, in EventInput) (Event, error) {
 
 type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 func (k *Kernel) appendTx(ctx context.Context, db execer, in EventInput) (Event, error) {
@@ -212,9 +211,6 @@ func (k *Kernel) appendTx(ctx context.Context, db execer, in EventInput) (Event,
 	}
 	var p Payload
 	_ = json.Unmarshal([]byte(payload), &p)
-	if p == nil {
-		p = Payload{}
-	}
 	ev := Event{
 		Seq: seq, ID: id, TS: ts, Source: in.Source, Kind: in.Kind, ThreadID: in.ThreadID,
 		WorkItemID: in.WorkItemID, ExecutionID: in.ExecutionID, Payload: p, Mailbox: in.Mailbox,

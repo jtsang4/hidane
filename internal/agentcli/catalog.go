@@ -107,7 +107,6 @@ func runQuiet(ctx context.Context, path string, env []string, args ...string) ([
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = append(WithoutVars(env, parentSessionVars...), "PI_OFFLINE=1")
-	cmd.Stdin = nil
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {

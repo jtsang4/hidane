@@ -236,7 +236,7 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 		// The budget is per stretch of autonomous work: whoever answers this
 		// item (the person, or a parent) starts a new one — which is what the
 		// escalation below promises.
-		n, err := k.CountExecutionsSinceInput(ctx, item.ID, kernel.ManagerAddress(item.ID))
+		n, err := k.CountExecutionsSinceInput(ctx, item.ID)
 		if err != nil {
 			return err
 		}

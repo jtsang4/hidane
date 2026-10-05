@@ -359,7 +359,7 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 	// reach a chat nobody recorded.
 	if in.ChatType == "p2p" {
 		if _, ok, err := k.FindByChannelRef(ctx, "feishu", in.ChatID, ""); err == nil && !ok {
-			if _, err := k.CreateBinding(ctx, kernel.ChannelBinding{Channel: "feishu", Kind: "main", ChatID: in.ChatID}); err != nil {
+			if err := k.CreateBinding(ctx, kernel.ChannelBinding{Channel: "feishu", Kind: "main", ChatID: in.ChatID}); err != nil {
 				return err
 			}
 		}
@@ -469,7 +469,7 @@ func (c *Channel) workItemRoot(ctx context.Context, workItemID, chatID string) (
 	if err != nil {
 		return "", err
 	}
-	if _, err := c.K.CreateBinding(ctx, kernel.ChannelBinding{Channel: "feishu", Kind: "work_item", WorkItemID: item.ID, ChatID: chatID, RootID: root}); err != nil {
+	if err := c.K.CreateBinding(ctx, kernel.ChannelBinding{Channel: "feishu", Kind: "work_item", WorkItemID: item.ID, ChatID: chatID, RootID: root}); err != nil {
 		return "", err
 	}
 	_, err = c.K.Append(ctx, kernel.EventInput{Source: "connector:feishu", Kind: "binding.created", ThreadID: item.ThreadID, WorkItemID: item.ID,

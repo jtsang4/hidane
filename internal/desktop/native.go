@@ -98,7 +98,7 @@ func (h *host) SetBadge(count int) error {
 
 // menu is the native application menu. Commands are handed to the page as
 // events; accelerators therefore work even while focus is in a text field.
-func menu(app *application.App, send func(command string)) *application.Menu {
+func menu(send func(command string)) *application.Menu {
 	m := application.NewMenu()
 	item := func(parent *application.Menu, label, accel, command string) {
 		it := parent.Add(label).OnClick(func(*application.Context) { send(command) })

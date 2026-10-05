@@ -100,7 +100,7 @@ func Run(cfg *config.Config) error {
 		},
 	})
 	h.app = wapp
-	wapp.Menu.Set(menu(wapp, func(command string) {
+	wapp.Menu.Set(menu(func(command string) {
 		wapp.Event.Emit(CommandEvent, map[string]any{"command": command})
 	}))
 	opts := application.WebviewWindowOptions{

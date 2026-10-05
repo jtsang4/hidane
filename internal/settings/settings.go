@@ -340,7 +340,6 @@ func ValidateModel(agent, model string, provider *Provider) error {
 
 // Resolved is a role's effective configuration.
 type Resolved struct {
-	Role     string
 	Agent    string
 	Model    string
 	Effort   string
@@ -360,7 +359,7 @@ func (s Settings) ResolveWith(role string, own *RoleConfig) Resolved {
 	if own != nil && own.Agent != "" {
 		rc = *own
 	}
-	r := Resolved{Role: role, Agent: rc.Agent, Model: rc.Model, Effort: rc.Effort}
+	r := Resolved{Agent: rc.Agent, Model: rc.Model, Effort: rc.Effort}
 	if rc.Provider != "" {
 		if p, ok := s.Provider(rc.Provider); ok {
 			r.Provider = &p

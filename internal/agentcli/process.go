@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -23,6 +24,8 @@ type proc struct {
 	stdout  *bufio.Reader
 	stdoutR *os.File
 	stderr  *tailBuffer
+	// timedOut: supervise killed it at the deadline.
+	timedOut atomic.Bool
 
 	mu          sync.Mutex
 	stdinClosed bool
@@ -58,20 +61,18 @@ func (t *tailBuffer) String() string {
 	return s
 }
 
-func startProc(bin string, args []string, cwd string, env []string, pipeStdin bool) (*proc, error) {
+func startProc(bin string, args []string, cwd string, env []string) (*proc, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = cwd
 	cmd.Env = env
 	cmd.SysProcAttr = sysProcAttr()
 	p := &proc{cmd: cmd, stderr: &tailBuffer{}, done: make(chan struct{})}
 	cmd.Stderr = p.stderr
-	if pipeStdin {
-		w, err := cmd.StdinPipe()
-		if err != nil {
-			return nil, err
-		}
-		p.stdin = w
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
 	}
+	p.stdin = stdin
 	// Our own pipe rather than StdoutPipe, so Wait can run while stdout is
 	// still being read: a grandchild that left the process group can hold the
 	// write end open, and the run must still end when the CLI does.
@@ -130,7 +131,7 @@ func (p *proc) writeJSON(v any) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stdinClosed || p.stdin == nil {
+	if p.stdinClosed {
 		return errors.New("stdin closed")
 	}
 	_, err = p.stdin.Write(append(b, '\n'))
@@ -140,7 +141,7 @@ func (p *proc) writeJSON(v any) error {
 func (p *proc) closeStdin() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.stdinClosed && p.stdin != nil {
+	if !p.stdinClosed {
 		p.stdinClosed = true
 		_ = p.stdin.Close()
 	}
@@ -162,7 +163,7 @@ func (p *proc) kill() {
 }
 
 // supervise ends the process on cancellation or timeout.
-func (p *proc) supervise(ctx context.Context, timeout time.Duration, onTimeout func()) {
+func (p *proc) supervise(ctx context.Context, timeout time.Duration) {
 	go func() {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
@@ -171,9 +172,7 @@ func (p *proc) supervise(ctx context.Context, timeout time.Duration, onTimeout f
 		case <-ctx.Done():
 			p.kill()
 		case <-timer.C:
-			if onTimeout != nil {
-				onTimeout()
-			}
+			p.timedOut.Store(true)
 			p.kill()
 		}
 	}()

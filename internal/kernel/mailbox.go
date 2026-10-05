@@ -77,25 +77,20 @@ func (k *Kernel) OverBudget(cause *Event) bool {
 	return cause != nil && cause.Hop+1 > k.Cfg.MaxHops
 }
 
-// BudgetEscalation stops a chain and tells a person instead.
+// BudgetEscalation stops a chain and tells a person instead. Only a chain
+// OverBudget reports gets here, so cause is never nil.
 func (k *Kernel) BudgetEscalation(ctx context.Context, cause *Event, kind, mailbox, workItemID string) error {
-	hop := 0
-	causedBy := ""
-	if cause != nil {
-		hop, causedBy = cause.Hop+1, cause.ID
-	}
+	hop := cause.Hop + 1
 	payload := Payload{
 		"reason":      "budget",
 		"question":    fmt.Sprintf("这条因果链已经连续触发 %d 次，已自动暂停。需要继续的话，直接回复这个任务。", hop),
 		"blockedKind": kind,
 		"mailbox":     mailbox,
-	}
-	if cause != nil {
-		payload["root"] = RootOf(*cause)
+		"root":        RootOf(*cause),
 	}
 	_, err := k.Append(ctx, EventInput{
 		Source: "kernel:runtime", Kind: "escalation", ThreadID: "main",
-		WorkItemID: workItemID, CausedBy: causedBy, Hop: hop, Payload: payload,
+		WorkItemID: workItemID, CausedBy: cause.ID, Hop: hop, Payload: payload,
 	})
 	return err
 }

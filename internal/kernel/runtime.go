@@ -122,9 +122,7 @@ func (r *Runtime) Stop() {
 		return
 	}
 	r.stopped = true
-	if r.stopLoop != nil {
-		close(r.stopLoop)
-	}
+	close(r.stopLoop)
 	r.mu.Unlock()
 	r.cancel()
 	r.bg.Wait()
@@ -178,7 +176,7 @@ func (r *Runtime) Kick() {
 
 func (r *Runtime) handlerFor(address string) TurnHandler {
 	for _, h := range r.handlers {
-		if address == h.prefix || strings.HasPrefix(address, h.prefix) {
+		if strings.HasPrefix(address, h.prefix) {
 			return h.handler
 		}
 	}

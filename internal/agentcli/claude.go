@@ -25,7 +25,6 @@ type claudeRun struct {
 	unread        []string
 	cancelled     bool
 	finishing     bool
-	timedOut      bool
 	sessionID     string
 	resultSeen    bool
 	resultText    string
@@ -117,7 +116,7 @@ func claudeUserMessage(text string, images []Image) map[string]any {
 
 func startClaude(ctx context.Context, l *Launcher, bin string, req Request) (Run, error) {
 	args, env := claudeArgs(l, req)
-	p, err := startProc(bin, args, req.Cwd, env, true)
+	p, err := startProc(bin, args, req.Cwd, env)
 	if err != nil {
 		return nil, err
 	}
@@ -129,11 +128,7 @@ func startClaude(ctx context.Context, l *Launcher, bin string, req Request) (Run
 		p.kill()
 		return nil, err
 	}
-	p.supervise(ctx, req.Timeout, func() {
-		r.mu.Lock()
-		r.timedOut = true
-		r.mu.Unlock()
-	})
+	p.supervise(ctx, req.Timeout)
 	return r, nil
 }
 
@@ -345,7 +340,7 @@ func (r *claudeRun) Wait() Result {
 	switch {
 	case r.cancelled:
 		res.Cancelled, res.Error = true, "cancelled"
-	case r.timedOut:
+	case r.p.timedOut.Load():
 		res.Error = "timed out after " + r.req.Timeout.String()
 	case r.resultSeen && !r.resultError:
 		res.OK = true

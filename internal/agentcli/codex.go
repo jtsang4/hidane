@@ -21,7 +21,6 @@ import (
 // the command line that key does nothing): a tool call the guard never saw
 // therefore stops the run.
 type codexRun struct {
-	l       *Launcher
 	req     Request
 	p       *proc
 	started time.Time
@@ -47,7 +46,6 @@ type codexRun struct {
 	// accepted after that point would be acknowledged and then dropped.
 	finishing bool
 	cancelled bool
-	timedOut  bool
 	text      string
 	failure   string
 	lastError string
@@ -145,18 +143,14 @@ func codexInput(text string, images []Image) []any {
 
 func startCodex(ctx context.Context, l *Launcher, bin string, req Request) (Run, error) {
 	args, env := codexArgs(l, req)
-	p, err := startProc(bin, args, req.Cwd, env, true)
+	p, err := startProc(bin, args, req.Cwd, env)
 	if err != nil {
 		return nil, err
 	}
-	r := &codexRun{l: l, req: req, p: p, started: time.Now(), done: make(chan struct{}), turnEnd: make(chan struct{}, 1),
+	r := &codexRun{req: req, p: p, started: time.Now(), done: make(chan struct{}), turnEnd: make(chan struct{}, 1),
 		calls: map[int]chan rpcReply{}, hooked: map[string]bool{}, ended: map[string]string{}}
 	p.readLines(r.onLine)
-	p.supervise(ctx, req.Timeout, func() {
-		r.mu.Lock()
-		r.timedOut = true
-		r.mu.Unlock()
-	})
+	p.supervise(ctx, req.Timeout)
 	go r.drive()
 	return r, nil
 }
@@ -217,7 +211,7 @@ func (r *codexRun) drive() {
 		}
 		r.mu.Lock()
 		next := ""
-		if !r.cancelled && !r.timedOut && r.turnState == "completed" && r.failure == "" && len(r.queue) > 0 {
+		if !r.cancelled && !r.p.timedOut.Load() && r.turnState == "completed" && r.failure == "" && len(r.queue) > 0 {
 			next = strings.Join(r.queue, "\n\n")
 			r.queue = nil
 		}
@@ -370,7 +364,7 @@ func (r *codexRun) finish() {
 	switch {
 	case r.cancelled:
 		res.Cancelled, res.Error = true, "cancelled"
-	case r.timedOut:
+	case r.p.timedOut.Load():
 		res.Error = "timed out after " + r.req.Timeout.String()
 	case r.failure != "":
 		res.Error = r.failure

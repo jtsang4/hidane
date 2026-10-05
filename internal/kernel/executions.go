@@ -120,10 +120,10 @@ func (k *Kernel) BusyWorkItemIDs(ctx context.Context) ([]string, error) {
 }
 
 // CountExecutionsSinceInput counts a work item's executions since the last
-// message from outside the item reached its mailbox (a person, or a parent).
-func (k *Kernel) CountExecutionsSinceInput(ctx context.Context, workItemID, mailbox string) (int, error) {
+// message from outside the item reached its Manager (a person, or a parent).
+func (k *Kernel) CountExecutionsSinceInput(ctx context.Context, workItemID string) (int, error) {
 	var since sql.NullString
-	if err := k.DB.QueryRowContext(ctx, `SELECT max(ts) FROM events WHERE mailbox = ? AND kind = 'user.message'`, mailbox).Scan(&since); err != nil {
+	if err := k.DB.QueryRowContext(ctx, `SELECT max(ts) FROM events WHERE mailbox = ? AND kind = 'user.message'`, ManagerAddress(workItemID)).Scan(&since); err != nil {
 		return 0, err
 	}
 	var n int
