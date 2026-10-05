@@ -81,4 +81,31 @@ describe("Combobox", () => {
     await tick();
     expect(await screen.findAllByRole("option")).toHaveLength(2);
   });
+
+  it("takes the empty value on Enter once the field is cleared, as blur does", async () => {
+    const { input, onchange } = renderBox("gpt-6-astra");
+    // A click in the field opens the list, so Enter goes to its highlighted option.
+    await fireEvent.click(input);
+    await fireEvent.keyDown(input, { key: "Backspace" });
+    await fireEvent.input(input, { target: { value: "" } });
+    await settle();
+    expect((await screen.findAllByRole("option"))[0]).toHaveTextContent("Default model");
+    await fireEvent.keyDown(input, { key: "Enter" });
+    expect(onchange).toHaveBeenLastCalledWith("");
+  });
+
+  it("takes the empty option on Enter when the person moves to it", async () => {
+    const { input, onchange } = renderBox("gpt-6-astra");
+    await fireEvent.keyDown(input, { key: "ArrowDown" });
+    await settle();
+    await fireEvent.keyDown(input, { key: "ArrowDown" });
+    await fireEvent.keyDown(input, { key: "Enter" });
+    expect(onchange).toHaveBeenLastCalledWith("");
+  });
 });
+
+/** bits-ui moves its highlight a tick after the list changes. */
+async function settle(): Promise<void> {
+  await tick();
+  await tick();
+}

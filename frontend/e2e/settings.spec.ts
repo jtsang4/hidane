@@ -171,6 +171,22 @@ test.describe("settings", () => {
     expect(sent).not.toContainEqual({ roles: { worker: expect.objectContaining({ model: "gpt-fake-mini", effort: "xhigh" }) } });
   });
 
+  test("a model field cleared by keyboard saves no model on Enter, as on blur", async ({ page, api }) => {
+    await api.send("PUT", "/api/settings/roles", { roles: { worker: { agent: "codex", provider: "", model: "gpt-fake-1", effort: "low" } } });
+    await page.goto("/settings/roles");
+    const worker = page.getByRole("group", { name: "Worker（执行）" });
+    const model = worker.getByRole("combobox", { name: "模型", exact: true });
+    await expect(model).toHaveValue("gpt-fake-1");
+    // As a person clears it: the click opens the list, which then takes Enter.
+    await model.click();
+    await model.press("ControlOrMeta+a");
+    await model.press("Backspace");
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await model.press("Enter");
+    await expect.poll(async () => (await api.settings()).roles.worker).toEqual({ agent: "codex", provider: "", model: "", effort: "low" });
+    await expect(model).toHaveValue("");
+  });
+
   test("role test button makes a real round trip through the fake CLI", async ({ page, api }) => {
     await api.setAllRoles("claude");
     await page.goto("/settings/roles");

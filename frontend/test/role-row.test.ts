@@ -152,6 +152,22 @@ describe("RoleRow", () => {
     expect((await screen.findAllByRole("option")).map((option) => option.textContent?.trim())).toEqual([zh.translation.runAs.defaultModel, "deepseek-chat"]);
   });
 
+  it("saves no model when the field is cleared and Enter pressed, as on blur", async () => {
+    const onsave = vi.fn((_config: RoleConfig) => Promise.resolve());
+    const ontest = vi.fn(() => Promise.resolve({ ok: true, text: "", error: "", durationMs: 1, agent: "claude", model: "" }));
+    const config: RoleConfig = { agent: "claude", provider: "", model: "sonnet", effort: "" };
+    render(RoleRow, { props: { role: "primary", config, providers: [], onsave, ontest } });
+    const model = screen.getByLabelText(text.roles.model);
+    // A click in the field opens the list, so Enter goes to its highlighted option.
+    await fireEvent.click(model);
+    await fireEvent.keyDown(model, { key: "Backspace" });
+    await fireEvent.input(model, { target: { value: "" } });
+    await tick();
+    await tick();
+    await fireEvent.keyDown(model, { key: "Enter" });
+    expect(onsave).toHaveBeenLastCalledWith({ agent: "claude", provider: "", model: "", effort: "" });
+  });
+
   it("drops an effort the new model does not take before saving, never sending the pair", async () => {
     const codex: AgentCatalog = {
       agent: "codex",

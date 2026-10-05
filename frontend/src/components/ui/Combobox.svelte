@@ -11,6 +11,13 @@
     detail: string;
     typed: boolean;
   }
+
+  /**
+   * The empty choice's value inside the list. bits-ui ignores Enter on an
+   * option whose value is "" (falsy), so it goes by a value nothing typed or
+   * suggested can be, and `commit` turns it back into "".
+   */
+  const EMPTY = "\u0000";
 </script>
 
 <script lang="ts">
@@ -24,7 +31,8 @@
   /**
    * A text field with suggestions: whatever is typed is a valid value, the
    * list only saves typing. `""` is a value too (the empty choice, e.g. the
-   * default model), offered as the first option under `emptyLabel`.
+   * default model), offered under `emptyLabel` — and what a field cleared by
+   * hand commits, on Enter as on blur.
    */
   let {
     value,
@@ -53,23 +61,25 @@
 
   /** What the field shows: the value, until typed over. */
   let text = $derived(value);
-  /** What was typed since the list opened; empty lists everything. */
-  let query = $state("");
+  /** What was typed since the list opened; `null`, nothing yet — the list shows everything. */
+  let query = $state<string | null>(null);
   let open = $state(false);
 
   let options = $derived.by((): Option[] => {
-    const typed = query.trim();
-    const needle = typed.toLowerCase();
     // Model lists are typed by hand in Settings; a repeat would break the keyed list.
     const unique = [...new Map(suggestions.map((s) => [s.value, s])).values()];
     const rows = unique.map((s) => ({ value: s.value, label: s.value, detail: s.label && s.label !== s.value ? s.label : "", typed: false }));
-    if (needle === "") {
+    const empty: Option = { value: EMPTY, label: emptyLabel, detail: "", typed: false };
+    if (query === null) {
       // The current choice first, so the highlight that opening puts on the first option rests on it.
       const current = value.trim();
       const head: Option[] = current === "" ? [] : [rows.find((row) => row.value === current) ?? { value: current, label: current, detail: "", typed: false }];
-      const empty: Option = { value: "", label: emptyLabel, detail: "", typed: false };
       return [...head, empty, ...rows.filter((row) => row.value !== current)];
     }
+    const typed = query.trim();
+    // A field cleared by hand means the empty value, as on blur; Enter takes the first option.
+    if (typed === "") return [empty, ...rows];
+    const needle = typed.toLowerCase();
     const matches = rows.filter((row) => row.value.toLowerCase().includes(needle) || row.detail.toLowerCase().includes(needle));
     const exact = matches.find((row) => row.value === typed);
     // What was typed comes first, so Enter takes it as typed rather than the first partial match.
@@ -78,9 +88,10 @@
   });
 
   function commit(next: string): void {
-    text = next;
-    query = "";
-    onchange(next);
+    const chosen = next === EMPTY ? "" : next;
+    text = chosen;
+    query = null;
+    onchange(chosen);
   }
 </script>
 
@@ -93,7 +104,7 @@
   bind:value={() => "", (next) => commit(next)}
   bind:open
   onOpenChange={(isOpen) => {
-    if (!isOpen) query = "";
+    if (!isOpen) query = null;
   }}
 >
   <div class={cn("relative w-full min-w-0", className)}>
@@ -153,8 +164,8 @@
           label={option.label}
           class={cn(popoverItem, "pl-1.5", size === "sm" && "text-xs")}
         >
-          <Check size={13} class={cn("shrink-0 text-primary", option.value !== value && "invisible")} aria-hidden="true" />
-          <span class={cn("truncate", option.value === "" && "text-muted")}>{option.label}</span>
+          <Check size={13} class={cn("shrink-0 text-primary", option.value !== (value || EMPTY) && "invisible")} aria-hidden="true" />
+          <span class={cn("truncate", option.value === EMPTY && "text-muted")}>{option.label}</span>
           {#if option.detail || option.typed}
             <span class="ml-auto shrink-0 pl-3 text-muted">{option.typed ? $t("common.typedValue") : option.detail}</span>
           {/if}
