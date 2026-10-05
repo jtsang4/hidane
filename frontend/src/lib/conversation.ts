@@ -155,6 +155,22 @@ export function isReport(event: HidaneEvent): boolean {
 }
 
 /**
+ * A report's first line that says something, for one line of the
+ * conversation: list and heading marks off its start, bold and code marks
+ * gone. Underscores and leading numbers are words here (`wi_x`, "12 files").
+ */
+export function summaryLine(text: string, max = 160): string {
+  for (const line of text.split("\n")) {
+    const plain = line
+      .replace(/^\s*(?:(?:#{1,6}|>|[-*+]|\d+[.)])\s+)*/, "")
+      .replace(/\*\*|`/g, "")
+      .trim();
+    if (plain && !/^`{3}/.test(line.trim())) return plain.length > max ? `${plain.slice(0, max)}…` : plain;
+  }
+  return "";
+}
+
+/**
  * Is this turn still waiting for its first sign of life? Once the message is
  * attributed, the task card carries the progress; until then the turn itself
  * shows that routing is under way.

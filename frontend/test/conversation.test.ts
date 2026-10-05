@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HidaneEvent } from "../src/lib/api.js";
-import { buildTurns, isReport, turnRouting } from "../src/lib/conversation.js";
+import { buildTurns, isReport, summaryLine, turnRouting } from "../src/lib/conversation.js";
 
 let seq = 0;
 function ev(kind: string, payload: Record<string, unknown> = {}, extra: Partial<HidaneEvent> = {}): HidaneEvent {
@@ -50,6 +50,15 @@ describe("conversation turns", () => {
     expect(turnRouting(turn!)).toBe(false);
     const [single] = buildTurns([ev("user.message", { text: "x", targets: ["wi_a"] }, { id: "m2" })]);
     expect(single!.targets).toEqual([]);
+  });
+
+  it("sums a report up in its first line, keeping underscores and leading numbers", () => {
+    expect(summaryLine("已完成：分支 hidane/wi_jwcf4d，路径 /workspaces/wi_rm7g04/")).toBe("已完成：分支 hidane/wi_jwcf4d，路径 /workspaces/wi_rm7g04/");
+    expect(summaryLine("\n## **Done**\n- more")).toBe("Done");
+    expect(summaryLine("12 files changed")).toBe("12 files changed");
+    expect(summaryLine("1. first step `make test`")).toBe("first step make test");
+    expect(summaryLine("```sh\nmake test\n```")).toBe("make test");
+    expect(summaryLine("x".repeat(200))).toHaveLength(161);
   });
 
   it("tells a task's report from its answer", () => {

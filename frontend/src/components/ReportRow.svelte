@@ -3,6 +3,7 @@
   import type { CardState, HidaneEvent } from "../lib/api.js";
   import { STATE_DOT } from "../lib/board.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
+  import { summaryLine } from "../lib/conversation.js";
   import { payloadText } from "../lib/grouping.js";
   import { cn } from "../lib/utils.js";
   import ChatBubble from "./ChatBubble.svelte";
@@ -25,14 +26,7 @@
   } = $props();
 
   let open = $state(false);
-  /** The first line that says something, without Markdown's leading marks. */
-  let summary = $derived.by(() => {
-    for (const line of payloadText(event).split("\n")) {
-      const plain = line.replace(/^[\s#>*\-+\d.)`]+/, "").replace(/[*_`]/g, "").trim();
-      if (plain) return plain.length > 160 ? `${plain.slice(0, 160)}…` : plain;
-    }
-    return "";
-  });
+  let summary = $derived(summaryLine(payloadText(event)));
 
   function contextMenu(e: MouseEvent): void {
     if (keepsSystemMenu(e.currentTarget as Element)) return;
