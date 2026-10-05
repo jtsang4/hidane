@@ -12,17 +12,23 @@ import (
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 	"github.com/jtsang4/hidane/internal/agents"
-	"github.com/jtsang4/hidane/internal/guard"
+	"github.com/jtsang4/hidane/internal/guard/guardtest"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == "guard" {
-		os.Exit(guard.RunHook(os.Args[3], os.Stdin, os.Stdout, os.Stderr, guard.EnvFromOS()))
+	dir, err := os.MkdirTemp("", "hidane-agents-test-")
+	if err != nil {
+		panic(err)
 	}
-	os.Exit(m.Run())
+	if err := hermeticGit(dir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 var ctx = context.Background()
@@ -49,12 +55,11 @@ func newWorld(t *testing.T, agent string, extraEnv ...string) *world {
 	m(st.SetRoles(map[string]settings.RoleConfig{
 		"primary": {Agent: agent}, "manager": {Agent: agent}, "worker": {Agent: agent}, "distiller": {Agent: agent},
 	}))
-	self, _ := os.Executable()
 	env := append(agentcli.WithoutVars(os.Environ(), "PATH"), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	env = append(env, extraEnv...)
 	l := &agentcli.Launcher{
 		Binary:       func(a string) (string, error) { return filepath.Join(dir, a), nil },
-		GuardCommand: self, RuntimeDir: k.Cfg.RuntimeDir(), Env: env,
+		GuardCommand: guardtest.Command(t), RuntimeDir: k.Cfg.RuntimeDir(), Env: env,
 	}
 	if err := l.EnsureRuntimeFiles(); err != nil {
 		t.Fatal(err)
@@ -103,8 +108,10 @@ func indexOf(list []string, kind string, from int) int {
 }
 
 func TestFullLoopOnEveryCLI(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t, agent)
 			msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "创建一个文件写上 good morning", Source: "connector:web"}))
 			if msg.Mailbox != kernel.Primary || msg.Lane != kernel.LaneInterrupt {
@@ -165,6 +172,7 @@ func TestFullLoopOnEveryCLI(t *testing.T) {
 }
 
 func TestGreetingIsAnsweredWithoutAWorkItem(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "你好", Source: "connector:web"}))
 	w.settle()
@@ -179,6 +187,7 @@ func TestGreetingIsAnsweredWithoutAWorkItem(t *testing.T) {
 
 // A status change answers for itself; the model's reply would say it twice.
 func TestStatusChangeIsConfirmedOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	m(w.k.CreateWorkItem(ctx, "a", "test", kernel.CreateWorkItemOpts{}))
 	m(w.k.CreateWorkItem(ctx, "b", "test", kernel.CreateWorkItemOpts{}))
@@ -198,6 +207,7 @@ func TestStatusChangeIsConfirmedOnce(t *testing.T) {
 // A Manager turn that only restates its understanding is asked once more for
 // a decision, rather than leaving the task silently idle.
 func TestUnderstandingOnlyTurnIsNudgedOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "nudge", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "ONLY_UNDERSTAND 写一个文件 nudged", Source: "connector:web", Target: item.ID}))
@@ -213,6 +223,7 @@ func TestUnderstandingOnlyTurnIsNudgedOnce(t *testing.T) {
 
 // A long answer reaches the person whole: a silent cut reads as the full answer.
 func TestLongManagerReplyIsNotCut(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "long", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "LONG_REPLY please", Source: "connector:web", Target: item.ID}))
@@ -231,6 +242,7 @@ func TestLongManagerReplyIsNotCut(t *testing.T) {
 // Output that is not the effect list gets the same single follow-up as an
 // understanding-only turn; it reaches the person only if the retry fails too.
 func TestNonEffectOutputIsRetriedBeforeItIsAnswered(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	junk := m(w.k.CreateWorkItem(ctx, "junk", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "JUNK_ONCE 写一个文件", Source: "connector:web", Target: junk.ID}))
@@ -267,6 +279,7 @@ func TestNonEffectOutputIsRetriedBeforeItIsAnswered(t *testing.T) {
 
 // The Primary, too, asks once more before stray output becomes the answer.
 func TestPrimaryRetriesOutputThatIsNotTheEffectList(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "你好 JUNK_PRIMARY", Source: "connector:web"}))
 	w.settle()
@@ -282,6 +295,7 @@ func TestPrimaryRetriesOutputThatIsNotTheEffectList(t *testing.T) {
 
 // Stop and close in one message: one answer saying both.
 func TestStopAndCloseIsConfirmedOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	m(w.k.CreateWorkItem(ctx, "a", "test", kernel.CreateWorkItemOpts{}))
 	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "停止并全部关闭", Source: "connector:web"}))
@@ -299,6 +313,7 @@ func TestStopAndCloseIsConfirmedOnce(t *testing.T) {
 
 // A child the model left without a title is reported by position and brief.
 func TestSkippedChildIsNamed(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "BAD_CHILDREN", Source: "connector:web", Target: item.ID}))
@@ -319,6 +334,7 @@ func TestSkippedChildIsNamed(t *testing.T) {
 // and workers run on that CLI, whatever the role settings say — and the
 // parts it fans out into run on it too.
 func TestRunAsPinsTheTaskToTheChosenAgent(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "创建一个文件写上 pinned", Source: "connector:web",
 		RunAs: &kernel.RunAs{Agent: settings.Codex, Effort: "high"}}))
@@ -362,6 +378,7 @@ func TestRunAsPinsTheTaskToTheChosenAgent(t *testing.T) {
 }
 
 func TestExplicitTargetSkipsThePrimary(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "notes", "test", kernel.CreateWorkItemOpts{}))
 	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写 notes", Source: "connector:web", Target: item.ID, Focus: true}))
@@ -376,8 +393,10 @@ func TestExplicitTargetSkipsThePrimary(t *testing.T) {
 }
 
 func TestSteeringReachesTheRunningWorker(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t, agent, "FAKEAGENT_WORKER_DELAY_MS=1500")
 			item := m(w.k.CreateWorkItem(ctx, "long job", "test", kernel.CreateWorkItemOpts{}))
 			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "start", Source: "connector:web", Target: item.ID}))
@@ -438,6 +457,7 @@ func TestSteeringReachesTheRunningWorker(t *testing.T) {
 // Words that reach an execution as it ends are not an error: they ride with
 // its outcome to the Manager.
 func TestWordsForAnEndingRunReachTheManagerWithItsOutcome(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "ending job", "test", kernel.CreateWorkItemOpts{}))
 	// Recorded as running, but no longer held by the pool: the run has ended
@@ -478,6 +498,7 @@ func TestWordsForAnEndingRunReachTheManagerWithItsOutcome(t *testing.T) {
 // A child that answers and closes in one turn hands its parent that answer,
 // whatever order the model listed the two in.
 func TestParentHearsTheChildsFinalAnswer(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	parent := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
 	child := m(w.k.CreateWorkItem(ctx, "child", "test", kernel.CreateWorkItemOpts{ParentID: parent.ID}))
@@ -508,6 +529,7 @@ func TestParentHearsTheChildsFinalAnswer(t *testing.T) {
 }
 
 func TestCancelTreeStopsARunningWorker(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude, "FAKEAGENT_WORKER_DELAY_MS=20000")
 	parent := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
 	child := m(w.k.CreateWorkItem(ctx, "child", "test", kernel.CreateWorkItemOpts{ParentID: parent.ID}))
@@ -566,6 +588,7 @@ func TestCancelTreeStopsARunningWorker(t *testing.T) {
 }
 
 func TestRestartReportsLostExecutions(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "x", "test", kernel.CreateWorkItemOpts{}))
 	if err := w.k.CreateExecution(ctx, "ex_lost01", item.ID, kernel.ManagerAddress(item.ID)); err != nil {
@@ -586,6 +609,7 @@ func TestRestartReportsLostExecutions(t *testing.T) {
 }
 
 func TestPolicyRefusalsAreRecorded(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Codex)
 	m(w.k.AddGlobalRule(`result\.txt`, "no result files here", nil))
 	item := m(w.k.CreateWorkItem(ctx, "guarded", "test", kernel.CreateWorkItemOpts{}))
@@ -605,6 +629,7 @@ func TestPolicyRefusalsAreRecorded(t *testing.T) {
 }
 
 func TestRoutingFailureIsReportedNotSwallowed(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "FAKE_FAIL this", Source: "connector:web"}))
 	w.settle()
@@ -615,6 +640,7 @@ func TestRoutingFailureIsReportedNotSwallowed(t *testing.T) {
 }
 
 func TestDistillerPromotesDurableMemory(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	for i := 0; i < 2; i++ {
 		m(w.k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "user.message", ThreadID: "main", Payload: kernel.Payload{"text": "请记住我喜欢简洁"}}))
@@ -636,6 +662,7 @@ func TestDistillerPromotesDurableMemory(t *testing.T) {
 // Replay (a reset cursor) must not promote a work item's memories again, even
 // when the model words them differently the second time.
 func TestDistillerReplayDoesNotDuplicateWorkItemMemory(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	item := m(w.k.CreateWorkItem(ctx, "acme", "test", kernel.CreateWorkItemOpts{}))
 	m(w.k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "user.message", ThreadID: item.ThreadID, WorkItemID: item.ID,
@@ -657,6 +684,7 @@ func TestDistillerReplayDoesNotDuplicateWorkItemMemory(t *testing.T) {
 }
 
 func TestHopBudgetStopsRunawayChains(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	w.k.Cfg.MaxHops = 1
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "do a thing", Source: "connector:web"}))
@@ -674,6 +702,7 @@ func TestHopBudgetStopsRunawayChains(t *testing.T) {
 }
 
 func TestBudgetStopsDispatchButNeverAnOutcome(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	w.k.Cfg.MaxHops = 3
 	item := m(w.k.CreateWorkItem(ctx, "edge", "test", kernel.CreateWorkItemOpts{}))
@@ -698,6 +727,7 @@ func TestBudgetStopsDispatchButNeverAnOutcome(t *testing.T) {
 }
 
 func TestShutdownReportsRunningWorkersAsLost(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude, "FAKEAGENT_WORKER_DELAY_MS=30000")
 	item := m(w.k.CreateWorkItem(ctx, "long", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "work", Source: "connector:web", Target: item.ID}))
@@ -729,6 +759,7 @@ func TestShutdownReportsRunningWorkersAsLost(t *testing.T) {
 }
 
 func TestAnInterruptedTurnKeepsItsMessages(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude, "FAKEAGENT_DELAY_MS=20000")
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "route me", Source: "connector:web"}))
 	w.rt.Start()
@@ -746,6 +777,7 @@ func TestAnInterruptedTurnKeepsItsMessages(t *testing.T) {
 }
 
 func TestDistillerReadsPastNoise(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	for i := 0; i < 195; i++ {
 		m(w.k.Append(ctx, kernel.EventInput{Source: "connector:timer", Kind: "connector.heartbeat"}))
@@ -760,6 +792,7 @@ func TestDistillerReadsPastNoise(t *testing.T) {
 }
 
 func TestTheExecutionBudgetResumesWhenAnswered(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	w.k.Cfg.MaxExecutionsPerItem = 1
 	item := m(w.k.CreateWorkItem(ctx, "two rounds", "test", kernel.CreateWorkItemOpts{}))

@@ -15,17 +15,27 @@ import (
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
-// hermeticGit keeps git away from the developer's own configuration.
-func hermeticGit(t *testing.T) {
-	t.Helper()
-	home := t.TempDir()
+// hermeticGit keeps git away from the developer's own configuration. It is set
+// once for the whole package (TestMain): t.Setenv would rule out t.Parallel.
+// HOME stays, since the fakes are built with the developer's Go caches.
+func hermeticGit(dir string) error {
+	config := filepath.Join(dir, "gitconfig")
+	// The global ignore and attributes files would otherwise still be read
+	// from their XDG defaults under HOME.
+	body := "[core]\n\texcludesFile = " + os.DevNull + "\n\tattributesFile = " + os.DevNull + "\n"
+	if err := os.WriteFile(config, []byte(body), 0o644); err != nil {
+		return err
+	}
 	for k, v := range map[string]string{
-		"HOME": home, "GIT_CONFIG_GLOBAL": filepath.Join(home, "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_CONFIG_GLOBAL": config, "GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
 		"GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com",
 	} {
-		t.Setenv(k, v)
+		if err := os.Setenv(k, v); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -117,9 +127,10 @@ func (w *world) lastReply(root string) string {
 // A new task gets its own worktree inside its workspace, set up by the repo's
 // script before the first worker, and the worker works in it.
 func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
+	t.Parallel()
 	for _, agent := range []string{settings.Claude, settings.Codex} {
 		t.Run(agent, func(t *testing.T) {
-			hermeticGit(t)
+			t.Parallel()
 			repo := newRepo(t, t.TempDir(), "blog", "git@github.com:me/blog.git", map[string]string{
 				"hidane.json": `{"worktree":{"setup":"echo ready > .setup-done","teardown":["echo bye > $HIDANE_SOURCE_CHECKOUT_PATH/torn-down"]}}`,
 				".gitignore":  ".setup-done\n",
@@ -215,7 +226,7 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 
 // Two tasks on the same repo run side by side, each on its own branch.
 func TestParallelTasksOnOneRepoGetSeparateWorktrees(t *testing.T) {
-	hermeticGit(t)
+	t.Parallel()
 	repo := newRepo(t, t.TempDir(), "blog", "", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.Repos.Register(ctx, repo, "test"))
@@ -235,7 +246,7 @@ func TestParallelTasksOnOneRepoGetSeparateWorktrees(t *testing.T) {
 
 // A name that fits two repos is asked about; nothing starts on a guess.
 func TestAmbiguousRepoIsAskedBeforeAnythingStarts(t *testing.T) {
-	hermeticGit(t)
+	t.Parallel()
 	a := newRepo(t, t.TempDir(), "blog", "", nil)
 	b := newRepo(t, t.TempDir(), "blog", "", nil)
 	w := newWorld(t, settings.Claude)
@@ -263,7 +274,7 @@ func TestAmbiguousRepoIsAskedBeforeAnythingStarts(t *testing.T) {
 // A repo that moved is noticed, the person is asked, and pointing at its new
 // place keeps its identity and repairs the worktrees that depend on it.
 func TestMissingRepoIsNoticedAndCanBeRelocated(t *testing.T) {
-	hermeticGit(t)
+	t.Parallel()
 	parent := t.TempDir()
 	repo := newRepo(t, parent, "blog", "https://github.com/me/blog.git", nil)
 	w := newWorld(t, settings.Claude)
@@ -311,7 +322,7 @@ func TestMissingRepoIsNoticedAndCanBeRelocated(t *testing.T) {
 
 // The person's own directory is used only when asked, by one task at a time.
 func TestInPlaceOnlyWhenAskedAndOneAtATime(t *testing.T) {
-	hermeticGit(t)
+	t.Parallel()
 	repo := newRepo(t, t.TempDir(), "notes", "", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "直接在主干上改 INPLACE REPO=" + repo, Source: "connector:web"}))
@@ -348,7 +359,7 @@ func TestInPlaceOnlyWhenAskedAndOneAtATime(t *testing.T) {
 // Work picks up from an archived task's branch, and a finished task that still
 // holds its worktree is reachable by a follow-up.
 func TestContinueFromAnArchivedBranchAndRouteToAFinishedTask(t *testing.T) {
-	hermeticGit(t)
+	t.Parallel()
 	repo := newRepo(t, t.TempDir(), "blog", "", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "REPO=" + repo + " RUN: echo rss > rss.txt && git add rss.txt && git commit -qm rss", Source: "connector:web"}))
@@ -407,7 +418,7 @@ func TestContinueFromAnArchivedBranchAndRouteToAFinishedTask(t *testing.T) {
 // A fanned-out task's children each get a worktree branched from the
 // parent's, and the parent hears where their work is.
 func TestChildrenInheritTheParentsRepositories(t *testing.T) {
-	hermeticGit(t)
+	t.Parallel()
 	repo := newRepo(t, t.TempDir(), "site", "", nil)
 	w := newWorld(t, settings.Claude)
 	r := m(w.s.Repos.Register(ctx, repo, "test"))

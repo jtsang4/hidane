@@ -54,6 +54,7 @@ func fakeHome(t *testing.T) string {
 }
 
 func TestCLIChatRunsTheWholeLoop(t *testing.T) {
+	t.Parallel()
 	bin := buildCLI(t)
 	home := fakeHome(t)
 
@@ -100,6 +101,7 @@ func TestCLIChatRunsTheWholeLoop(t *testing.T) {
 // The usual case: the desktop app (here `serve`) holds the runtime, and
 // `hidane chat` only submits and follows the answer.
 func TestCLIChatFollowsWhileAnotherProcessRunsTheRuntime(t *testing.T) {
+	t.Parallel()
 	bin := buildCLI(t)
 	home := fakeHome(t)
 	serve := exec.Command(bin, "serve")

@@ -14,20 +14,9 @@ import (
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 	"github.com/jtsang4/hidane/internal/guard"
+	"github.com/jtsang4/hidane/internal/guard/guardtest"
 	"github.com/jtsang4/hidane/internal/settings"
 )
-
-// The test binary doubles as the `hidane guard` hook command.
-func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == "guard" {
-		format := "claude"
-		if len(os.Args) > 3 {
-			format = os.Args[3]
-		}
-		os.Exit(guard.RunHook(format, os.Stdin, os.Stdout, os.Stderr, guard.EnvFromOS()))
-	}
-	os.Exit(m.Run())
-}
 
 const workerCharter = "You are a Worker execution of hidane running inside a work item workspace."
 
@@ -43,13 +32,12 @@ func newHarness(t *testing.T, extraEnv ...string) *harness {
 	dir := fakecli.Dir(t)
 	tmp := t.TempDir()
 	logPath := filepath.Join(tmp, "invocations.jsonl")
-	self, _ := os.Executable()
 	env := agentcli.WithoutVars(os.Environ(), "PATH")
 	env = append(env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"), "FAKEAGENT_LOG="+logPath)
 	env = append(env, extraEnv...)
 	l := &agentcli.Launcher{
 		Binary:       func(agent string) (string, error) { return agentcli.LookPath(agent, env) },
-		GuardCommand: self,
+		GuardCommand: guardtest.Command(t),
 		RuntimeDir:   filepath.Join(tmp, "runtime"),
 		Env:          env,
 	}
@@ -85,8 +73,10 @@ func (h *harness) req(prompt string) agentcli.Request {
 }
 
 func TestReasoningCallsOnEveryCLI(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			threads := filepath.Join(t.TempDir(), "threads.jsonl")
 			h := newHarness(t, "FAKEAGENT_THREAD_LOG="+threads)
 			var mu sync.Mutex
@@ -153,8 +143,10 @@ func TestReasoningCallsOnEveryCLI(t *testing.T) {
 }
 
 func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t, "CLAUDECODE=1")
 			blocks := filepath.Join(h.cwd, ".hidane", "blocks.jsonl")
 			_ = os.MkdirAll(filepath.Dir(blocks), 0o755)
@@ -211,8 +203,10 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 }
 
 func TestPiProviderRequiresModelBeforeStarting(t *testing.T) {
+	t.Parallel()
 	for _, model := range []string{"", " \t\r\n"} {
 		t.Run(model, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t)
 			req := h.req("ping")
 			req.Provider = &settings.Provider{ID: "test", PiProvider: "deepseek"}
@@ -234,10 +228,12 @@ func TestPiProviderRequiresModelBeforeStarting(t *testing.T) {
 }
 
 func TestProviderInjectionKeepsKeysOffTheCommandLine(t *testing.T) {
+	t.Parallel()
 	p := &settings.Provider{ID: "ds", Label: "DeepSeek", AnthropicBaseURL: "https://api.deepseek.com/anthropic",
 		OpenAIBaseURL: "https://gw.example.com/v1", PiProvider: "deepseek", APIKey: "sk-secret-123456"}
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t, "ANTHROPIC_API_KEY=inherited-should-vanish", "ANTHROPIC_BASE_URL=http://inherited.example")
 			req := h.req("ping")
 			req.SystemPrompt = "connectivity check"
@@ -284,8 +280,10 @@ func TestProviderInjectionKeepsKeysOffTheCommandLine(t *testing.T) {
 }
 
 func TestSteeringReachesARunningAgent(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t, "FAKEAGENT_DELAY_MS=400")
 			consumed := make(chan struct{}, 4)
 			req := h.req("WRITE a.txt: first")
@@ -333,6 +331,7 @@ func TestSteeringReachesARunningAgent(t *testing.T) {
 // Real claude folds a message steered in mid-turn into the running turn: one
 // result for two messages. The run must still end.
 func TestClaudeSteerAbsorbedIntoTheRunningTurn(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, "FAKEAGENT_DELAY_MS=400", "FAKEAGENT_CLAUDE_ABSORB=1")
 	consumed := make(chan struct{}, 4)
 	req := h.req("WRITE a.txt: first")
@@ -364,6 +363,7 @@ func TestClaudeSteerAbsorbedIntoTheRunningTurn(t *testing.T) {
 // as ONE message: one replay, one result for two steers. The run must still
 // end (it once waited for a third replay until it timed out).
 func TestClaudeSteersMergedAtTheTurnEnd(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, "FAKEAGENT_DELAY_MS=400", "FAKEAGENT_CLAUDE_MERGE=1")
 	consumed := make(chan struct{}, 4)
 	req := h.req("WRITE a.txt: first")
@@ -396,6 +396,7 @@ func TestClaudeSteersMergedAtTheTurnEnd(t *testing.T) {
 // app-server skips a hook it does not trust without a word: a tool call the
 // guard never saw must stop the run, not pass unchecked.
 func TestCodexStopsWhenTheGuardDidNotRun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, "FAKEAGENT_CODEX_SKIP_HOOKS=1")
 	req := h.req("RUN: sleep 2\nWRITE late.txt: never")
 	req.SystemPrompt = workerCharter
@@ -411,6 +412,7 @@ func TestCodexStopsWhenTheGuardDidNotRun(t *testing.T) {
 
 // Words that reach a run before its first turn has started go into that turn.
 func TestCodexSteerBeforeTheTurnStarts(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, "FAKEAGENT_DELAY_MS=300")
 	consumed := make(chan struct{}, 4)
 	req := h.req("WRITE a.txt: first")
@@ -433,6 +435,7 @@ func TestCodexSteerBeforeTheTurnStarts(t *testing.T) {
 // Words the running turn no longer takes open the next turn on the same
 // thread, in the same run, instead of being lost.
 func TestCodexSteerThatMissesTheTurnOpensTheNext(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, "FAKEAGENT_DELAY_MS=300", "FAKEAGENT_CODEX_REFUSE_STEER=1")
 	consumed := make(chan struct{}, 4)
 	req := h.req("WRITE a.txt: first")
@@ -460,8 +463,10 @@ func TestCodexSteerThatMissesTheTurnOpensTheNext(t *testing.T) {
 }
 
 func TestCancelAndTimeout(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t, "FAKEAGENT_DELAY_MS=8000")
 			req := h.req("ping")
 			req.SystemPrompt = "connectivity check"
@@ -486,8 +491,10 @@ func TestCancelAndTimeout(t *testing.T) {
 }
 
 func TestProviderFailuresSurface(t *testing.T) {
+	t.Parallel()
 	for _, agent := range settings.Agents {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			h := newHarness(t)
 			res := agentcli.Call(context.Background(), h.l, agent, h.req("FAKE_FAIL please"))
 			if res.OK || res.Error == "" {
@@ -498,6 +505,7 @@ func TestProviderFailuresSurface(t *testing.T) {
 }
 
 func TestDetect(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := agentcli.Detect(context.Background(), "codex", "", h.l.Env)
 	if !d.Available || !strings.Contains(d.Version, "codex fake") {
@@ -510,6 +518,7 @@ func TestDetect(t *testing.T) {
 }
 
 func TestAnEscapedGrandchildCannotHangTheRun(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "claude")
 	// Answers, then leaves a detached child holding stdout open for a minute.
@@ -537,6 +546,7 @@ exit 0
 // What each CLI can run comes from the CLI when it can say (codex, pi), and
 // from a built-in list when it cannot (claude).
 func TestModelCatalogs(t *testing.T) {
+	t.Parallel()
 	dir := fakecli.Dir(t)
 	env := os.Environ()
 	codex := agentcli.ListModels(context.Background(), "codex", filepath.Join(dir, "codex"), env)

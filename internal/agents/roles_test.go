@@ -18,6 +18,7 @@ import (
 // directory is fenced, their charter still replaces the CLI's prompt, each
 // call passes the guard, and is recorded as a two-phase side effect.
 func TestPrimaryAndManagerWorkWithTools(t *testing.T) {
+	t.Parallel()
 	calls := filepath.Join(t.TempDir(), "calls.jsonl")
 	w := newWorld(t, settings.Claude, "FAKEAGENT_LOG="+calls)
 	out := t.TempDir()
@@ -91,6 +92,7 @@ func TestPrimaryAndManagerWorkWithTools(t *testing.T) {
 // A rule that refuses the Primary's own call is a recorded fact, as a
 // worker's refusal is.
 func TestARefusedPrimaryCallIsRecorded(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	if _, err := w.k.AddGlobalRule(`forbidden\.txt`, "not that file", nil); err != nil {
 		t.Fatal(err)
@@ -112,8 +114,10 @@ func TestARefusedPrimaryCallIsRecorded(t *testing.T) {
 // stopped, and while the run still goes on — so the running card can show it.
 // Codex shows no tool item for a refused call; a ticker catches that one.
 func TestRefusalsAreRecordedWhileTheRunGoesOn(t *testing.T) {
+	t.Parallel()
 	for _, agent := range []string{settings.Claude, settings.Codex} {
 		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t, agent, "FAKEAGENT_WORKER_DELAY_MS=2500")
 			m(w.k.AddGlobalRule(`forbidden\.txt`, "not that file", nil))
 			item := m(w.k.CreateWorkItem(ctx, "guarded", "test", kernel.CreateWorkItemOpts{}))
