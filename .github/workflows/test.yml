@@ -84,9 +84,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # setup-go keys its cache by OS, Go version and go.sum alone, so this job
+      # and the Linux go job would share one entry, kept by whichever saves
+      # first: the go job would then restore no race builds and never save
+      # its own. This job keeps a cache of its own instead.
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
