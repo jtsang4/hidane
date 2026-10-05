@@ -21,6 +21,7 @@ import (
 
 	"github.com/jtsang4/hidane/internal/agents"
 	"github.com/jtsang4/hidane/internal/app"
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/config"
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
@@ -322,10 +323,7 @@ func eventsCmd(args []string) error {
 	}
 	for _, e := range events {
 		b, _ := json.Marshal(e.Payload)
-		brief := string(b)
-		if r := []rune(brief); len(r) > 120 {
-			brief = string(r[:120])
-		}
+		brief := clip.Runes(string(b), 120)
 		tag := ""
 		if e.WorkItemID != "" {
 			tag = " [" + e.WorkItemID + "]"

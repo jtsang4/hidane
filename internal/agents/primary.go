@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/projections"
 )
@@ -74,7 +75,7 @@ func markOrigin(root kernel.Event, payload kernel.Payload) {
 	switch root.Kind {
 	case "triage.decision":
 		payload["rootKind"] = "external"
-		payload["rootText"] = clipRunes(root.Payload.Str("summary"), 200)
+		payload["rootText"] = clip.Runes(root.Payload.Str("summary"), 200)
 	case "schedule.prompt":
 		payload["rootKind"] = "scheduled"
 		payload["rootText"] = root.Payload.Str("name")
@@ -672,7 +673,7 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	record := func(th Thought, nudged bool) error {
 		payload := th.decision(batch)
 		if th.Effects == nil {
-			payload["effects"] = []any{map[string]any{"type": "reply", "raw": clipRunes(th.Raw, 500)}}
+			payload["effects"] = []any{map[string]any{"type": "reply", "raw": clip.Runes(th.Raw, 500)}}
 		}
 		if nudged {
 			payload["nudged"] = true
@@ -753,7 +754,7 @@ func (s *System) latestUnderstanding(ctx context.Context, ids []string) (map[str
 	}
 	for _, e := range events {
 		if want[e.WorkItemID] {
-			out[e.WorkItemID] = clipRunes(e.Payload.Str("text"), 200)
+			out[e.WorkItemID] = clip.Runes(e.Payload.Str("text"), 200)
 		}
 	}
 	return out, nil

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,23 +244,6 @@ func imagesOf(events []kernel.Event) []agentcli.Image {
 // beyond any real answer: it guards the log, it does not shape replies — a
 // silent cut once left the person reading half an answer as if it were whole.
 const maxAnswerRunes = 200_000
-
-// clipNoted is clipRunes that says so: a reader must know text was left out.
-func clipNoted(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + fmt.Sprintf("\n\n[… %d more characters not shown]", len(r)-n)
-}
-
-func clipRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s
-}
 
 func joinNonEmpty(parts []string) string {
 	var out []string

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/projections"
 )
@@ -43,10 +44,10 @@ func eventLine(e kernel.Event) string {
 	if text == "" {
 		text = e.Payload.Str("note")
 	}
-	body := clipRunes(text, 500)
+	body := clip.Runes(text, 500)
 	if text == "" {
 		b, _ := json.Marshal(e.Payload)
-		body = clipRunes(string(b), 200)
+		body = clip.Runes(string(b), 200)
 	}
 	tag := e.Kind
 	if e.WorkItemID != "" {
@@ -245,14 +246,14 @@ func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillRes
 
 // RecallForPrimary is the global memory file: cheap cross-day recall.
 func (s *System) RecallForPrimary() string {
-	return clipRunes(strings.TrimSpace(kernel.ReadTextFile(s.K.GlobalMemoryPath())), recallCap)
+	return clip.Runes(strings.TrimSpace(kernel.ReadTextFile(s.K.GlobalMemoryPath())), recallCap)
 }
 
 // RecallForManager is the work item's memory plus the global memory.
 func (s *System) RecallForManager(item kernel.WorkItem) string {
 	scoped := strings.TrimSpace(kernel.ReadTextFile(kernel.WorkItemMemoryPath(item.Workspace)))
 	global := strings.TrimSpace(kernel.ReadTextFile(s.K.GlobalMemoryPath()))
-	return clipRunes(joinNonEmpty([]string{scoped, global}), recallCap)
+	return clip.Runes(joinNonEmpty([]string{scoped, global}), recallCap)
 }
 
 // NewRuntime is the event loop with every role and housekeeping task wired in.

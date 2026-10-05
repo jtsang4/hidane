@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 )
 
@@ -184,15 +185,6 @@ func TitlesFor(ctx context.Context, k *kernel.Kernel, events []kernel.Event) (ma
 	return k.TitlesFor(ctx, ids)
 }
 
-func clip(text string, max int) string {
-	flat := strings.Join(strings.Fields(text), " ")
-	r := []rune(flat)
-	if len(r) > max {
-		return string(r[:max]) + "…"
-	}
-	return flat
-}
-
 func stamp(iso string) string {
 	t, err := kernel.ParseTime(iso)
 	if err != nil {
@@ -293,7 +285,7 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool) (Rec
 				if e.WorkItemID != "" {
 					who += " (" + e.WorkItemID + ")"
 				}
-				t.answers = append(t.answers, who+": "+clip(words, 400))
+				t.answers = append(t.answers, who+": "+clip.Line(words, 400))
 			}
 		}
 	}
@@ -312,9 +304,9 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool) (Rec
 		t := ordered[i]
 		head := fmt.Sprintf("[%s] %s ", t.root, stamp(t.ts))
 		if t.said != nil {
-			head += "person: " + clip(*t.said, 300)
+			head += "person: " + clip.Line(*t.said, 300)
 		} else {
-			head += "(" + clip(t.origin, 200) + ")"
+			head += "(" + clip.Line(t.origin, 200) + ")"
 		}
 		lines := []string{head}
 		if t.routed != "" {
@@ -374,7 +366,7 @@ func DescribeRecall(events []kernel.Event) string {
 		if t, err := kernel.ParseTime(e.TS); err == nil {
 			when = t.Local().Format("2006-01-02 15:04")
 		}
-		lines = append(lines, fmt.Sprintf("- %s %s: %s", when, who, clip(words, 400)))
+		lines = append(lines, fmt.Sprintf("- %s %s: %s", when, who, clip.Line(words, 400)))
 	}
 	return strings.Join(lines, "\n")
 }

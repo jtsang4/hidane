@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/settings"
 )
@@ -300,7 +301,7 @@ func (s *System) Reattribute(ctx context.Context, messageID, workItemID, source 
 
 // titleFromMessage names a work item after what the person said.
 func titleFromMessage(text string) string {
-	if title := clipRunes(strings.Join(strings.Fields(text), " "), 60); title != "" {
+	if title := clip.Runes(strings.Join(strings.Fields(text), " "), 60); title != "" {
 		return title
 	}
 	return "新任务"
@@ -341,7 +342,7 @@ func (s *System) Promote(ctx context.Context, messageID, source string) (kernel.
 	}
 	answered := ""
 	if len(said) > 0 {
-		answered = "The Primary already answered this in the conversation:\n" + clipNoted(strings.Join(said, "\n\n"), 4000)
+		answered = "The Primary already answered this in the conversation:\n" + clip.Noted(strings.Join(said, "\n\n"), 4000)
 	}
 	return s.startFromMessage(ctx, message, source, DeliverOpts{Context: answered})
 }
@@ -426,7 +427,7 @@ func (s *System) notifyParentIfSettled(ctx context.Context, child kernel.WorkIte
 		result := ""
 		if len(last) > 0 {
 			text := last[0].Payload.Str("text")
-			result = clipRunes(text, 6000)
+			result = clip.Runes(text, 6000)
 			if result != text {
 				// A silent cut reads as the child's whole answer.
 				result += fmt.Sprintf("\n[truncated — the full answer is in work item %s; its files are in %s]", sib.ID, sib.Workspace)

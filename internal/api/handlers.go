@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agents"
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/projections"
@@ -1079,7 +1080,7 @@ func (s *server) notify(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("title required"))
 		return
 	}
-	hostDone(w, s.Host.Notify(clipText(body.Title, 120), clipText(body.Body, 400)))
+	hostDone(w, s.Host.Notify(clip.Ellipsis(body.Title, 120), clip.Ellipsis(body.Body, 400)))
 }
 
 func (s *server) badge(w http.ResponseWriter, r *http.Request) {
@@ -1094,13 +1095,6 @@ func (s *server) badge(w http.ResponseWriter, r *http.Request) {
 		body.Count = 0
 	}
 	hostDone(w, s.Host.SetBadge(body.Count))
-}
-
-func clipText(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "…"
-	}
-	return s
 }
 
 // openDataDir shows hidane's data directory (settings, memory, worklogs) in

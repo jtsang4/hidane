@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
+	"github.com/jtsang4/hidane/internal/clip"
 )
 
 func main() {
@@ -151,14 +152,6 @@ func section(prompt, header string) string {
 	return prompt[i+len(header):]
 }
 
-func firstRunes(s string, n int) string {
-	r := []rune(strings.TrimSpace(s))
-	if len(r) > n {
-		r = r[:n]
-	}
-	return string(r)
-}
-
 // brain answers like the role the system prompt describes.
 func brain(system, prompt string) string {
 	switch {
@@ -179,7 +172,7 @@ func brain(system, prompt string) string {
 			}
 			switch {
 			case kind == "external":
-				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "收到外部事件：" + firstRunes(text, 60)})
+				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "收到外部事件：" + clip.Runes(strings.TrimSpace(text), 60)})
 			case strings.Contains(text, "代码示例"):
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "可以这样跑测试：\n\n```sh\nmake test\npnpm -C frontend test\n```"})
 			case strings.Contains(text, "流程图"):
@@ -197,7 +190,7 @@ func brain(system, prompt string) string {
 				list = append(list, map[string]any{"type": "route", "of": id, "work_item_id": routeHint.FindStringSubmatch(text)[1],
 					"message": text, "confidence": 1.0})
 			default:
-				effect := map[string]any{"type": "create_work_item", "of": id, "title": firstRunes(text, 30),
+				effect := map[string]any{"type": "create_work_item", "of": id, "title": clip.Runes(strings.TrimSpace(text), 30),
 					"brief": text, "repos": []any{}, "dispatch": true}
 				var repos []any
 				for _, m := range repoHint.FindAllStringSubmatch(text, -1) {
@@ -224,13 +217,13 @@ func brain(system, prompt string) string {
 		}
 		if strings.Contains(turn, fakecli.WorkerResult) {
 			if late := section(turn, fakecli.SteerLate); late != "" {
-				return effects(map[string]any{"type": "reply", "reply": "执行结束后才收到：" + firstRunes(late, 200)})
+				return effects(map[string]any{"type": "reply", "reply": "执行结束后才收到：" + clip.Runes(strings.TrimSpace(late), 200)})
 			}
 			if given := section(turn, fakecli.SteerGiven); given != "" && strings.Contains(turn, fakecli.ResultOK) {
-				return effects(map[string]any{"type": "reply", "reply": "已完成，含执行中的补充：" + firstRunes(given, 200)})
+				return effects(map[string]any{"type": "reply", "reply": "已完成，含执行中的补充：" + clip.Runes(strings.TrimSpace(given), 200)})
 			}
 			if strings.Contains(turn, fakecli.ResultBlocked) {
-				return effects(map[string]any{"type": "escalate", "question": firstRunes(section(turn, fakecli.BlockedOn), 200), "tried": "ran a worker"})
+				return effects(map[string]any{"type": "escalate", "question": clip.Runes(strings.TrimSpace(section(turn, fakecli.BlockedOn)), 200), "tried": "ran a worker"})
 			}
 			if strings.Contains(turn, fakecli.ResultOK) && strings.Contains(prompt, "AGAIN") && !strings.Contains(turn, "again.txt") {
 				return effects(
@@ -240,7 +233,7 @@ func brain(system, prompt string) string {
 			}
 			if strings.Contains(turn, fakecli.ResultOK) {
 				summary := section(turn, fakecli.ResultSummary)
-				reply := map[string]any{"type": "reply", "reply": "已完成：" + firstRunes(summary, 200)}
+				reply := map[string]any{"type": "reply", "reply": "已完成：" + clip.Runes(strings.TrimSpace(summary), 200)}
 				if strings.Contains(prompt, fakecli.ChildItem) {
 					// done before reply: the order a model may well choose.
 					return effects(map[string]any{"type": "done"}, reply)
@@ -250,7 +243,7 @@ func brain(system, prompt string) string {
 			if strings.Contains(turn, fakecli.ResultCancelled) {
 				return effects(map[string]any{"type": "reply", "reply": "执行已取消。"})
 			}
-			return effects(map[string]any{"type": "reply", "reply": "执行失败：" + firstRunes(section(turn, fakecli.ResultError), 200)})
+			return effects(map[string]any{"type": "reply", "reply": "执行失败：" + clip.Runes(strings.TrimSpace(section(turn, fakecli.ResultError)), 200)})
 		}
 		if strings.Contains(prompt, "JUNK_ONCE") && !strings.Contains(prompt, fakecli.ManagerNudge) {
 			return "response."
@@ -290,7 +283,7 @@ func brain(system, prompt string) string {
 			text = m[3]
 		}
 		return effects(
-			map[string]any{"type": "understanding", "text": "目标：" + firstRunes(text, 80)},
+			map[string]any{"type": "understanding", "text": "目标：" + clip.Runes(strings.TrimSpace(text), 80)},
 			map[string]any{"type": "spawn", "instructions": workerInstructions(text), "expect": "result.txt exists"},
 		)
 	case strings.Contains(system, fakecli.DistillerRole):

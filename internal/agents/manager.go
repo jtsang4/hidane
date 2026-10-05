@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/repos"
 )
@@ -49,7 +50,7 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 			lines = append(lines, "blocked on: "+b)
 		}
 		if e := p.Str("error"); e != "" {
-			lines = append(lines, "error: "+clipRunes(e, 1000))
+			lines = append(lines, "error: "+clip.Runes(e, 1000))
 		}
 		if blocks, ok := p["policyBlocks"].([]any); ok && len(blocks) > 0 {
 			var reasons []string
@@ -60,7 +61,7 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 			}
 			lines = append(lines, "refused by policy: "+strings.Join(reasons, "; "))
 		}
-		lines = append(lines, "summary:\n"+clipNoted(p.Str("summary"), 20000))
+		lines = append(lines, "summary:\n"+clip.Noted(p.Str("summary"), 20000))
 		return strings.Join(lines, "\n")
 	case "escalation.raised":
 		title := ""
@@ -99,7 +100,7 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 		return fmt.Sprintf("[%s] (child %s says this message is not theirs) %s", m.ID, m.WorkItemID, p.Str("text"))
 	}
 	b, _ := json.Marshal(p)
-	return fmt.Sprintf("[%s] (%s) %s", m.ID, m.Kind, clipRunes(string(b), 500))
+	return fmt.Sprintf("[%s] (%s) %s", m.ID, m.Kind, clip.Runes(string(b), 500))
 }
 
 // alsoToOf names the other work items a message was sent to at the same time.
@@ -122,7 +123,7 @@ func options(raw any) []any {
 	var out []any
 	seen := map[string]bool{}
 	for _, v := range list {
-		s := clipRunes(strings.Join(strings.Fields(Str(v)), " "), 80)
+		s := clip.Runes(strings.Join(strings.Fields(Str(v)), " "), 80)
 		if s != "" && !seen[s] {
 			seen[s] = true
 			out = append(out, s)
@@ -167,7 +168,7 @@ func (t *managerTurn) reply(ctx context.Context, text string, of *kernel.Event) 
 	if of != nil {
 		anchor = *of
 	}
-	payload := kernel.Payload{"text": clipNoted(text, maxAnswerRunes), "of": anchor.ID, "root": kernel.RootOf(anchor)}
+	payload := kernel.Payload{"text": clip.Noted(text, maxAnswerRunes), "of": anchor.ID, "root": kernel.RootOf(anchor)}
 	t.s.originOf(ctx, kernel.RootOf(anchor), payload)
 	// The work reporting back — a worker's outcome, children settling, or
 	// changes this Manager made itself — rather than an answer to what the
@@ -331,14 +332,14 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 				if strings.TrimSpace(title) != "" {
 					missing = "brief"
 				}
-				name := clipRunes(title, 60)
+				name := clip.Runes(title, 60)
 				if name == "" {
-					name = clipRunes(brief, 60)
+					name = clip.Runes(brief, 60)
 				}
 				if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "agent.error", ThreadID: item.ThreadID,
 					WorkItemID: item.ID, CausedBy: t.cause.ID, Payload: kernel.Payload{
 						"error": fmt.Sprintf("child #%d of %d (%q) was not created: it has no %s", i+1, len(list), name, missing),
-						"index": i + 1, "title": title, "brief": clipRunes(brief, 200), "root": kernel.RootOf(t.cause)}}); err != nil {
+						"index": i + 1, "title": title, "brief": clip.Runes(brief, 200), "root": kernel.RootOf(t.cause)}}); err != nil {
 					return err
 				}
 				continue
@@ -524,10 +525,10 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 			continue
 		}
 		if (e.Kind == "user.message" && e.ThreadID != "main") || e.Kind == "agent.reply" || e.Kind == "work_item.understanding" {
-			hist = append(hist, fmt.Sprintf("[%s] %s", e.Kind, clipRunes(e.Payload.Str("text"), 600)))
+			hist = append(hist, fmt.Sprintf("[%s] %s", e.Kind, clip.Runes(e.Payload.Str("text"), 600)))
 		}
 		if e.Kind == "agent.error" && e.Source == "agent:manager" {
-			hist = append(hist, fmt.Sprintf("[agent.error] %s", clipRunes(e.Payload.Str("error"), 600)))
+			hist = append(hist, fmt.Sprintf("[agent.error] %s", clip.Runes(e.Payload.Str("error"), 600)))
 		}
 	}
 	if len(hist) > 14 {

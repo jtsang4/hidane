@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jtsang4/hidane/internal/clip"
 )
 
 // Codex as `codex app-server`: JSON-RPC over stdio, one server and one thread
@@ -511,7 +513,7 @@ func (r *codexRun) onNotification(method string, raw json.RawMessage) {
 			r.mu.Lock()
 			seen := r.hooked[it.ID]
 			if !seen && r.failure == "" {
-				r.failure = fmt.Sprintf("stopped: codex ran a %s call (%s) without asking the hidane guard first", name, clip(detail, 200))
+				r.failure = fmt.Sprintf("stopped: codex ran a %s call (%s) without asking the hidane guard first", name, clip.Runes(detail, 200))
 			}
 			r.mu.Unlock()
 			if !seen {
@@ -523,7 +525,7 @@ func (r *codexRun) onNotification(method string, raw json.RawMessage) {
 		r.toolCalls++
 		r.mu.Unlock()
 		if r.req.OnTool != nil {
-			r.req.OnTool(ToolEvent{Phase: "start", Tool: name, Detail: clip(detail, 500)})
+			r.req.OnTool(ToolEvent{Phase: "start", Tool: name, Detail: clip.Runes(detail, 500)})
 		}
 	case "item/completed":
 		it := n.Item

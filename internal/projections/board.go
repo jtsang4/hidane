@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 )
 
@@ -101,11 +102,7 @@ func DescribeTool(p kernel.Payload) string {
 			}
 		}
 	}
-	out := strings.TrimSpace(tool + " " + strings.TrimSpace(spaces.ReplaceAllString(detail, " ")))
-	if r := []rune(out); len(r) > 160 {
-		out = string(r[:160])
-	}
-	return out
+	return clip.Runes(strings.TrimSpace(tool+" "+strings.TrimSpace(spaces.ReplaceAllString(detail, " "))), 160)
 }
 
 // BuildBoard is the task-card view: open items plus anything closed within the last day.
@@ -284,11 +281,7 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 			card.Understanding = &s
 		}
 		if r, ok := latest["agent.reply"]; ok {
-			text := r.payload.Str("text")
-			if rr := []rune(text); len(rr) > 1200 {
-				text = string(rr[:1200])
-			}
-			card.LastReply = &CardReply{Text: text, TS: r.ts, Seq: r.seq}
+			card.LastReply = &CardReply{Text: clip.Runes(r.payload.Str("text"), 1200), TS: r.ts, Seq: r.seq}
 		}
 		if open != nil {
 			reason := open.payload.Str("reason")
@@ -397,15 +390,10 @@ func worklogLine(e kernel.Event) string {
 	if text == "" {
 		text = e.Payload.Str("summary")
 	}
-	detail := text
-	if detail == "" {
+	detail := clip.Ellipsis(text, 500)
+	if text == "" {
 		b, _ := json.Marshal(e.Payload)
-		detail = string(b)
-		if r := []rune(detail); len(r) > 200 {
-			detail = string(r[:200])
-		}
-	} else if r := []rune(detail); len(r) > 500 {
-		detail = string(r[:500]) + "…"
+		detail = clip.Runes(string(b), 200)
 	}
 	return fmt.Sprintf("- `%s` **%s** (%s) %s", at, e.Kind, e.Source, strings.ReplaceAll(detail, "\n", " "))
 }

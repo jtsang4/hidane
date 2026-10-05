@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jtsang4/hidane/internal/clip"
 )
 
 // Claude Code in print mode with stream-json on both sides: the prompt is the
@@ -168,17 +170,6 @@ func blocksOf(raw json.RawMessage) []claudeBlock {
 	return nil
 }
 
-// clip keeps the first n runes of s: a byte cut can split a character.
-func clip(s string, n int) string {
-	for i := range s {
-		if n == 0 {
-			return s[:i]
-		}
-		n--
-	}
-	return s
-}
-
 func (r *claudeRun) onLine(line []byte) {
 	var m claudeLine
 	if json.Unmarshal(line, &m) != nil {
@@ -215,7 +206,7 @@ func (r *claudeRun) onLine(line []byte) {
 				r.tools[b.ID] = b.Name
 				r.mu.Unlock()
 				if r.req.OnTool != nil {
-					r.req.OnTool(ToolEvent{Phase: "start", Tool: b.Name, Detail: clip(string(b.Input), 500)})
+					r.req.OnTool(ToolEvent{Phase: "start", Tool: b.Name, Detail: clip.Runes(string(b.Input), 500)})
 				}
 			}
 		}

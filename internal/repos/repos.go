@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 )
 
@@ -100,10 +101,7 @@ func (s *Service) git(ctx context.Context, dir string, args ...string) (string, 
 		if msg == "" {
 			msg = err.Error()
 		}
-		if r := []rune(msg); len(r) > 400 {
-			msg = string(r[:400])
-		}
-		return "", fmt.Errorf("git %s: %s", args[0], msg)
+		return "", fmt.Errorf("git %s: %s", args[0], clip.Runes(msg, 400))
 	}
 	return strings.TrimSpace(out.String()), nil
 }

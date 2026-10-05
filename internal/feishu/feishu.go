@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agents"
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/kernel"
 )
 
@@ -332,7 +333,7 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 		text = DescribeMessage(in.MessageType, keys, len(images), len(failures))
 	}
 	payload := kernel.Payload{"chatId": in.ChatID, "rootId": nilIfEmpty(in.RootID), "messageId": nilIfEmpty(in.MessageID),
-		"messageType": in.MessageType, "imageCount": len(images), "text": clip(text, 2000)}
+		"messageType": in.MessageType, "imageCount": len(images), "text": clip.Runes(text, 2000)}
 	if len(failures) > 0 {
 		payload["imageFailures"] = failures
 	}
@@ -380,13 +381,6 @@ func (c *Channel) HandleMessage(ctx context.Context, in Inbound) error {
 func nilIfEmpty(s string) any {
 	if s == "" {
 		return nil
-	}
-	return s
-}
-
-func clip(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n])
 	}
 	return s
 }

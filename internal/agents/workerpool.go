@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli"
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/repos"
@@ -151,7 +152,7 @@ func (p *WorkerPool) Deliver(workItemID, text string) Delivery {
 		return Missed
 	}
 	if target.pending != "" {
-		_ = os.WriteFile(target.pending, []byte(clipRunes(text, 2000)), 0o644)
+		_ = os.WriteFile(target.pending, []byte(clip.Runes(text, 2000)), 0o644)
 	}
 	if target.run == nil {
 		target.buffer = append(target.buffer, text)
@@ -431,7 +432,7 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 	}
 	source := "agent:worker"
 	payload := kernel.Payload{"ok": run.OK, "durationMs": run.DurationMs, "toolCalls": run.ToolCalls,
-		"summary": clipNoted(run.Text, maxAnswerRunes), "error": errVal, "cancelled": run.Cancelled, "blocked": blocked, "policyBlocks": blocks}
+		"summary": clip.Noted(run.Text, maxAnswerRunes), "error": errVal, "cancelled": run.Cancelled, "blocked": blocked, "policyBlocks": blocks}
 	if run.Lost {
 		source = "kernel:runtime"
 		payload["lost"] = true

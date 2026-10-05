@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
@@ -242,7 +243,7 @@ func (r *piRun) onLine(line []byte) {
 		r.toolCalls++
 		r.mu.Unlock()
 		if r.req.OnTool != nil {
-			r.req.OnTool(ToolEvent{Phase: "start", Tool: m.ToolName, Detail: clip(string(input), 500)})
+			r.req.OnTool(ToolEvent{Phase: "start", Tool: m.ToolName, Detail: clip.Runes(string(input), 500)})
 		}
 	case "tool_execution_end":
 		if r.req.OnTool != nil {
