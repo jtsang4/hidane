@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
+
+	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 )
 
 // A demo script (FAKEAGENT_DEMO=<json file>) gives the fake Primary and
@@ -76,13 +79,13 @@ func demoManager(d *demoScript, prompt, turn string) (string, bool) {
 		return "", false
 	}
 	for _, t := range d.Tasks {
-		if !strings.Contains(prompt, " — "+t.Title+" (status: ") {
+		if !strings.Contains(prompt, fmt.Sprintf(fakecli.ItemTitle, t.Title)) {
 			continue
 		}
 		switch {
-		case strings.Contains(turn, ": ok)"):
+		case strings.Contains(turn, fakecli.ResultOK):
 			return effects(map[string]any{"type": "reply", "reply": t.Done}), true
-		case strings.Contains(turn, "(worker result"):
+		case strings.Contains(turn, fakecli.WorkerResult):
 			return "", false
 		case t.Ask != "":
 			return effects(map[string]any{"type": "understanding", "text": t.Understanding},

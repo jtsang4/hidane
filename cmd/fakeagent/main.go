@@ -3,7 +3,7 @@
 // and calls the guard hook it was configured with before every tool call, so
 // tests exercise hidane's drivers and guard end to end without a model.
 //
-// The kind comes from FAKEAGENT_KIND or the executable name (claude, codex, pi).
+// The kind is the executable's name (claude, codex, pi).
 // FAKEAGENT_DELAY_MS slows each turn down, FAKEAGENT_WORKER_DELAY_MS only a
 // worker's (catching a run mid-flight then costs no reasoning turns);
 // FAKEAGENT_LOG appends a JSON record of every invocation (args, selected env)
@@ -22,13 +22,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 )
 
 func main() {
-	kind := os.Getenv("FAKEAGENT_KIND")
-	if kind == "" {
-		kind = filepath.Base(os.Args[0])
-	}
+	kind := filepath.Base(os.Args[0])
 	args := os.Args[1:]
 	if len(args) > 0 && (args[0] == "--version" || args[0] == "-v") {
 		fmt.Printf("%s fake 1.0.0\n", kind)
@@ -162,15 +161,15 @@ func firstRunes(s string, n int) string {
 // brain answers like the role the system prompt describes.
 func brain(system, prompt string) string {
 	switch {
-	case strings.Contains(system, "connectivity check") || strings.Contains(prompt, "connectivity check"):
+	case strings.Contains(system, fakecli.PingRole):
 		return "OK"
-	case strings.Contains(system, "Primary agent of hidane"):
-		if strings.Contains(prompt, "JUNK_PRIMARY") && !strings.Contains(prompt, "was not the JSON effect list") {
+	case strings.Contains(system, fakecli.PrimaryRole):
+		if strings.Contains(prompt, "JUNK_PRIMARY") && !strings.Contains(prompt, fakecli.PrimaryRetry) {
 			return "<reasoning_effort>5</reasoning_effort>"
 		}
 		var list []map[string]any
 		demo := loadDemo()
-		for _, m := range msgLine.FindAllStringSubmatch(section(prompt, "Messages this turn:"), -1) {
+		for _, m := range msgLine.FindAllStringSubmatch(section(prompt, fakecli.MessagesThisTurn), -1) {
 			id, kind, text := m[1], m[2], m[3]
 			lower := strings.ToLower(text)
 			if effect, ok := demoPrimary(demo, id, text); ok && kind == "user" {
@@ -220,42 +219,42 @@ func brain(system, prompt string) string {
 			}
 		}
 		return "```json\n" + effects(list...) + "\n```"
-	case strings.Contains(system, "Manager of one work item"):
-		turn := section(prompt, "Messages this turn:")
+	case strings.Contains(system, fakecli.ManagerRole):
+		turn := section(prompt, fakecli.MessagesThisTurn)
 		if answer, ok := demoManager(loadDemo(), prompt, turn); ok {
 			return answer
 		}
-		if strings.Contains(turn, "(worker result") {
-			if late := section(turn, "the worker never saw it:\n- "); late != "" {
+		if strings.Contains(turn, fakecli.WorkerResult) {
+			if late := section(turn, fakecli.SteerLate); late != "" {
 				return effects(map[string]any{"type": "reply", "reply": "执行结束后才收到：" + firstRunes(late, 200)})
 			}
-			if given := section(turn, "the result above should account for it:\n- "); given != "" && strings.Contains(turn, ": ok)") {
+			if given := section(turn, fakecli.SteerGiven); given != "" && strings.Contains(turn, fakecli.ResultOK) {
 				return effects(map[string]any{"type": "reply", "reply": "已完成，含执行中的补充：" + firstRunes(given, 200)})
 			}
-			if strings.Contains(turn, ": blocked)") {
-				return effects(map[string]any{"type": "escalate", "question": firstRunes(section(turn, "blocked on: "), 200), "tried": "ran a worker"})
+			if strings.Contains(turn, fakecli.ResultBlocked) {
+				return effects(map[string]any{"type": "escalate", "question": firstRunes(section(turn, fakecli.BlockedOn), 200), "tried": "ran a worker"})
 			}
-			if strings.Contains(turn, ": ok)") && strings.Contains(prompt, "AGAIN") && !strings.Contains(turn, "again.txt") {
+			if strings.Contains(turn, fakecli.ResultOK) && strings.Contains(prompt, "AGAIN") && !strings.Contains(turn, "again.txt") {
 				return effects(
 					map[string]any{"type": "spawn", "instructions": "WRITE again.txt: second round", "expect": "again.txt"},
 					map[string]any{"type": "reply", "reply": "已派出第二个 worker"},
 				)
 			}
-			if strings.Contains(turn, ": ok)") {
-				summary := section(turn, "summary:\n")
+			if strings.Contains(turn, fakecli.ResultOK) {
+				summary := section(turn, fakecli.ResultSummary)
 				reply := map[string]any{"type": "reply", "reply": "已完成：" + firstRunes(summary, 200)}
-				if strings.Contains(prompt, "You are a CHILD work item") {
+				if strings.Contains(prompt, fakecli.ChildItem) {
 					// done before reply: the order a model may well choose.
 					return effects(map[string]any{"type": "done"}, reply)
 				}
 				return effects(reply)
 			}
-			if strings.Contains(turn, ": cancelled)") {
+			if strings.Contains(turn, fakecli.ResultCancelled) {
 				return effects(map[string]any{"type": "reply", "reply": "执行已取消。"})
 			}
-			return effects(map[string]any{"type": "reply", "reply": "执行失败：" + firstRunes(section(turn, "error: "), 200)})
+			return effects(map[string]any{"type": "reply", "reply": "执行失败：" + firstRunes(section(turn, fakecli.ResultError), 200)})
 		}
-		if strings.Contains(prompt, "JUNK_ONCE") && !strings.Contains(prompt, "Your answer contained no action") {
+		if strings.Contains(prompt, "JUNK_ONCE") && !strings.Contains(prompt, fakecli.ManagerNudge) {
 			return "response."
 		}
 		if os.Getenv("FAKEAGENT_MANAGER_PLAIN") == "1" {
@@ -276,11 +275,11 @@ func brain(system, prompt string) string {
 		if strings.Contains(turn, "LONG_REPLY") {
 			return effects(map[string]any{"type": "reply", "reply": "开头" + strings.Repeat("长", 11000) + "结尾"})
 		}
-		if strings.Contains(prompt, "ONLY_UNDERSTAND") && !strings.Contains(prompt, "Your answer contained no action") {
+		if strings.Contains(prompt, "ONLY_UNDERSTAND") && !strings.Contains(prompt, fakecli.ManagerNudge) {
 			// A model that restates the task and forgets to act.
 			return effects(map[string]any{"type": "understanding", "text": "目标：先理解一下"})
 		}
-		if strings.Contains(turn, "(all child work items finished)") {
+		if strings.Contains(turn, fakecli.ChildrenSettled) {
 			return effects(map[string]any{"type": "reply", "reply": "子任务都完成了。"})
 		}
 		if strings.Contains(turn, "ASK_OPTIONS") {
@@ -296,11 +295,11 @@ func brain(system, prompt string) string {
 			map[string]any{"type": "understanding", "text": "目标：" + firstRunes(text, 80)},
 			map[string]any{"type": "spawn", "instructions": workerInstructions(text), "expect": "result.txt exists"},
 		)
-	case strings.Contains(system, "memory distiller"):
+	case strings.Contains(system, fakecli.DistillerRole):
 		if m := regexp.MustCompile(`\[user\.message (wi_\w+)\] 任务约定：(\S+)`).FindStringSubmatch(prompt); m != nil {
 			// A model words a memory afresh every time; only the existing list
 			// keeps it from promoting the same thing again.
-			existing, _, _ := strings.Cut(section(prompt, "Existing memories"), "Recent events:")
+			existing, _, _ := strings.Cut(section(prompt, fakecli.ExistingMemories), fakecli.RecentEvents)
 			if strings.Contains(existing, m[2]) {
 				return `{"memories":[]}`
 			}
@@ -522,7 +521,7 @@ func runClaude(args []string) {
 		emit(map[string]any{"type": "user", "isReplay": true, "session_id": session,
 			"message": map[string]any{"role": "user", "content": content}})
 		if absorb {
-			delay(toolsOn && strings.Contains(system, "Worker execution"))
+			delay(toolsOn && strings.Contains(system, fakecli.WorkerRole))
 		drain:
 			for {
 				select {
@@ -540,7 +539,7 @@ func runClaude(args []string) {
 			}
 		}
 		var answer string
-		if toolsOn && strings.Contains(system, "Worker execution") {
+		if toolsOn && strings.Contains(system, fakecli.WorkerRole) {
 			var wk worker
 			var plan []toolCall
 			for _, part := range parts {
@@ -698,7 +697,7 @@ func runCodex(args []string) {
 		item(t, "started", um)
 		item(t, "completed", um)
 		var answer string
-		if sandbox != "read-only" && strings.Contains(system, "Worker execution") {
+		if sandbox != "read-only" && strings.Contains(system, fakecli.WorkerRole) {
 			var wk worker
 			n := 0
 			for inputs := []string{prompt}; len(inputs) > 0; {
@@ -930,7 +929,7 @@ func runPi(args []string) {
 				defer wg.Done()
 				emit(map[string]any{"type": "agent_start"})
 				var answer string
-				if toolsOn && strings.Contains(system, "Worker execution") {
+				if toolsOn && strings.Contains(system, fakecli.WorkerRole) {
 					var wk worker
 					for i, call := range workerPlan(prompt, cwd) {
 						name := strings.ToLower(call.tool)

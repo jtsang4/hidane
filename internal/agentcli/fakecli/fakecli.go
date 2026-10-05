@@ -1,5 +1,5 @@
 // Package fakecli builds cmd/fakeagent once per test binary and exposes it as
-// claude, codex and pi.
+// claude, codex and pi; its markers are the prompt words the fake answers by.
 package fakecli
 
 import (
