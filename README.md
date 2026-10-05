@@ -168,6 +168,8 @@ provider says which CLIs it can serve:
 Presets (Anthropic, OpenAI, DeepSeek, Moonshot/Kimi, Kimi For Coding, Zhipu GLM,
 Z.AI, OpenRouter, OpenCode Go) only pre-fill the form. Incompatible combinations
 (say, Codex on a provider without a Responses endpoint) are refused when saved.
+When pi uses an explicit provider, a model is required (pi 1.0+); leaving both
+empty uses pi's own login and defaults.
 The API never returns a key — only whether one is set and its last four
 characters — and setting changes are logged without them. **Test** on a role
 makes one real round trip; `hidane model --ping` does the same from a terminal.

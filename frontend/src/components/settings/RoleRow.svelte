@@ -146,7 +146,7 @@
       <span class="font-mono text-2xs text-muted">{role}</span>
     </div>
     <SaveStatus {status} error={saveError ?? ""} />
-    <Button variant="secondary" disabled={testing || dirty || saving} title={dirty ? $t("settings.roles.testSaved") : undefined} onclick={() => void test()}>
+    <Button variant="secondary" disabled={testing || dirty || saving || issue !== null} title={dirty ? $t("settings.roles.testSaved") : undefined} onclick={() => void test()}>
       {#if testing}<LoaderCircle size={14} class="animate-spin" />{:else}<FlaskConical size={14} />{/if}
       {$t("settings.roles.test")}
     </Button>

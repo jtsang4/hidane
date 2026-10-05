@@ -104,6 +104,8 @@
     const edit = { value: next };
     edited = edit;
     typed = null;
+    // Changing provider clears the model; keep that draft until the pair is complete.
+    if (next && roleCompatibility(next, settingsQuery.data?.providers ?? []) === "settings.compat.piModel") return;
     const result = onchange(next);
     const settled = () => {
       if (edited === edit) edited = null;
@@ -137,7 +139,10 @@
   }
 
   function onOpenChange(isOpen: boolean): void {
-    if (!isOpen) commitTyped();
+    if (!isOpen) {
+      commitTyped();
+      if (edited?.value && roleCompatibility(edited.value, settingsQuery.data?.providers ?? []) === "settings.compat.piModel") edited = null;
+    }
   }
 
   /** Focus lands on the current choice, not on the first favorite. */
@@ -281,7 +286,7 @@
       class={cn(pill, "inline-flex items-center gap-1.5", favorite ? "bg-primary/10 text-foreground hover:bg-primary/15" : pillOff)}
       aria-pressed={favorite}
       title={favorite ? $t("runAs.favorited") : undefined}
-      disabled={value === null}
+      disabled={value === null || problem !== null}
       onclick={() => {
         commitTyped();
         if (value) toggleFavoriteRun(value);
