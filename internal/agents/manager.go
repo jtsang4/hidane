@@ -1,12 +1,14 @@
 package agents
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jtsang4/hidane/internal/clip"
@@ -446,11 +448,48 @@ type managerSession struct {
 	SessionID string `json:"sessionId"`
 }
 
+// withoutMovedAway drops the copies of a person's message that they moved to
+// another work item after it was forwarded here: Reattribute records the move
+// as a later message.attributed whose previous is this item. (The newest
+// attribution alone cannot tell: a message sent to several items at once is
+// attributed to each of them in turn.)
+func (s *System) withoutMovedAway(ctx context.Context, itemID string, messages []kernel.Event) ([]kernel.Event, error) {
+	var kept []kernel.Event
+	for _, m := range messages {
+		if of := m.Payload.Str("of"); m.Kind == "user.message" && of != "" {
+			later, err := s.K.ListEvents(ctx, kernel.ListFilter{Kind: "message.attributed", PayloadKey: "of", PayloadValue: of, AfterSeq: &m.Seq})
+			if err != nil {
+				return nil, err
+			}
+			if slices.ContainsFunc(later, func(a kernel.Event) bool { return a.Payload.Str("previous") == itemID }) {
+				continue
+			}
+		}
+		kept = append(kept, m)
+	}
+	return kept, nil
+}
+
+// movedLine tells a Manager that a message it may already have acted on now
+// belongs to another work item.
+func (s *System) movedLine(ctx context.Context, moved kernel.Event) string {
+	of := moved.Payload.Str("of")
+	said := ""
+	if message, ok, _ := s.K.GetEvent(ctx, of); ok {
+		if text := clip.Line(message.Payload.Str("text"), 200); text != "" {
+			said = fmt.Sprintf(" (%q)", text)
+		}
+	}
+	return fmt.Sprintf("[moved] the person moved message %s%s to work item %s %q — do not continue work only it asked for",
+		of, said, moved.WorkItemID, moved.Payload.Str("title"))
+}
+
 func managerSessionPath(item kernel.WorkItem) string {
 	return filepath.Join(item.Workspace, ".hidane", "sessions", "manager", "session.json")
 }
 
-// ManagerTurn: rules first. While its worker runs, the person's words are
+// ManagerTurn: rules first. A message the person moved elsewhere before it
+// was read is dropped. While its worker runs, the person's words are
 // steered straight into that worker (no model call) or, if it is already
 // ending, kept for the turn that reads its outcome; a cancelled run is
 // acknowledged without one. Everything else is one model call that ends by
@@ -459,6 +498,9 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	k := s.K
 	item, err := k.GetWorkItem(ctx, kernel.WorkItemIDOf(address))
 	if err != nil {
+		return err
+	}
+	if messages, err = s.withoutMovedAway(ctx, item.ID, messages); err != nil || len(messages) == 0 {
 		return err
 	}
 	active, hasActive, err := k.ActiveExecutionFor(ctx, item.ID)
@@ -515,6 +557,13 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	if err != nil {
 		return err
 	}
+	// A move is recorded on the work item the message went to.
+	moves, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "message.attributed", PayloadKey: "previous", PayloadValue: item.ID})
+	if err != nil {
+		return err
+	}
+	history = append(history, moves...)
+	slices.SortFunc(history, func(a, b kernel.Event) int { return cmp.Compare(a.Seq, b.Seq) })
 	inBatch := map[string]bool{}
 	for _, m := range messages {
 		inBatch[m.ID] = true
@@ -529,6 +578,9 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		}
 		if e.Kind == "agent.error" && e.Source == "agent:manager" {
 			hist = append(hist, fmt.Sprintf("[agent.error] %s", clip.Runes(e.Payload.Str("error"), 600)))
+		}
+		if e.Kind == "message.attributed" && e.Payload.Str("previous") == item.ID {
+			hist = append(hist, s.movedLine(ctx, e))
 		}
 	}
 	if len(hist) > 14 {

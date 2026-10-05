@@ -132,7 +132,8 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 - Primary 产出 `attribution.ambiguous`（带候选项），**不**把消息投给任何一个 Manager
 - 通过 `POST /api/messages/:id/route {workItemId}` 选定后，落 `message.attributed`（by=user）并投递给对应 Manager
-- 再改派到另一个工作项：新的 `message.attributed` 带 `previous`，原事件保留不改（只追加）
+- 等这个 Manager 按这句话动了手（派了 worker），再把消息改派到另一个工作项：原 Manager 之后的 turn（例如读到那次
+  worker 结果时）不再为这句话继续做——不为它再派 worker、不就它追问；新工作项的 Manager 接手去做
 - 改派到 `new` 会新建工作项并投递
 - 界面上：用户消息下方显示归属标签，歧义时显示候选按钮，不出现重复的问题气泡
 
