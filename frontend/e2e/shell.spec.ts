@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
-import type { MemoryEntry, WorkItem } from "../src/lib/api.js";
-import { confirmDialog, expect, say, test, turn, unique, waitForEvent } from "./fixtures.js";
+import type { MemoryEntry } from "../src/lib/api.js";
+import { confirmDialog, copied, expect, say, stubClipboard, test, turn, unique, waitForEvent } from "./fixtures.js";
 
 /** The window shell: settings as a surface of its own, the palette, ⌘N, menus, the sidebar. */
 
@@ -52,7 +52,7 @@ test("settings opens with ⌘, and leaves with Esc, ⌘, or Back — to the page
 test("⌘K palette: commands go places, and the search finds tasks and messages", async ({ page, api }) => {
   await api.setAllRoles("claude");
   const title = unique("e2e-palette-task");
-  const { item } = await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201);
+  const item = await api.newTask(title);
   const said = `你好 ${unique("e2e-palette-said")}`;
   const { messageId } = await api.send<{ messageId: string }>("POST", "/api/chat", { text: said }, 202);
 
@@ -188,13 +188,7 @@ test("confirm dialog: cancelling does nothing, confirming does it", async ({ pag
 
 test("a message's menu, from a right click or its ⋯ button: copy the text, hide it", async ({ page, api, desktop, hostCalls }) => {
   await api.setAllRoles("claude");
-  if (!desktop) {
-    await page.addInitScript(() => {
-      const copied: string[] = [];
-      (window as unknown as { __copied: string[] }).__copied = copied;
-      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => void copied.push(text) } });
-    });
-  }
+  if (!desktop) await stubClipboard(page);
   const text = `你好，${unique("e2e-menu")}`;
   await page.goto("/");
   const messageId = await say(page, text);
@@ -212,7 +206,7 @@ test("a message's menu, from a right click or its ⋯ button: copy the text, hid
   if (desktop) {
     expect(hostCalls).toContainEqual({ path: "/api/desktop/clipboard", body: { text } });
   } else {
-    expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual([text]);
+    expect(await copied(page)).toEqual([text]);
   }
 
   // The ⋯ button opens the same menu; Esc closes it.
@@ -235,13 +229,7 @@ test("a message's menu, from a right click or its ⋯ button: copy the text, hid
 
 test("a code block in a reply: its copy button copies the code and says so", async ({ page, api, desktop, hostCalls }) => {
   await api.setAllRoles("claude");
-  if (!desktop) {
-    await page.addInitScript(() => {
-      const copied: string[] = [];
-      (window as unknown as { __copied: string[] }).__copied = copied;
-      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => void copied.push(text) } });
-    });
-  }
+  if (!desktop) await stubClipboard(page);
   await page.goto("/");
   const asked = turn(page, await say(page, `给我一个代码示例 ${unique("e2e-code")}`));
   const block = asked.locator("pre").filter({ hasText: "make test" });
@@ -260,20 +248,14 @@ test("a code block in a reply: its copy button copies the code and says so", asy
   if (desktop) {
     expect(hostCalls).toContainEqual({ path: "/api/desktop/clipboard", body: { text: code } });
   } else {
-    expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual([code]);
+    expect(await copied(page)).toEqual([code]);
   }
   await expect(asked.getByRole("button", { name: "复制代码" })).toBeVisible();
 });
 
 test("a mermaid block in a reply is drawn as a diagram, its source still copied", async ({ page, api, desktop, hostCalls }) => {
   await api.setAllRoles("claude");
-  if (!desktop) {
-    await page.addInitScript(() => {
-      const copied: string[] = [];
-      (window as unknown as { __copied: string[] }).__copied = copied;
-      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => void copied.push(text) } });
-    });
-  }
+  if (!desktop) await stubClipboard(page);
   await page.goto("/");
   const asked = turn(page, await say(page, `画一个流程图 ${unique("e2e-mermaid")}`));
   const diagram = asked.locator("svg[aria-roledescription='flowchart-v2']");
@@ -312,13 +294,13 @@ test("a mermaid block in a reply is drawn as a diagram, its source still copied"
   if (desktop) {
     await expect.poll(() => hostCalls).toContainEqual({ path: "/api/desktop/clipboard", body: { text: source } });
   } else {
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual([source]);
+    await expect.poll(() => copied(page)).toEqual([source]);
   }
 });
 
 test("a task's menu: open, mark done, archive — and in the desktop app, show its workspace", async ({ page, api, desktop, hostCalls }) => {
   const title = unique("e2e-task-menu");
-  const { item } = await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201);
+  const item = await api.newTask(title);
   const status = async () => (await api.workItems()).find((candidate) => candidate.id === item.id)?.status;
   await page.goto("/items");
   const row = page.getByRole("link", { name: new RegExp(title) });

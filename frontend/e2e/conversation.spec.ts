@@ -251,7 +251,7 @@ for (const kind of ["conversation", "new", "task"] as const) {
     await api.resetSettings();
     try {
       await api.send("POST", "/api/providers", { id: "pi-test", label: "Pi test", piProvider: "deepseek", models: ["custom-model"] }, 201);
-      const item = kind === "task" ? (await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title: unique("pi-picker") }, 201)).item : null;
+      const item = kind === "task" ? await api.newTask(unique("pi-picker")) : null;
       const readChoice = async () => {
         if (kind === "conversation") return (await api.settings()).roles.primary;
         if (item) return (await api.workItems()).find((candidate) => candidate.id === item.id)?.runAs ?? null;

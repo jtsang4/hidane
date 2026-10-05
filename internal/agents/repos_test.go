@@ -3,7 +3,6 @@ package agents_test
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +11,7 @@ import (
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/projections"
 	"github.com/jtsang4/hidane/internal/repos"
+	"github.com/jtsang4/hidane/internal/repos/repostest"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
@@ -36,43 +36,6 @@ func hermeticGit(dir string) error {
 		}
 	}
 	return nil
-}
-
-func run(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("%v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// newRepo makes a git repository with one commit on main.
-func newRepo(t *testing.T, parent, name, remote string, files map[string]string) string {
-	t.Helper()
-	dir := filepath.Join(parent, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run(t, dir, "git", "init", "-q", "-b", "main")
-	if remote != "" {
-		run(t, dir, "git", "remote", "add", "origin", remote)
-	}
-	if files == nil {
-		files = map[string]string{}
-	}
-	files["README.md"] = "# " + name + "\n"
-	for p, c := range files {
-		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run(t, dir, "git", "add", "-A")
-	run(t, dir, "git", "commit", "-qm", "init")
-	resolved, _ := filepath.EvalSymlinks(dir)
-	return resolved
 }
 
 type invocation struct {
@@ -131,10 +94,11 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 	for _, agent := range []string{settings.Claude, settings.Codex} {
 		t.Run(agent, func(t *testing.T) {
 			t.Parallel()
-			repo := newRepo(t, t.TempDir(), "blog", "git@github.com:me/blog.git", map[string]string{
+			repo := repostest.New(t, "blog", map[string]string{
 				"hidane.json": `{"worktree":{"setup":"echo ready > .setup-done","teardown":["echo bye > $HIDANE_SOURCE_CHECKOUT_PATH/torn-down"]}}`,
 				".gitignore":  ".setup-done\n",
 			})
+			repostest.Git(t, repo, "remote", "add", "origin", "git@github.com:me/blog.git")
 			calls := filepath.Join(t.TempDir(), "calls.jsonl")
 			w := newWorld(t, agent, "FAKEAGENT_LOG="+calls)
 			msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "加一个 RSS 页面 REPO=" + repo, Source: "connector:web"}))
@@ -169,7 +133,7 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(repo, "result.txt")); err == nil {
 				t.Fatal("the person's own checkout is untouched")
 			}
-			if got := run(t, c.Path, "git", "rev-parse", "--abbrev-ref", "HEAD"); got != "hidane/"+item.ID {
+			if got := repostest.Git(t, c.Path, "rev-parse", "--abbrev-ref", "HEAD"); got != "hidane/"+item.ID {
 				t.Fatalf("branch: %s", got)
 			}
 			var setupIntent bool
@@ -214,7 +178,7 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 			if strings.Join(phases, ",") != "side_effect.intent,side_effect.result" {
 				t.Fatalf("teardown is a two-phase side effect: %v", phases)
 			}
-			if out := run(t, repo, "git", "branch", "--list", "hidane/"+item.ID); out == "" {
+			if out := repostest.Git(t, repo, "branch", "--list", "hidane/"+item.ID); out == "" {
 				t.Fatal("the branch is kept")
 			}
 			if got := m(w.k.GetCheckout(ctx, c.ID)); got.Status != kernel.CheckoutArchived {
@@ -227,7 +191,7 @@ func TestNewTaskGetsItsOwnWorktree(t *testing.T) {
 // Two tasks on the same repo run side by side, each on its own branch.
 func TestParallelTasksOnOneRepoGetSeparateWorktrees(t *testing.T) {
 	t.Parallel()
-	repo := newRepo(t, t.TempDir(), "blog", "", nil)
+	repo := repostest.New(t, "blog", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.Repos.Register(ctx, repo, "test"))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写 RSS REPO=blog", Source: "connector:web"}))
@@ -247,8 +211,8 @@ func TestParallelTasksOnOneRepoGetSeparateWorktrees(t *testing.T) {
 // A name that fits two repos is asked about; nothing starts on a guess.
 func TestAmbiguousRepoIsAskedBeforeAnythingStarts(t *testing.T) {
 	t.Parallel()
-	a := newRepo(t, t.TempDir(), "blog", "", nil)
-	b := newRepo(t, t.TempDir(), "blog", "", nil)
+	a := repostest.New(t, "blog", nil)
+	b := repostest.New(t, "blog", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.Repos.Register(ctx, a, "test"))
 	m(w.s.Repos.Register(ctx, b, "test"))
@@ -275,8 +239,9 @@ func TestAmbiguousRepoIsAskedBeforeAnythingStarts(t *testing.T) {
 // place keeps its identity and repairs the worktrees that depend on it.
 func TestMissingRepoIsNoticedAndCanBeRelocated(t *testing.T) {
 	t.Parallel()
-	parent := t.TempDir()
-	repo := newRepo(t, parent, "blog", "https://github.com/me/blog.git", nil)
+	repo := repostest.New(t, "blog", nil)
+	repostest.Git(t, repo, "remote", "add", "origin", "https://github.com/me/blog.git")
+	parent := filepath.Dir(repo)
 	w := newWorld(t, settings.Claude)
 	r := m(w.s.Repos.Register(ctx, repo, "test"))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写 RSS REPO=blog", Source: "connector:web"}))
@@ -315,7 +280,7 @@ func TestMissingRepoIsNoticedAndCanBeRelocated(t *testing.T) {
 		t.Fatalf("relocated: %+v", ev)
 	}
 	c := m(w.k.ListCheckouts(ctx, kernel.CheckoutFilter{WorkItemID: item.ID}))[0]
-	if out := run(t, c.Path, "git", "status", "--porcelain"); strings.Contains(out, "fatal") {
+	if out := repostest.Git(t, c.Path, "status", "--porcelain"); strings.Contains(out, "fatal") {
 		t.Fatalf("the worktree works again: %s", out)
 	}
 }
@@ -323,7 +288,7 @@ func TestMissingRepoIsNoticedAndCanBeRelocated(t *testing.T) {
 // The person's own directory is used only when asked, by one task at a time.
 func TestInPlaceOnlyWhenAskedAndOneAtATime(t *testing.T) {
 	t.Parallel()
-	repo := newRepo(t, t.TempDir(), "notes", "", nil)
+	repo := repostest.New(t, "notes", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "直接在主干上改 INPLACE REPO=" + repo, Source: "connector:web"}))
 	w.settle()
@@ -360,13 +325,13 @@ func TestInPlaceOnlyWhenAskedAndOneAtATime(t *testing.T) {
 // holds its worktree is reachable by a follow-up.
 func TestContinueFromAnArchivedBranchAndRouteToAFinishedTask(t *testing.T) {
 	t.Parallel()
-	repo := newRepo(t, t.TempDir(), "blog", "", nil)
+	repo := repostest.New(t, "blog", nil)
 	w := newWorld(t, settings.Claude)
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "REPO=" + repo + " RUN: echo rss > rss.txt && git add rss.txt && git commit -qm rss", Source: "connector:web"}))
 	w.settle()
 	first := w.onlyItem()
 	c := m(w.k.ListCheckouts(ctx, kernel.CheckoutFilter{WorkItemID: first.ID}))[0]
-	if out := run(t, c.Path, "git", "log", "--oneline", "main..HEAD"); !strings.Contains(out, "rss") {
+	if out := repostest.Git(t, c.Path, "log", "--oneline", "main..HEAD"); !strings.Contains(out, "rss") {
 		t.Fatalf("the worker committed on its branch: %q", out)
 	}
 
@@ -419,7 +384,7 @@ func TestContinueFromAnArchivedBranchAndRouteToAFinishedTask(t *testing.T) {
 // parent's, and the parent hears where their work is.
 func TestChildrenInheritTheParentsRepositories(t *testing.T) {
 	t.Parallel()
-	repo := newRepo(t, t.TempDir(), "site", "", nil)
+	repo := repostest.New(t, "site", nil)
 	w := newWorld(t, settings.Claude)
 	r := m(w.s.Repos.Register(ctx, repo, "test"))
 	parent := m(w.k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))

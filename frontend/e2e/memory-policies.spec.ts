@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { MemoryEntry, PolicyRule, WorkItem, WorkItemMemory } from "../src/lib/api.js";
+import type { MemoryEntry, PolicyRule, WorkItemMemory } from "../src/lib/api.js";
 import { confirmDialog, expect, test, unique } from "./fixtures.js";
 
 test("memory: add one, see it listed, forget it", async ({ page, api }) => {
@@ -39,7 +39,7 @@ test("memory: add one, see it listed, forget it", async ({ page, api }) => {
 
 test("memory: a task's own memory is listed under it and can be forgotten", async ({ page, api }) => {
   const title = unique("e2e-memory-task");
-  const { item } = await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201);
+  const item = await api.newTask(title);
   const id = `mem_${unique("w").replace(/[^a-z0-9]/gi, "").slice(-8)}`;
   const content = `这个任务从 main 分支部署 ${id}`;
   // What the distiller writes for a work_item-scoped memory.

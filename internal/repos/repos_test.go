@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,51 +11,10 @@ import (
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
 	"github.com/jtsang4/hidane/internal/repos"
+	"github.com/jtsang4/hidane/internal/repos/repostest"
 )
 
 var ctx = context.Background()
-
-func hermeticGit(t *testing.T) {
-	t.Helper()
-	home := t.TempDir()
-	for k, v := range map[string]string{
-		"HOME": home, "GIT_CONFIG_GLOBAL": filepath.Join(home, "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1",
-		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
-		"GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com",
-	} {
-		t.Setenv(k, v)
-	}
-}
-
-func run(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("%v: %v\n%s", args, err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func newRepo(t *testing.T, name string, files map[string]string) string {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run(t, dir, "git", "init", "-q", "-b", "main")
-	files["README.md"] = "# " + name + "\n"
-	for p, c := range files {
-		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run(t, dir, "git", "add", "-A")
-	run(t, dir, "git", "commit", "-qm", "init")
-	resolved, _ := filepath.EvalSymlinks(dir)
-	return resolved
-}
 
 func must[T any](t *testing.T) func(T, error) T {
 	return func(v T, err error) T {
@@ -85,10 +43,10 @@ func TestNormalizeRemote(t *testing.T) {
 // The person's own file wins, then the repo's hidane.json, then a paseo.json
 // the repo already has — field by field.
 func TestConfigPrecedence(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "app", map[string]string{
+	dir := repostest.New(t, "app", map[string]string{
 		"hidane.json": `{"worktree":{"setup":["pnpm install","cp $HIDANE_SOURCE_CHECKOUT_PATH/.env .env"]}}`,
 		"paseo.json":  `{"worktree":{"setup":"npm ci","teardown":"rm -rf .cache"}}`,
 	})
@@ -110,10 +68,10 @@ func TestConfigPrecedence(t *testing.T) {
 }
 
 func TestRegisterAndResolve(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "blog", map[string]string{})
+	dir := repostest.New(t, "blog", nil)
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +100,7 @@ func TestRegisterAndResolve(t *testing.T) {
 	if err := os.MkdirAll(inside, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run(t, inside, "git", "init", "-q")
+	repostest.Git(t, inside, "init", "-q")
 	if _, err := s.Register(ctx, inside, "test"); !errors.Is(err, repos.ErrInsideHome) {
 		t.Fatalf("hidane's own data directory is never a repo to work on: %v", err)
 	}
@@ -151,10 +109,10 @@ func TestRegisterAndResolve(t *testing.T) {
 // Archive refuses to drop uncommitted work, then removes the directory and
 // keeps the branch; Describe reports what is on it.
 func TestDescribeAndArchive(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "blog", map[string]string{})
+	dir := repostest.New(t, "blog", nil)
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	item := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "rss", "test", kernel.CreateWorkItemOpts{}))
 	c := must[kernel.Checkout](t)(s.Attach(ctx, item, r, repos.AttachSpec{}, "test"))
@@ -164,8 +122,8 @@ func TestDescribeAndArchive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(c.Path, "a.txt"), []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run(t, c.Path, "git", "add", "a.txt")
-	run(t, c.Path, "git", "commit", "-qm", "a")
+	repostest.Git(t, c.Path, "add", "a.txt")
+	repostest.Git(t, c.Path, "commit", "-qm", "a")
 	if err := os.WriteFile(filepath.Join(c.Path, "b.txt"), []byte("b"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -184,10 +142,10 @@ func TestDescribeAndArchive(t *testing.T) {
 	if _, err := os.Stat(c.Path); !os.IsNotExist(err) {
 		t.Fatal("the directory is gone")
 	}
-	if run(t, dir, "git", "branch", "--list", c.Branch) == "" {
+	if repostest.Git(t, dir, "branch", "--list", c.Branch) == "" {
 		t.Fatal("the branch stays")
 	}
-	if out := run(t, dir, "git", "worktree", "list"); strings.Contains(out, c.Path) {
+	if out := repostest.Git(t, dir, "worktree", "list"); strings.Contains(out, c.Path) {
 		t.Fatalf("git forgot the worktree: %s", out)
 	}
 	// Attached again, the item carries on from its own branch.
@@ -199,10 +157,10 @@ func TestDescribeAndArchive(t *testing.T) {
 
 // A repo that disappears is recorded once and the person is asked once.
 func TestCheckAllNoticesAMissingRepoOnce(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "blog", map[string]string{})
+	dir := repostest.New(t, "blog", nil)
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
@@ -229,10 +187,10 @@ func TestCheckAllNoticesAMissingRepoOnce(t *testing.T) {
 
 // A failing setup is recorded and reported, not fatal.
 func TestRunSetupRecordsFailure(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "blog", map[string]string{"hidane.json": `{"worktree":{"setup":"echo installing\nexit 3\necho never"}}`})
+	dir := repostest.New(t, "blog", map[string]string{"hidane.json": `{"worktree":{"setup":"echo installing\nexit 3\necho never"}}`})
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	item := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "rss", "test", kernel.CreateWorkItemOpts{}))
 	c := must[kernel.Checkout](t)(s.Attach(ctx, item, r, repos.AttachSpec{}, "test"))
@@ -255,10 +213,10 @@ func TestRunSetupRecordsFailure(t *testing.T) {
 // A worktree directory deleted by hand does not stop the item from getting
 // its branch back, and a setup cut short by a restart runs again.
 func TestRecoveringFromHandDeletionAndInterruptedSetup(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "blog", map[string]string{"hidane.json": `{"worktree":{"setup":"true"}}`})
+	dir := repostest.New(t, "blog", map[string]string{"hidane.json": `{"worktree":{"setup":"true"}}`})
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	item := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "rss", "test", kernel.CreateWorkItemOpts{}))
 	c := must[kernel.Checkout](t)(s.Attach(ctx, item, r, repos.AttachSpec{}, "test"))
@@ -284,10 +242,10 @@ func TestRecoveringFromHandDeletionAndInterruptedSetup(t *testing.T) {
 // Forgetting or archiving when the repository is gone deletes nothing: git can
 // no longer say what in the worktree is unsaved.
 func TestNothingIsDeletedWhenTheRepoIsGone(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "ledger", map[string]string{})
+	dir := repostest.New(t, "ledger", nil)
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	a := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "a", "test", kernel.CreateWorkItemOpts{}))
 	b := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "b", "test", kernel.CreateWorkItemOpts{}))
@@ -329,10 +287,10 @@ func TestNothingIsDeletedWhenTheRepoIsGone(t *testing.T) {
 // "Ahead" is measured against the trunk, so a branch continued from another
 // task's branch counts that work too.
 func TestAheadIsCountedAgainstTheTrunk(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "blog", map[string]string{})
+	dir := repostest.New(t, "blog", nil)
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	first := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "first", "test", kernel.CreateWorkItemOpts{}))
 	c1 := must[kernel.Checkout](t)(s.Attach(ctx, first, r, repos.AttachSpec{}, "test"))
@@ -340,8 +298,8 @@ func TestAheadIsCountedAgainstTheTrunk(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(c1.Path, name), []byte(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		run(t, c1.Path, "git", "add", name)
-		run(t, c1.Path, "git", "commit", "-qm", name)
+		repostest.Git(t, c1.Path, "add", name)
+		repostest.Git(t, c1.Path, "commit", "-qm", name)
 	}
 	must[kernel.Checkout](t)(s.Archive(ctx, c1.ID, false, "test"))
 	second := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "second", "test", kernel.CreateWorkItemOpts{}))
@@ -349,8 +307,8 @@ func TestAheadIsCountedAgainstTheTrunk(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(c2.Path, "c.txt"), []byte("c"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run(t, c2.Path, "git", "add", "c.txt")
-	run(t, c2.Path, "git", "commit", "-qm", "c")
+	repostest.Git(t, c2.Path, "add", "c.txt")
+	repostest.Git(t, c2.Path, "commit", "-qm", "c")
 	if st := s.Describe(ctx, c2, must[kernel.Repo](t)(k.GetRepo(ctx, r.ID))); st.Ahead != 3 || st.Base != c1.Branch {
 		t.Fatalf("three commits the trunk lacks: %+v", st)
 	}
@@ -359,10 +317,10 @@ func TestAheadIsCountedAgainstTheTrunk(t *testing.T) {
 // A task's changes are everything since its branch left the trunk: commits,
 // uncommitted edits and new files, each with its line counts.
 func TestChangesSinceTheBranchLeftTheTrunk(t *testing.T) {
-	hermeticGit(t)
+	repostest.Hermetic(t)
 	k := kerneltest.New(t)
 	s := repos.New(k)
-	dir := newRepo(t, "site", map[string]string{"old.txt": "one\ntwo\n"})
+	dir := repostest.New(t, "site", map[string]string{"old.txt": "one\ntwo\n"})
 	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
 	item := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "feed", "test", kernel.CreateWorkItemOpts{}))
 	c := must[kernel.Checkout](t)(s.Attach(ctx, item, r, repos.AttachSpec{}, "test"))
@@ -370,13 +328,13 @@ func TestChangesSinceTheBranchLeftTheTrunk(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "later.txt"), []byte("later\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run(t, dir, "git", "add", "-A")
-	run(t, dir, "git", "commit", "-qm", "later")
+	repostest.Git(t, dir, "add", "-A")
+	repostest.Git(t, dir, "commit", "-qm", "later")
 	if err := os.WriteFile(filepath.Join(c.Path, "feed.xml"), []byte("<rss/>\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run(t, c.Path, "git", "add", "feed.xml")
-	run(t, c.Path, "git", "commit", "-qm", "add feed")
+	repostest.Git(t, c.Path, "add", "feed.xml")
+	repostest.Git(t, c.Path, "commit", "-qm", "add feed")
 	if err := os.WriteFile(filepath.Join(c.Path, "old.txt"), []byte("one\nTWO\nthree\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

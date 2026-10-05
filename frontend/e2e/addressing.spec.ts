@@ -1,10 +1,6 @@
-import type { BoardCard, HidaneEvent, WorkItem } from "../src/lib/api.js";
+import type { BoardCard, HidaneEvent } from "../src/lib/api.js";
 import { expect, say, test, turn, unique, waitForEvent, type Api } from "./fixtures.js";
 import type { Page } from "@playwright/test";
-
-async function newTask(api: Api, title: string): Promise<WorkItem> {
-  return (await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201)).item;
-}
 
 /** Name a task with `@` in the composer: type the start of its title, pick it from the list. */
 /** The composer's field; its placeholder changes with whom it addresses. */
@@ -25,8 +21,8 @@ async function card(api: Api, id: string): Promise<BoardCard | undefined> {
 }
 
 test("one message names two tasks with @; each gets it from its own Manager and answers under it", async ({ page, api }) => {
-  const a = await newTask(api, unique("甲任务"));
-  const b = await newTask(api, unique("乙任务"));
+  const a = await api.newTask(unique("甲任务"));
+  const b = await api.newTask(unique("乙任务"));
   await page.goto("/");
   await page.getByPlaceholder("说点什么…").click();
   await mention(page, a.title);
@@ -65,7 +61,7 @@ test("one message names two tasks with @; each gets it from its own Manager and 
 });
 
 test("a / command acts on the tasks named with @ and says nothing to anyone", async ({ page, api }) => {
-  const task = await newTask(api, unique("要收尾的任务"));
+  const task = await api.newTask(unique("要收尾的任务"));
   await page.goto("/");
   const composer = field(page);
   await composer.click();

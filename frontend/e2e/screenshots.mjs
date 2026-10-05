@@ -14,18 +14,14 @@
 //   desktop  the desktop app's UI (boot.js says desktop) at a window size
 //   browser  `hidane serve` in a browser at the same size (token gate, sign out)
 //   phone    the browser at phone width
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
+import { here, pretendDesktop, token, withServer } from "./harness.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(process.argv[2] ?? join(here, "..", "..", "bin", "screenshots"));
-const port = String(Number(process.env.HIDANE_E2E_PORT || 2797) - 1);
-const base = `http://127.0.0.1:${port}`;
-const token = "e2e-token";
 const pages = [
   ["conversation", "/"],
   ["inbox", "/inbox"],
@@ -45,43 +41,7 @@ const flavours = {
   phone: { viewport: { width: 390, height: 844 }, desktop: false },
 };
 
-const server = spawn(process.execPath, [join(here, "serve.mjs"), port], { stdio: ["ignore", "ignore", "inherit"] });
-const stop = () => server.kill("SIGTERM");
-process.on("exit", stop);
-
-async function api(path, init = {}) {
-  const res = await fetch(base + path, {
-    ...init,
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(init.headers ?? {}) },
-  });
-  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
-  return res.json();
-}
-
-async function ready() {
-  for (let i = 0; i < 100; i++) {
-    try {
-      if ((await fetch(`${base}/health`)).ok) return;
-    } catch {
-      // not listening yet
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error("server did not start");
-}
-
-/** The desktop app's UI in a plain browser: boot.js says desktop, the host endpoints answer. */
-async function pretendDesktop(context) {
-  await context.route("**/boot.js", (route) =>
-    route.fulfill({ contentType: "application/javascript", body: `window.hidaneBoot = {"desktop":true,"auth":false,"version":"screenshots"};` }),
-  );
-  // No Wails runtime: the live stream falls back to SSE, as the specs exercise.
-  await context.route("**/wails/runtime.js", (route) => route.fulfill({ contentType: "application/javascript", body: "export {};" }));
-  await context.route("**/api/desktop/**", (route) => route.fulfill({ contentType: "application/json", body: `{"ok":true}` }));
-}
-
-try {
-  await ready();
+await withServer({ offset: 1 }, async (base, api) => {
   // Something on every page: a finished task, a memory, a rule, a schedule.
   await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "创建一个文件写上 screenshot" }) });
   await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "你好" }) });
@@ -144,7 +104,7 @@ try {
   for (const lang of ["zh", "en"]) {
     for (const [flavour, { viewport, desktop }] of Object.entries(flavours)) {
       const context = await browser.newContext({ viewport, colorScheme: "dark" });
-      if (desktop) await pretendDesktop(context);
+      if (desktop) await pretendDesktop(context, "screenshots");
       await context.addInitScript(
         ([t, l]) => {
           // The sign-in capture clears the token for the rest of the tab's session.
@@ -299,10 +259,5 @@ try {
   await browser.close();
   if (taken === 0) throw new Error(`ONLY=${only.join(",")} matches no screenshot`);
   console.log(`${taken} screenshots in ${out}`);
-  if (failures.length > 0) {
-    console.error(failures.join("\n"));
-    process.exitCode = 1;
-  }
-} finally {
-  stop();
-}
+  return failures;
+});

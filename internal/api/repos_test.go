@@ -2,45 +2,21 @@ package api_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jtsang4/hidane/internal/api"
 	"github.com/jtsang4/hidane/internal/kernel"
+	"github.com/jtsang4/hidane/internal/repos/repostest"
 )
-
-func gitRepo(t *testing.T, name string) string {
-	t.Helper()
-	home := t.TempDir()
-	for k, v := range map[string]string{
-		"HOME": home, "GIT_CONFIG_GLOBAL": filepath.Join(home, "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1",
-		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
-		"GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com",
-	} {
-		t.Setenv(k, v)
-	}
-	dir := filepath.Join(t.TempDir(), name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "-q", "--allow-empty", "-m", "init"}} {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%v: %s", err, out)
-		}
-	}
-	resolved, _ := filepath.EvalSymlinks(dir)
-	return resolved
-}
 
 // Repositories and worktrees are managed by hand through the API: listed with
 // their state, archived only when nothing would be lost unasked.
 func TestReposAndCheckoutsAPI(t *testing.T) {
 	e := newEnv(t, api.Options{Token: "tok"})
-	dir := gitRepo(t, "blog")
+	repostest.Hermetic(t)
+	dir := repostest.New(t, "blog", nil)
 	if code, _ := e.do("POST", "/api/repos", "tok", map[string]any{"path": t.TempDir()}); code != 400 {
 		t.Fatalf("a directory that is not a repo is refused: %d", code)
 	}

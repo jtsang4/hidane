@@ -47,6 +47,11 @@ export class Api {
     return found as HidaneEvent;
   }
 
+  /** A task made through the API, as ⌘N would make it. */
+  async newTask(title: string): Promise<WorkItem> {
+    return (await this.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201)).item;
+  }
+
   async workItems(): Promise<WorkItem[]> {
     return (await this.get<{ items: WorkItem[] }>("/api/work-items?all")).items;
   }
@@ -123,6 +128,20 @@ export async function say(page: Page, text: string): Promise<string> {
   const body = (await response.json()) as { messageId: string };
   expect(body.messageId).toMatch(/^ev_/);
   return body.messageId;
+}
+
+/** In the browser, record what the page copies; the desktop UI copies through the host (`hostCalls`). */
+export async function stubClipboard(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const copied: string[] = [];
+    (window as unknown as { __copied: string[] }).__copied = copied;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => void copied.push(text) } });
+  });
+}
+
+/** What the page copied, in order, since `stubClipboard`. */
+export function copied(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
 }
 
 /** The in-app confirmation (the desktop webview implements no `confirm()`). */

@@ -7,18 +7,13 @@
 //   node e2e/readme-shots.mjs [outDir]      (make readme-shots)
 //
 // Build inputs: `make build-nogui fakeagent`.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+import { here, pretendDesktop, token, withServer } from "./harness.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(process.argv[2] ?? join(here, "..", "..", "docs", "images"));
-// screenshots.mjs takes n−1; this one n−2.
-const port = String(Number(process.env.HIDANE_E2E_PORT || 2797) - 2);
-const base = `http://127.0.0.1:${port}`;
-const token = "e2e-token";
 // A fixed, short root: its paths show up in the pictures.
 const root = "/tmp/hidane-readme";
 rmSync(root, { recursive: true, force: true });
@@ -111,23 +106,6 @@ const demo = {
 };
 writeFileSync(demoFile, JSON.stringify(demo));
 
-const server = spawn(process.execPath, [join(here, "serve.mjs"), port], {
-  stdio: ["ignore", "ignore", "inherit"],
-  env: { ...process.env, FAKEAGENT_DEMO: demoFile, HIDANE_E2E_HOME: join(root, ".hidane") },
-});
-const stop = () => server.kill("SIGTERM");
-process.on("exit", stop);
-
-async function api(path, init = {}) {
-  const res = await fetch(base + path, {
-    ...init,
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(init.headers ?? {}) },
-  });
-  if (!res.ok) throw new Error(`${path}: ${res.status} ${await res.text()}`);
-  return res.json();
-}
-const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
-
 async function until(what, check) {
   for (let i = 0; i < 300; i++) {
     const found = await check();
@@ -137,23 +115,17 @@ async function until(what, check) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-/** Says something and waits for the answer that names it: from `by`, or a question. */
-async function say(text, by = "agent:manager") {
-  const { messageId } = await post("/api/chat", { text });
-  await until(`an answer to "${text}"`, async () => {
-    const { events } = await api("/api/events?tail=100");
-    return events.some((e) => e.payload.root === messageId && ((e.kind === "agent.reply" && e.source === by) || e.kind === "escalation"));
-  });
-}
-
-try {
-  await until("the server", async () => {
-    try {
-      return (await fetch(`${base}/health`)).ok;
-    } catch {
-      return false;
-    }
-  });
+const env = { ...process.env, FAKEAGENT_DEMO: demoFile, HIDANE_E2E_HOME: join(root, ".hidane") };
+await withServer({ offset: 2, env }, async (base, api) => {
+  const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
+  /** Says something and waits for the answer that names it: from `by`, or a question. */
+  const say = async (text, by = "agent:manager") => {
+    const { messageId } = await post("/api/chat", { text });
+    await until(`an answer to "${text}"`, async () => {
+      const { events } = await api("/api/events?tail=100");
+      return events.some((e) => e.payload.root === messageId && ((e.kind === "agent.reply" && e.source === by) || e.kind === "escalation"));
+    });
+  };
   await api("/api/settings/roles", {
     method: "PUT",
     body: JSON.stringify({
@@ -208,12 +180,7 @@ try {
   mkdirSync(out, { recursive: true });
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: "dark" });
-  // The desktop app's UI: boot.js says desktop, the host endpoints answer.
-  await context.route("**/boot.js", (route) =>
-    route.fulfill({ contentType: "application/javascript", body: `window.hidaneBoot = {"desktop":true,"auth":false,"version":"readme"};` }),
-  );
-  await context.route("**/wails/runtime.js", (route) => route.fulfill({ contentType: "application/javascript", body: "export {};" }));
-  await context.route("**/api/desktop/**", (route) => route.fulfill({ contentType: "application/json", body: `{"ok":true}` }));
+  await pretendDesktop(context, "readme");
   await context.addInitScript((t) => {
     localStorage.setItem("hidane-token", t);
     localStorage.setItem("hidane-lang", "en");
@@ -260,10 +227,5 @@ try {
 
   await browser.close();
   console.log(`README screenshots in ${out}`);
-  if (failures.length > 0) {
-    console.error(failures.join("\n"));
-    process.exitCode = 1;
-  }
-} finally {
-  stop();
-}
+  return failures;
+});
