@@ -108,8 +108,6 @@ func DescribeTool(p kernel.Payload) string {
 	return out
 }
 
-func holes(n int) string { return strings.TrimSuffix(strings.Repeat("?, ", n), ", ") }
-
 // BuildBoard is the task-card view: open items plus anything closed within the last day.
 func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]BoardCard, error) {
 	all, err := k.ListWorkItems(ctx, "")
@@ -132,7 +130,7 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 	for i, it := range items {
 		args[i] = it.ID
 	}
-	in := holes(len(items))
+	in := kernel.Placeholders(len(items))
 	rows, err := k.DB.QueryContext(ctx, `
 		SELECT e.seq, e.id, e.ts, e.kind, e.work_item_id, e.execution_id, e.payload FROM events e
 		JOIN (SELECT work_item_id, kind, max(seq) AS seq FROM events

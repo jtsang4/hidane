@@ -223,6 +223,16 @@ func (k *Kernel) appendTx(ctx context.Context, db execer, in EventInput) (Event,
 	return ev, nil
 }
 
+// commit commits tx and only then wakes listeners for the event appended in
+// it (seq 0: none was): no listener may look for a row a failed commit never wrote.
+func (k *Kernel) commit(tx *sql.Tx, seq int64) error {
+	err := tx.Commit()
+	if err == nil && seq > 0 {
+		k.Hub.Publish(seq)
+	}
+	return err
+}
+
 // GetEvent returns one event by id (masked), or ok=false.
 func (k *Kernel) GetEvent(ctx context.Context, id string) (Event, bool, error) {
 	row := k.DB.QueryRowContext(ctx, `SELECT `+SelectCols+` FROM events WHERE id = ?`, id)
@@ -319,12 +329,10 @@ func (k *Kernel) ListEvents(ctx context.Context, f ListFilter) ([]Event, error) 
 		add("events.kind = ?", f.Kind)
 	}
 	if len(f.Kinds) > 0 {
-		holes := make([]string, len(f.Kinds))
-		for i, kind := range f.Kinds {
-			holes[i] = "?"
+		for _, kind := range f.Kinds {
 			args = append(args, kind)
 		}
-		where = append(where, "events.kind IN ("+strings.Join(holes, ", ")+")")
+		where = append(where, "events.kind IN ("+Placeholders(len(f.Kinds))+")")
 	}
 	if f.Conversation {
 		where = append(where, ConversationSQL)
@@ -424,6 +432,9 @@ func (k *Kernel) CommitCursor(ctx context.Context, consumer string, seq int64) e
 func (k *Kernel) ResetCursor(ctx context.Context, consumer string, seq int64) error {
 	return k.CommitCursor(ctx, consumer, seq)
 }
+
+// Placeholders is n comma-separated SQL parameters, for an IN (…) list.
+func Placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?, ", n), ", ") }
 
 // NextBatch is the next uncommitted batch for a consumer; the caller commits.
 func (k *Kernel) NextBatch(ctx context.Context, consumer string, limit int) ([]Event, error) {

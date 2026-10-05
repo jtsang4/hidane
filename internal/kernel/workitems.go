@@ -95,10 +95,9 @@ func (k *Kernel) CreateWorkItem(ctx context.Context, title, source string, opts 
 	if err != nil {
 		return WorkItem{}, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := k.commit(tx, ev.Seq); err != nil {
 		return WorkItem{}, err
 	}
-	k.Hub.Publish(ev.Seq)
 	return k.GetWorkItem(ctx, id)
 }
 
@@ -228,15 +227,10 @@ func (k *Kernel) TitlesFor(ctx context.Context, ids []string) (map[string]string
 		return out, nil
 	}
 	args := make([]any, len(ids))
-	holes := ""
 	for i, id := range ids {
 		args[i] = id
-		if i > 0 {
-			holes += ", "
-		}
-		holes += "?"
 	}
-	rows, err := k.DB.QueryContext(ctx, `SELECT id, title FROM work_items WHERE id IN (`+holes+`)`, args...)
+	rows, err := k.DB.QueryContext(ctx, `SELECT id, title FROM work_items WHERE id IN (`+Placeholders(len(ids))+`)`, args...)
 	if err != nil {
 		return nil, err
 	}

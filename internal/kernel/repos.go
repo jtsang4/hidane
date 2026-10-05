@@ -143,11 +143,8 @@ func (k *Kernel) RegisterRepo(ctx context.Context, f RepoFacts, source string) (
 				return Repo{}, false, err
 			}
 		}
-		if err := tx.Commit(); err != nil {
+		if err := k.commit(tx, ev.Seq); err != nil {
 			return Repo{}, false, err
-		}
-		if ev.Seq > 0 {
-			k.Hub.Publish(ev.Seq)
 		}
 		r, err = k.GetRepo(ctx, r.ID)
 		return r, false, err
@@ -169,10 +166,9 @@ func (k *Kernel) RegisterRepo(ctx context.Context, f RepoFacts, source string) (
 			if err != nil {
 				return Repo{}, false, err
 			}
-			if err := tx.Commit(); err != nil {
+			if err := k.commit(tx, ev.Seq); err != nil {
 				return Repo{}, false, err
 			}
-			k.Hub.Publish(ev.Seq)
 			r, err = k.GetRepo(ctx, r.ID)
 			return r, false, err
 		}
@@ -191,10 +187,9 @@ func (k *Kernel) RegisterRepo(ctx context.Context, f RepoFacts, source string) (
 	if err != nil {
 		return Repo{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := k.commit(tx, ev.Seq); err != nil {
 		return Repo{}, false, err
 	}
-	k.Hub.Publish(ev.Seq)
 	r, err := k.GetRepo(ctx, id)
 	return r, true, err
 }
@@ -380,11 +375,7 @@ func (k *Kernel) CreateCheckout(ctx context.Context, c Checkout, repoName, sourc
 	if err != nil {
 		return c, err
 	}
-	if err := tx.Commit(); err != nil {
-		return c, err
-	}
-	k.Hub.Publish(ev.Seq)
-	return c, nil
+	return c, k.commit(tx, ev.Seq)
 }
 
 // SetCheckoutSetup tracks the setup script's progress; its run is recorded as

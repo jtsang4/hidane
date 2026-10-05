@@ -65,10 +65,9 @@ func (k *Kernel) Post(ctx context.Context, in PostInput) (Event, bool, error) {
 		MailboxCursor(in.Mailbox), appended.Seq, k.stamp(), in.Mailbox); err != nil {
 		return Event{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := k.commit(tx, appended.Seq); err != nil {
 		return Event{}, false, err
 	}
-	k.Hub.Publish(appended.Seq)
 	return appended, true, nil
 }
 
