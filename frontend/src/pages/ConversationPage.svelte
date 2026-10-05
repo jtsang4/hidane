@@ -24,7 +24,7 @@
   import { atFrom, conversationHref, focusFrom, focusHref, navigate, routerState } from "../lib/router.svelte.js";
   import { followAfterScroll, isPinnedToBottom, scrollerGesture } from "../lib/scroll.js";
   import { seenState, updateSeen } from "../lib/seen.svelte.js";
-  import { openTaskMenu, stopTask } from "../lib/taskActions.js";
+  import { answerQuestion, openCardMenu, stopTask } from "../lib/taskActions.js";
   import { pushToast, toastError } from "../lib/toast.js";
   import { ui } from "../lib/ui.svelte.js";
   import { toolbarButton, toolbarButtonOn } from "../lib/styles.js";
@@ -587,14 +587,7 @@
 
   /** One of the answers a question offers, sent as the reply to it. */
   async function choose(eventId: string, workItemId: string, option: string): Promise<void> {
-    try {
-      await api.chat(option, [], { target: workItemId, replyTo: eventId });
-      if (replyTarget?.replyTo === eventId) replyTarget = null;
-      void queryClient.invalidateQueries({ queryKey: ["conversation"] });
-      void queryClient.invalidateQueries({ queryKey: ["board"] });
-    } catch (error) {
-      toastError(error);
-    }
+    if ((await answerQuestion(queryClient, workItemId, eventId, option)) && replyTarget?.replyTo === eventId) replyTarget = null;
   }
 
   function chooseFor(card: BoardCard, option: string): void {
@@ -617,11 +610,6 @@
 
   function stop(id: string): void {
     void stopTask(queryClient, id);
-  }
-
-  function taskMenu(card: BoardCard, placement: MenuPlacement): void {
-    const running = card.execution !== null && (card.state === "running" || card.state === "queued" || card.state === "thinking");
-    openTaskMenu(queryClient, { id: card.item.id, title: card.item.title, running, status: card.item.status }, placement, openFocus);
   }
 
   async function route(messageId: string, workItemId: string): Promise<void> {
@@ -767,7 +755,7 @@
     onchoose={(eventId, workItemId, option) => void choose(eventId, workItemId, option)}
     onstop={stop}
     onmessagemenu={messageMenu}
-    ontaskmenu={taskMenu}
+    ontaskmenu={(card, placement) => openCardMenu(queryClient, card, placement, openFocus)}
   />
 {/snippet}
 

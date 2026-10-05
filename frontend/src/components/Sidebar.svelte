@@ -7,19 +7,20 @@
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import { t } from "../i18n/index.js";
   import { api, type BoardCard } from "../lib/api.js";
-  import { attentionCards, isUnread, STATE_DOT, trayCards } from "../lib/board.js";
+  import { attentionCards, isUnread, trayCards } from "../lib/board.js";
   import { boot } from "../lib/boot.js";
   import { formatShortcut, isMacPlatform, shortcutKey } from "../lib/commands.js";
-  import { atPointer, type MenuPlacement } from "../lib/contextMenu.svelte.js";
+  import { atPointer } from "../lib/contextMenu.svelte.js";
   import type { LiveState } from "../lib/live.js";
   import { MAIN_NAV, plainClick } from "../lib/nav.js";
   import { focusFrom, focusHref, navigate, openSettings, routeFor, routerState } from "../lib/router.svelte.js";
   import { seenState } from "../lib/seen.svelte.js";
-  import { openTaskMenu } from "../lib/taskActions.js";
+  import { openCardMenu } from "../lib/taskActions.js";
   import { setSidebarCollapsed, ui } from "../lib/ui.svelte.js";
   import { cn } from "../lib/utils.js";
   import BrandMark from "./BrandMark.svelte";
   import MoreButton from "./MoreButton.svelte";
+  import StateDot from "./StateDot.svelte";
 
   let { live, onsignout }: { live: LiveState; onsignout: () => void } = $props();
 
@@ -50,11 +51,6 @@
     if (!plainClick(event)) return;
     event.preventDefault();
     navigate(path);
-  }
-
-  function taskMenu(card: BoardCard, placement: MenuPlacement): void {
-    const running = card.execution !== null && (card.state === "running" || card.state === "queued" || card.state === "thinking");
-    openTaskMenu(queryClient, { id: card.item.id, title: card.item.title, running, status: card.item.status }, placement);
   }
 
   const row = "group flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-left text-sm text-foreground/85 transition-colors duration-100 hover:bg-accent focus-visible:outline-2 focus-visible:outline-primary/70";
@@ -108,9 +104,9 @@
         class={cn(row, "pr-8", card.item.id === focused && "bg-accent text-foreground")}
         aria-current={card.item.id === focused ? "true" : undefined}
         onclick={() => navigate(focusHref(card.item.id))}
-        oncontextmenu={(event) => { event.preventDefault(); taskMenu(card, atPointer(event)); }}
+        oncontextmenu={(event) => { event.preventDefault(); openCardMenu(queryClient, card, atPointer(event)); }}
       >
-        <span aria-hidden="true" class={cn("mx-[5px] size-1.5 shrink-0 rounded-full", STATE_DOT[card.state])}></span>
+        <StateDot state={card.state} class="mx-[5px]" />
         <span class="min-w-0 flex-1 truncate">{card.item.title}</span>
         <span class="sr-only">{$t(`task.state.${card.state}`)}</span>
         {#if unread}<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title={$t("task.unread")}></span><span class="sr-only">{$t("task.unread")}</span>{/if}
@@ -118,7 +114,7 @@
       <MoreButton
         class="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
         label={$t("menu.moreFor", { title: card.item.title })}
-        onopen={(placement) => taskMenu(card, placement)}
+        onopen={(placement) => openCardMenu(queryClient, card, placement)}
       />
     </li>
   {/snippet}

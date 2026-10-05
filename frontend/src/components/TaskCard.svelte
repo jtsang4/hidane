@@ -2,23 +2,25 @@
   import Ban from "@lucide/svelte/icons/ban";
   import Bot from "@lucide/svelte/icons/bot";
   import CircleHelp from "@lucide/svelte/icons/circle-question-mark";
-  import GitBranch from "@lucide/svelte/icons/git-branch";
   import Maximize2 from "@lucide/svelte/icons/maximize-2";
   import Square from "@lucide/svelte/icons/square";
   import { prefersReducedMotion } from "svelte/motion";
   import { fade } from "svelte/transition";
   import { t } from "../i18n/index.js";
   import type { BoardCard } from "../lib/api.js";
-  import { STATE_DOT, stateTone } from "../lib/board.js";
+  import { isRunning } from "../lib/board.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { escalationText } from "../lib/escalation.js";
   import { liveRepliesFor } from "../lib/liveText.js";
   import { runAsSummary } from "../lib/runAs.js";
   import { cn } from "../lib/utils.js";
+  import CheckoutLine from "./CheckoutLine.svelte";
   import EscalationOptions from "./EscalationOptions.svelte";
+  import EscalationQuestion from "./EscalationQuestion.svelte";
   import Markdown from "./Markdown.svelte";
   import MoreButton from "./MoreButton.svelte";
-  import Badge from "./ui/Badge.svelte";
+  import StateBadge from "./StateBadge.svelte";
+  import StateDot from "./StateDot.svelte";
   import Button from "./ui/Button.svelte";
 
   let {
@@ -86,12 +88,12 @@
     {/if}
   {:else}
   <header class="flex items-start gap-2">
-    <span aria-hidden="true" class={cn("mt-[7px] size-1.5 shrink-0 rounded-full", STATE_DOT[card.state])}></span>
+    <StateDot state={card.state} class="mt-[7px]" />
     <div class="min-w-0 flex-1">
       <!-- The state keeps to the title's first line; a long title wraps in its own column. -->
       <div class="flex items-start gap-2">
         <span class="min-w-0 font-medium break-words">{card.item.title}</span>
-        <Badge class="mt-px shrink-0" tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>
+        <StateBadge state={card.state} class="mt-px shrink-0" />
       </div>
       {#if card.item.runAs}
         <p class="mt-0.5 flex items-center gap-1 text-xs text-muted" title={$t("runAs.label")}>
@@ -103,7 +105,7 @@
       {/if}
     </div>
     <div class="-my-0.5 -mr-1 flex shrink-0 items-center gap-0.5">
-      {#if busy && card.execution}
+      {#if isRunning(card)}
         <Button variant="ghost" size="icon-sm" aria-label={$t("task.stop")} title={$t("task.stop")} onclick={() => onstop(card.item.id)}><Square size={14} /></Button>
       {/if}
       {#if !focused}
@@ -118,14 +120,7 @@
 
   {#if checkouts.length > 0}
     <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 first:mt-0">
-      {#each checkouts as c (c.id)}
-        <p class={cn("flex min-w-0 items-center gap-1 text-xs", c.missing ? "text-danger" : "text-muted")} title={$t("worktrees.branchOf", { repo: c.repo, branch: c.branch })}>
-          <GitBranch size={12} class="shrink-0" aria-hidden="true" /><span class="shrink-0">{c.repo}</span><span class="truncate font-mono">{c.branch}</span>
-          {#if c.continues}<span class="truncate">· {$t("worktrees.continues", { branch: c.continues })}</span>{/if}
-          {#if c.mode === "in_place"}<span class="shrink-0">· {$t("worktrees.inPlace")}</span>{/if}
-          {#if c.missing}<span class="shrink-0">· {$t("worktrees.status.repoMissing")}</span>{:else if c.setup === "running"}<span class="shrink-0">· {$t("worktrees.status.setup")}</span>{:else if c.setup === "failed"}<span class="shrink-0 text-danger">· {$t("worktrees.status.setupFailed")}</span>{/if}
-        </p>
-      {/each}
+      {#each checkouts as c (c.id)}<CheckoutLine checkout={c} />{/each}
     </div>
   {/if}
 
@@ -150,18 +145,7 @@
     </div>
   {:else if card.escalation}
     <div class="mt-2 rounded-md bg-danger/8 p-2">
-      <p class="flex items-start gap-1.5 text-xs font-medium text-danger"><CircleHelp size={13} class="mt-px shrink-0" />{$t("task.question")}</p>
-      <p class="mt-1 whitespace-pre-wrap select-text">{question}</p>
-      {#if card.escalation.path.some((step) => step.tried)}
-        <details class="mt-1 text-xs text-muted">
-          <summary class="cursor-pointer">{$t("task.tried")}</summary>
-          <ul class="mt-1 list-disc pl-4">
-            {#each card.escalation.path.filter((step) => step.tried) as step (step.workItemId)}
-              <li><span class="text-foreground/80">{step.title}</span> — {step.tried}</li>
-            {/each}
-          </ul>
-        </details>
-      {/if}
+      <EscalationQuestion heading={$t("task.question")} text={question} path={card.escalation.path} />
       {#if onchoose && card.escalation.options.length > 0}
         <div class="mt-2"><EscalationOptions options={card.escalation.options} onchoose={(option) => onchoose(card, option)} /></div>
       {/if}
@@ -178,7 +162,7 @@
       <span class="text-muted">{$t("task.children")}</span>
       {#each children as child (child.item.id)}
         <button class="flex h-5 items-center gap-1 rounded-md bg-accent px-1.5 hover:bg-accent-strong hover:text-foreground" onclick={() => onfocus(child.item.id)}>
-          <span aria-hidden="true" class={cn("h-1.5 w-1.5 rounded-full", STATE_DOT[child.state])}></span>
+          <StateDot state={child.state} />
           {child.item.title}
           <span class="sr-only">{$t(`task.state.${child.state}`)}</span>
         </button>

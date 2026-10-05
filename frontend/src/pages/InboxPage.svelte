@@ -2,27 +2,28 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import Check from "@lucide/svelte/icons/check";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import CircleHelp from "@lucide/svelte/icons/circle-question-mark";
-  import GitBranch from "@lucide/svelte/icons/git-branch";
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import MessageSquareText from "@lucide/svelte/icons/message-square-text";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import i18n, { t } from "../i18n/index.js";
   import { api, type BoardCard } from "../lib/api.js";
-  import { attentionCards, STATE_DOT, stateTone } from "../lib/board.js";
-  import { escalationText } from "../lib/escalation.js";
+  import { attentionCards } from "../lib/board.js";
+  import { escalationText, reasonKey } from "../lib/escalation.js";
   import { focusHref, navigate } from "../lib/router.svelte.js";
-  import { setTaskStatus } from "../lib/taskActions.js";
-  import { pushToast, toastError } from "../lib/toast.js";
+  import { answerQuestion, setTaskStatus } from "../lib/taskActions.js";
+  import { pushToast } from "../lib/toast.js";
   import { ui } from "../lib/ui.svelte.js";
   import { cn } from "../lib/utils.js";
   import ChangesView from "../components/ChangesView.svelte";
+  import CheckoutLine from "../components/CheckoutLine.svelte";
   import EmptyState from "../components/EmptyState.svelte";
   import EscalationOptions from "../components/EscalationOptions.svelte";
+  import EscalationQuestion from "../components/EscalationQuestion.svelte";
   import Markdown from "../components/Markdown.svelte";
   import Page from "../components/Page.svelte";
+  import StateBadge from "../components/StateBadge.svelte";
+  import StateDot from "../components/StateDot.svelte";
   import Time from "../components/Time.svelte";
-  import Badge from "../components/ui/Badge.svelte";
   import Button from "../components/ui/Button.svelte";
   import Textarea from "../components/ui/Textarea.svelte";
 
@@ -43,17 +44,11 @@
     const body = text.trim();
     if (!escalation || !body || sending.has(escalation.id)) return;
     sending.add(escalation.id);
-    try {
-      await api.chat(body, [], { target: card.item.id, replyTo: escalation.id });
+    if (await answerQuestion(queryClient, card.item.id, escalation.id, body)) {
       drafts.delete(escalation.id);
       pushToast(i18n.t("inbox.answered"), "default");
-      void queryClient.invalidateQueries({ queryKey: ["board"] });
-      void queryClient.invalidateQueries({ queryKey: ["conversation"] });
-    } catch (error) {
-      toastError(error);
-    } finally {
-      sending.delete(escalation.id);
     }
+    sending.delete(escalation.id);
   }
 
   /** Further words for the task go through the conversation, with the task addressed. */
@@ -70,15 +65,13 @@
 
 {#snippet heading(card: BoardCard)}
   <header class="flex items-start gap-2">
-    <span aria-hidden="true" class={cn("mt-[7px] size-1.5 shrink-0 rounded-full", STATE_DOT[card.state])}></span>
+    <StateDot state={card.state} class="mt-[7px]" />
     <div class="min-w-0 flex-1">
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="min-w-0 font-medium break-words">{card.item.title}</h3>
-        <Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>
+        <StateBadge state={card.state} />
       </div>
-      {#each card.checkouts.filter((c) => c.status === "active") as c (c.id)}
-        <p class="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted"><GitBranch size={12} class="shrink-0" aria-hidden="true" /><span class="shrink-0">{c.repo}</span><span class="truncate font-mono">{c.branch}</span></p>
-      {/each}
+      {#each card.checkouts.filter((c) => c.status === "active") as c (c.id)}<CheckoutLine checkout={c} class="mt-0.5" />{/each}
     </div>
     <Button variant="ghost" size="sm" onclick={() => navigate(focusHref(card.item.id))}><MessageSquareText size={12} />{$t("inbox.openTask")}</Button>
   </header>
@@ -100,16 +93,12 @@
           <article class="space-y-2 rounded-lg border border-danger/40 bg-surface p-3 text-sm" aria-label={card.item.title}>
             {@render heading(card)}
             <div class="rounded-md bg-danger/8 p-2">
-              <p class="flex items-center gap-1.5 text-xs font-medium text-danger"><CircleHelp size={13} aria-hidden="true" />{$t(`task.reason.${escalation.reason === "budget" || escalation.reason === "repo_missing" ? escalation.reason : "question"}`)} · <Time iso={escalation.ts} /></p>
-              <p class="mt-1 whitespace-pre-wrap select-text">{escalationText({ reason: escalation.reason, question: escalation.question })}</p>
-              {#if escalation.path.some((step) => step.tried)}
-                <details class="mt-1 text-xs text-muted">
-                  <summary class="cursor-pointer">{$t("task.tried")}</summary>
-                  <ul class="mt-1 list-disc pl-4">
-                    {#each escalation.path.filter((step) => step.tried) as step (step.workItemId)}<li><span class="text-foreground/80">{step.title}</span> — {step.tried}</li>{/each}
-                  </ul>
-                </details>
-              {/if}
+              <EscalationQuestion
+                heading={$t(reasonKey(escalation.reason))}
+                ts={escalation.ts}
+                text={escalationText({ reason: escalation.reason, question: escalation.question })}
+                path={escalation.path}
+              />
             </div>
             <EscalationOptions options={escalation.options} disabled={sending.has(escalation.id)} onchoose={(option) => void answer(card, option)} />
             <div class="flex items-end gap-2">

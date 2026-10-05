@@ -21,3 +21,8 @@ export function escalationText(
   const question = payload["question"];
   return typeof question === "string" ? question : "";
 }
+
+/** Why an escalation stopped the work, as a label: anything but these two stops is a question. */
+export function reasonKey(reason: unknown): "task.reason.budget" | "task.reason.repo_missing" | "task.reason.question" {
+  return reason === "budget" || reason === "repo_missing" ? `task.reason.${reason}` : "task.reason.question";
+}

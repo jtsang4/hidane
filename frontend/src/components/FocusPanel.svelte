@@ -11,7 +11,6 @@
   import { SvelteMap } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
   import { api, type BoardCard, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";
-  import { stateTone } from "../lib/board.js";
   import { boot } from "../lib/boot.js";
   import { steeredKey } from "../lib/conversation.js";
   import { executionGroups } from "../lib/grouping.js";
@@ -25,6 +24,7 @@
   import ChangesView from "./ChangesView.svelte";
   import ChatBubble from "./ChatBubble.svelte";
   import Execution from "./Execution.svelte";
+  import StateBadge from "./StateBadge.svelte";
   import TaskCard from "./TaskCard.svelte";
   import Badge from "./ui/Badge.svelte";
   import Button from "./ui/Button.svelte";
@@ -151,7 +151,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="text-base font-semibold break-words">{item.title}</h2>
-            {#if card}<Badge tone={stateTone(card.state)}>{$t(`task.state.${card.state}`)}</Badge>{:else}<Badge tone="muted">{$t(`items.status.${item.status}`)}</Badge>{/if}
+            {#if card}<StateBadge state={card.state} />{:else}<Badge tone="muted">{$t(`items.status.${item.status}`)}</Badge>{/if}
           </div>
           <p class="mt-1 truncate text-xs text-muted select-text">{$t("item.meta", { id: item.id, time: fmtDateTime(item.createdAt) })}</p>
           <!-- A long workspace path loses its start, not its end: the task's own folder is the part that tells them apart. -->

@@ -1,7 +1,7 @@
 import type { BoardCard, CardState } from "./api.js";
 
 /** States where the work item is doing something. */
-const ACTIVE: ReadonlySet<CardState> = new Set(["running", "queued", "thinking", "delegated"]);
+export const ACTIVE: ReadonlySet<CardState> = new Set(["running", "queued", "thinking", "delegated"]);
 
 /** The dot that stands for each state, wherever a task is listed. */
 export const STATE_DOT: Record<CardState, string> = {
@@ -26,6 +26,11 @@ export function stateTone(state: CardState): "default" | "success" | "danger" | 
 
 function isActive(card: BoardCard): boolean {
   return ACTIVE.has(card.state);
+}
+
+/** A worker is running or queued for it: what Stop cancels. */
+export function isRunning(card: BoardCard): boolean {
+  return card.execution !== null && (card.state === "running" || card.state === "queued");
 }
 
 /** Blocked on the person: a question to answer, or a result to review. */

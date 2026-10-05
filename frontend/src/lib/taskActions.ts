@@ -5,7 +5,8 @@ import FolderOpen from "@lucide/svelte/icons/folder-open";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Square from "@lucide/svelte/icons/square";
 import i18n from "../i18n/index.js";
-import { api, ApiError, type WorkItemStatus } from "./api.js";
+import { api, ApiError, type BoardCard, type WorkItemStatus } from "./api.js";
+import { isRunning } from "./board.js";
 import { boot } from "./boot.js";
 import { confirmAction } from "./confirm.svelte.js";
 import { openMenu, type MenuEntry, type MenuPlacement } from "./contextMenu.svelte.js";
@@ -63,6 +64,19 @@ export async function revealWorkspace(id: string): Promise<void> {
     await api.revealArtifact(id, "");
   } catch (error) {
     toastError(error);
+  }
+}
+
+/** The person's answer to a task's question. Settles false when it could not be sent (and says so). */
+export async function answerQuestion(queryClient: QueryClient, workItemId: string, questionId: string, text: string): Promise<boolean> {
+  try {
+    await api.chat(text, [], { target: workItemId, replyTo: questionId });
+    void queryClient.invalidateQueries({ queryKey: ["conversation"] });
+    void queryClient.invalidateQueries({ queryKey: ["board"] });
+    return true;
+  } catch (error) {
+    toastError(error);
+    return false;
   }
 }
 
@@ -149,4 +163,9 @@ export function openTaskMenu(
     else if (action === "archive") void setTaskStatus(queryClient, target.id, "closed");
     else void revealWorkspace(target.id);
   });
+}
+
+/** `openTaskMenu` for a card on the board. */
+export function openCardMenu(queryClient: QueryClient, card: BoardCard, placement: MenuPlacement, onopen?: (id: string) => void): void {
+  openTaskMenu(queryClient, { id: card.item.id, title: card.item.title, running: isRunning(card), status: card.item.status }, placement, onopen);
 }

@@ -10,15 +10,15 @@
   import { t } from "../i18n/index.js";
   import i18n from "../i18n/index.js";
   import { api, type Effort, type RunAs } from "../lib/api.js";
-  import { STATE_DOT } from "../lib/board.js";
   import { acceptableSlice, readImage, type AttachedImage } from "../lib/images.js";
   import { cutRange, matchCommands, mentionAt, parseSlash, rankCandidates, slashAt, type Candidate, type MentionQuery, type SlashCommand } from "../lib/mentions.js";
   import { loadDraftRunAs, runAsSummary, saveDraftRunAs } from "../lib/runAs.js";
-  import { popover, popoverLabel } from "../lib/styles.js";
+  import { popover, popoverItem, popoverLabel } from "../lib/styles.js";
   import { runSlashCommand } from "../lib/taskActions.js";
   import { pushToast, toastError } from "../lib/toast.js";
   import { cn } from "../lib/utils.js";
   import RunAsBar from "./RunAsBar.svelte";
+  import StateDot from "./StateDot.svelte";
   import Button from "./ui/Button.svelte";
   import Textarea from "./ui/Textarea.svelte";
 
@@ -75,11 +75,11 @@
     return out;
   });
   let only = $derived(addressees.length === 1 ? addressees[0] : undefined);
-  let mentionChoices = $derived(
-    picking?.kind === "mention" ? rankCandidates(candidates, picking.query, new Set(addressees.map((a) => a.id))) : [],
-  );
-  let commandChoices = $derived(picking?.kind === "slash" ? matchCommands(picking.query) : []);
-  let choiceCount = $derived(picking?.kind === "mention" ? mentionChoices.length : commandChoices.length);
+  /** What the picker offers: tasks for an `@`, commands for a `/`. */
+  let choices = $derived.by((): (Candidate | SlashCommand)[] => {
+    if (picking?.kind === "mention") return rankCandidates(candidates, picking.query, new Set(addressees.map((a) => a.id)));
+    return picking?.kind === "slash" ? matchCommands(picking.query) : [];
+  });
   const uid = $props.id();
   const listId = `${uid}-picker`;
 
@@ -199,14 +199,9 @@
     void placeCaret(text.length);
   }
 
-  function chooseHighlighted(): void {
-    if (picking?.kind === "mention") {
-      const choice = mentionChoices[highlight];
-      if (choice) chooseMention(choice);
-    } else {
-      const command = commandChoices[highlight];
-      if (command) chooseCommand(command);
-    }
+  function choose(choice: Candidate | SlashCommand): void {
+    if (typeof choice === "string") chooseCommand(choice);
+    else chooseMention(choice);
   }
 
   /** The @ button: start an `@` where the caret is, as if typed. */
@@ -221,15 +216,16 @@
 
   function onKeydown(event: KeyboardEvent): void {
     if (event.isComposing) return;
-    if (picking && choiceCount > 0) {
+    if (picking && choices.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        highlight = (highlight + (event.key === "ArrowDown" ? 1 : choiceCount - 1)) % choiceCount;
+        highlight = (highlight + (event.key === "ArrowDown" ? 1 : choices.length - 1)) % choices.length;
         return;
       }
       if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
-        chooseHighlighted();
+        const choice = choices[highlight];
+        if (choice) choose(choice);
         return;
       }
     }
@@ -364,42 +360,33 @@
   {/if}
   <!-- One field: the text on top, what it is sent with along its bottom edge. -->
   <div class="relative rounded-lg border border-input bg-field transition-colors hover:border-input-strong focus-within:border-primary/50 focus-within:ring-3 focus-within:ring-primary/10">
-    {#if picking && (picking.kind === "mention" || commandChoices.length > 0)}
+    {#if picking && (picking.kind === "mention" || choices.length > 0)}
       <div id={listId} class={cn(popover, "absolute right-0 bottom-full left-0 mb-1.5 max-h-72 overflow-y-auto")} role="listbox" aria-label={picking.kind === "mention" ? $t("conversation.mentionList") : $t("conversation.commandList")}>
         <p class={popoverLabel}>{picking.kind === "mention" ? $t("conversation.mentionList") : $t("conversation.commandList")}</p>
-        {#if picking.kind === "mention"}
-          {#each mentionChoices as choice, index (choice.id)}
-            <button
-              role="option"
-              aria-selected={index === highlight}
-              class={cn("flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-left text-sm", index === highlight && "bg-accent")}
-              onmousedown={(event) => event.preventDefault()}
-              onmouseenter={() => (highlight = index)}
-              onclick={() => chooseMention(choice)}
-            >
-              <span aria-hidden="true" class={cn("size-1.5 shrink-0 rounded-full", choice.state ? STATE_DOT[choice.state] : "bg-muted")}></span>
+        {#each choices as choice, index (typeof choice === "string" ? choice : choice.id)}
+          <button
+            role="option"
+            aria-selected={index === highlight}
+            data-highlighted={index === highlight ? "" : undefined}
+            class={cn(popoverItem, "min-w-0")}
+            onmousedown={(event) => event.preventDefault()}
+            onmouseenter={() => (highlight = index)}
+            onclick={() => choose(choice)}
+          >
+            {#if typeof choice === "string"}
+              <SquareTerminal size={14} class="shrink-0 text-muted" aria-hidden="true" />
+              <span class="shrink-0 font-mono">/{choice}</span>
+              <span class="min-w-0 truncate text-xs text-muted">{$t(`slash.${choice}`)}</span>
+            {:else}
+              <StateDot state={choice.state} />
               <span class="min-w-0 flex-1 truncate">{choice.title}</span>
               <span class="shrink-0 text-2xs text-muted">{choice.status === "closed" ? $t("conversation.mentionArchived") : choice.state ? $t(`task.state.${choice.state}`) : $t(`items.status.${choice.status}`)}</span>
-            </button>
-          {:else}
-            <p class="px-2 py-1 text-xs text-muted">{$t("conversation.mentionEmpty")}</p>
-          {/each}
+            {/if}
+          </button>
         {:else}
-          {#each commandChoices as command, index (command)}
-            <button
-              role="option"
-              aria-selected={index === highlight}
-              class={cn("flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-left text-sm", index === highlight && "bg-accent")}
-              onmousedown={(event) => event.preventDefault()}
-              onmouseenter={() => (highlight = index)}
-              onclick={() => chooseCommand(command)}
-            >
-              <SquareTerminal size={14} class="shrink-0 text-muted" aria-hidden="true" />
-              <span class="shrink-0 font-mono">/{command}</span>
-              <span class="min-w-0 truncate text-xs text-muted">{$t(`slash.${command}`)}</span>
-            </button>
-          {/each}
-        {/if}
+          <!-- Only an `@` opens the list with nothing in it. -->
+          <p class="px-2 py-1 text-xs text-muted">{$t("conversation.mentionEmpty")}</p>
+        {/each}
       </div>
     {/if}
     <input bind:this={fileRef} type="file" accept="image/*" multiple class="hidden" onchange={(event) => { const el = event.currentTarget as HTMLInputElement; void attach([...(el.files ?? [])]); el.value = ""; }} />

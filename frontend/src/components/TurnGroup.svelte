@@ -1,19 +1,19 @@
 <script lang="ts">
   import AlarmClock from "@lucide/svelte/icons/alarm-clock";
-  import CircleHelp from "@lucide/svelte/icons/circle-question-mark";
   import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
   import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
   import Webhook from "@lucide/svelte/icons/webhook";
   import { t } from "../i18n/index.js";
   import type { BoardCard, EscalationStep, HidaneEvent } from "../lib/api.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
-  import { escalationText } from "../lib/escalation.js";
+  import { escalationText, reasonKey } from "../lib/escalation.js";
   import { isReport, steeredKey, turnRouting, type Turn } from "../lib/conversation.js";
   import { payloadText } from "../lib/grouping.js";
   import { cn } from "../lib/utils.js";
   import AttributionChip from "./AttributionChip.svelte";
   import ChatBubble from "./ChatBubble.svelte";
   import EscalationOptions from "./EscalationOptions.svelte";
+  import EscalationQuestion from "./EscalationQuestion.svelte";
   import MoreButton from "./MoreButton.svelte";
   import ReportRow from "./ReportRow.svelte";
   import TaskCard from "./TaskCard.svelte";
@@ -122,19 +122,15 @@
       </p>
     {:else if answer.kind === "escalation" && (answer.payload["question"] !== undefined)}
       {@const workItemId = answer.workItemId}
-      {@const path = (answer.payload["path"] as EscalationStep[] | undefined) ?? []}
+      {@const reason = $t(reasonKey(answer.payload["reason"]))}
       <div class="flex justify-start">
         <div class={cn("max-w-[85%] rounded-lg border px-3 py-2.5 text-sm", openEscalation.has(answer.id) ? "border-danger/40 bg-danger/5" : "border-border bg-surface")}>
-          <p class="flex items-center gap-1.5 text-xs font-medium text-danger">
-            <CircleHelp size={13} aria-hidden="true" />
-            {#if workItemId}{`${titleOf(workItemId)} · `}{/if}{$t(`task.reason.${answer.payload["reason"] === "budget" || answer.payload["reason"] === "repo_missing" ? answer.payload["reason"] : "question"}`)}
-          </p>
-          <p class="mt-1 whitespace-pre-wrap select-text">{escalationText(answer.payload)}</p>
-          {#if path.some((step) => step.tried)}
-            <ul class="mt-1 list-disc pl-4 text-xs text-muted">
-              {#each path.filter((step) => step.tried) as step (step.workItemId)}<li><span class="text-foreground/80">{step.title}</span> — {step.tried}</li>{/each}
-            </ul>
-          {/if}
+          <EscalationQuestion
+            heading={workItemId ? `${titleOf(workItemId)} · ${reason}` : reason}
+            text={escalationText(answer.payload)}
+            path={(answer.payload["path"] as EscalationStep[] | undefined) ?? []}
+            listed
+          />
           {#if workItemId && openEscalation.has(answer.id)}
             {@const options = (answer.payload["options"] as unknown[] | undefined)?.filter((o): o is string => typeof o === "string") ?? []}
             {#if options.length > 0}

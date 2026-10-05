@@ -12,6 +12,7 @@ first.
 | Primitives: Button, Input, Textarea, Select, Combobox, Checkbox, Switch, DatePicker, Badge, Card | `src/components/ui/` |
 | Shared class patterns for controls that are not one component (fields, popovers, toolbar buttons, segmented controls, sheets) | `src/lib/styles.ts` |
 | Shared building blocks | `EmptyState`, `BrandMark`, `PathText`, `Page` + `Toolbar`, `MoreButton` in `src/components/` |
+| A task wherever it is shown: its state, branch and question | `StateDot`, `StateBadge`, `CheckoutLine`, `EscalationQuestion` (+ `EscalationOptions`) in `src/components/`; state rules (`ACTIVE`, `isRunning`, `stateTone`, `STATE_DOT`) in `src/lib/board.ts` — reuse them instead of re-deriving a task's state |
 | Enforcement | `test/design-system.test.ts` (runs in `pnpm test` / `make test`) |
 
 Tailwind's own palette, shadows and radii are switched off in `@theme`

@@ -1,4 +1,5 @@
 import type { CardState, WorkItemStatus } from "./api.js";
+import { ACTIVE } from "./board.js";
 
 /**
  * The composer's addressing: `@` names the tasks a message goes to, `/` runs
@@ -39,8 +40,6 @@ export interface Candidate {
   updatedAt: string;
 }
 
-const MOVING: ReadonlySet<CardState> = new Set(["running", "queued", "thinking", "delegated"]);
-
 /**
  * Tasks to offer for an `@`: what waits on the person first, then what is
  * moving, then the rest by recency. Archived tasks only when searched for.
@@ -51,7 +50,7 @@ export function rankCandidates(candidates: readonly Candidate[], query: string, 
     if (c.status === "closed") return 5;
     if (c.state === "waiting") return 0;
     if (c.state === "review") return 1;
-    if (c.state && MOVING.has(c.state)) return 2;
+    if (c.state && ACTIVE.has(c.state)) return 2;
     return c.status === "open" ? 3 : 4;
   };
   const position = (c: Candidate): number => {

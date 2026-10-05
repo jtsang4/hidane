@@ -1,13 +1,12 @@
 <script lang="ts">
   import { t } from "../i18n/index.js";
   import type { CardState, HidaneEvent } from "../lib/api.js";
-  import { STATE_DOT } from "../lib/board.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { summaryLine } from "../lib/conversation.js";
   import { payloadText } from "../lib/grouping.js";
-  import { cn } from "../lib/utils.js";
   import ChatBubble from "./ChatBubble.svelte";
   import MoreButton from "./MoreButton.svelte";
+  import StateDot from "./StateDot.svelte";
   import Time from "./Time.svelte";
 
   let {
@@ -37,7 +36,7 @@
 
 <div class="group/answer relative space-y-1" role="presentation" oncontextmenu={contextMenu}>
   <div id={open ? undefined : `ev-${event.id}`} class="flex max-w-[85%] min-w-0 items-center gap-2 text-xs">
-    <span aria-hidden="true" class={cn("size-1.5 shrink-0 rounded-full", cardState ? STATE_DOT[cardState] : "bg-muted")}></span>
+    <StateDot state={cardState} />
     <button class="max-w-[40%] shrink-0 truncate font-medium text-foreground/85 hover:underline" onclick={() => event.workItemId && onfocus(event.workItemId)}>{title}</button>
     {#if !open}<span class="min-w-0 flex-1 truncate text-muted select-text">{summary}</span>{/if}
     <button class="shrink-0 rounded-sm px-1 text-primary hover:bg-primary/10" aria-expanded={open} onclick={() => (open = !open)}>
