@@ -1,9 +1,9 @@
 import { setToken } from "./api.js";
 
 /**
- * `hidane serve` prints a link carrying `?token=`. The token is taken once at
- * startup and removed from the address, so it is not left in history,
- * bookmarks, or a URL someone copies to share a conversation.
+ * `hidane serve` prints a link carrying `?token=`. The router takes it as it
+ * first reads the address, and it is removed from the address, so it is not
+ * left in history, bookmarks, or a URL someone copies to share a conversation.
  */
 export function consumeUrlToken(
   location: { pathname: string; search: string; hash: string } = window.location,

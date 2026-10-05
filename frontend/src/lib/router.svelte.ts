@@ -1,3 +1,5 @@
+import { consumeUrlToken } from "./urlToken.js";
+
 export const SETTINGS_SECTIONS = [
   "general",
   "shortcuts",
@@ -91,6 +93,9 @@ export function canonical(path: string, search: string): { path: string; search:
 
 function initial(): { path: string; search: string } {
   if (typeof window === "undefined") return { path: "/", search: "" };
+  // Before the address is read: a redirect below would drop `?token=`, and a
+  // route keeping it in its query would put it back on the way out of settings.
+  consumeUrlToken();
   const start = canonical(normalize(window.location.pathname), window.location.search);
   if (start.path + start.search !== window.location.pathname + window.location.search) {
     window.history.replaceState({}, "", start.path + start.search);

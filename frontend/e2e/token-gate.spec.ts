@@ -44,6 +44,14 @@ test.describe("token gate", () => {
     await expect(gate).toHaveCount(0);
   });
 
+  test("an old address carrying the printed token opens where it moved, signed in, without the token in the URL", async ({ page }) => {
+    await page.goto("/events?token=e2e-token");
+    await expect(page).toHaveURL(/\/settings\/events$/);
+    await expect(page.getByRole("heading", { name: "事件日志", level: 1 })).toBeVisible();
+    await expect(page.getByText("输入 API Token（HIDANE_API_TOKEN）。")).toHaveCount(0);
+    expect(await page.evaluate(() => window.localStorage.getItem("hidane-token"))).toBe("e2e-token");
+  });
+
   test("the API refuses requests without the bearer token", async ({ request }) => {
     expect((await request.get("/health")).status()).toBe(200);
     expect((await request.get("/api/status")).status()).toBe(401);
