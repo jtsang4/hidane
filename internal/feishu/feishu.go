@@ -149,14 +149,27 @@ func ChunkText(text string, limit int) []string {
 	return chunks
 }
 
-// labelled numbers the parts so several messages read as one answer.
-func labelled(chunks []string) []string {
+func partLabel(i, n int) string { return fmt.Sprintf("\n\n（%d/%d）", i, n) }
+
+// labelledParts numbers the parts so several messages read as one answer.
+// The label's room is taken from the limit before splitting, so a labelled
+// part never exceeds it; the room grows with the count's digits.
+func labelledParts(text string, limit int) []string {
+	chunks := ChunkText(text, limit)
+	for room := 0; len(chunks) > 1; {
+		need := len([]rune(partLabel(len(chunks), len(chunks))))
+		if need <= room {
+			break
+		}
+		room = need
+		chunks = ChunkText(text, limit-room)
+	}
 	if len(chunks) <= 1 {
 		return chunks
 	}
 	out := make([]string, len(chunks))
 	for i, c := range chunks {
-		out[i] = fmt.Sprintf("%s\n\n（%d/%d）", c, i+1, len(chunks))
+		out[i] = c + partLabel(i+1, len(chunks))
 	}
 	return out
 }
@@ -433,7 +446,7 @@ func OutboundText(e kernel.Event) string {
 }
 
 func (c *Channel) sendChunked(ctx context.Context, chatID, text string) error {
-	for _, part := range labelled(ChunkText(text, chunkLimit)) {
+	for _, part := range labelledParts(text, chunkLimit) {
 		if _, err := c.M.SendText(ctx, chatID, part, true); err != nil {
 			return err
 		}
@@ -442,7 +455,7 @@ func (c *Channel) sendChunked(ctx context.Context, chatID, text string) error {
 }
 
 func (c *Channel) replyChunked(ctx context.Context, root, text string) error {
-	for _, part := range labelled(ChunkText(text, chunkLimit)) {
+	for _, part := range labelledParts(text, chunkLimit) {
 		if _, err := c.M.ReplyInThread(ctx, root, part); err != nil {
 			return err
 		}
