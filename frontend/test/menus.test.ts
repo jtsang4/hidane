@@ -19,6 +19,10 @@ describe("message menu", () => {
     expect(messageActions({ desktop: true, own: false, redacted: false })).toEqual(["copy-text"]);
     expect(messageActions({ desktop: false, own: true, redacted: true })).toEqual(["copy-link"]);
   });
+
+  it("offers making a task of a Primary answer, before anything destructive", () => {
+    expect(messageActions({ desktop: true, own: false, redacted: false, promotable: true })).toEqual(["copy-text", "promote"]);
+  });
 });
 
 describe("task menu", () => {

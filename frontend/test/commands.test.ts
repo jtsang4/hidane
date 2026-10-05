@@ -42,7 +42,7 @@ describe("shortcuts", () => {
     expect(commandForKey(key(",", { metaKey: true }), true)).toBe("open-settings");
     expect(commandForKey(key("N", { metaKey: true }), true)).toBe("new-task");
     expect(commandForKey(key("l", { metaKey: true }), true)).toBe("focus-composer");
-    expect(["1", "2", "3", "4", "5"].map((k) => commandForKey(key(k, { metaKey: true }), true))).toEqual(["go:chat", "go:items", "go:schedules", "go:memory", "go:log"]);
+    expect(["1", "2", "3", "4", "5", "6"].map((k) => commandForKey(key(k, { metaKey: true }), true))).toEqual(["go:chat", "go:inbox", "go:items", "go:schedules", "go:memory", "go:log"]);
     expect(commandForKey(key("k", { metaKey: true }), true)).toBe("search");
     expect(commandForKey(key("b", { metaKey: true }), true)).toBe("toggle-sidebar");
     expect(commandForKey(key("k", { ctrlKey: true }), false)).toBe("search");

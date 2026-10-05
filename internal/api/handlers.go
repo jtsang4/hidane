@@ -386,6 +386,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		Text    string                `json:"text"`
 		Images  []agents.InboundImage `json:"images"`
 		Target  string                `json:"target"`
+		Targets []string              `json:"targets"`
 		ReplyTo string                `json:"replyTo"`
 		Focus   bool                  `json:"focus"`
 		RunAs   json.RawMessage       `json:"runAs"`
@@ -415,9 +416,12 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if body.Target != "" {
-		if _, err := s.K.GetWorkItem(ctx, body.Target); err != nil {
-			writeJSON(w, http.StatusNotFound, errBody("target not found"))
+	for _, id := range append([]string{body.Target}, body.Targets...) {
+		if id == "" {
+			continue
+		}
+		if _, err := s.K.GetWorkItem(ctx, id); err != nil {
+			writeJSON(w, http.StatusNotFound, errBody("target not found: "+id))
 			return
 		}
 	}
@@ -425,8 +429,12 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		text = agents.ImageOnlyText
 	}
 	msg, err := s.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Images: images, Source: "connector:web",
-		Target: body.Target, Focus: body.Target != "" && body.Focus, ReplyTo: body.ReplyTo, RunAs: runAs})
-	if err != nil {
+		Target: body.Target, Targets: body.Targets, Focus: body.Target != "" && body.Focus, ReplyTo: body.ReplyTo, RunAs: runAs})
+	switch {
+	case errors.Is(err, agents.ErrTooManyTargets) || errors.Is(err, agents.ErrRunAsNeedsOneTarget):
+		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
+		return
+	case err != nil:
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
 	}
@@ -471,6 +479,21 @@ func (s *server) routeMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workItemId": workItemID})
+}
+
+// promote: the person makes a work item of something the Primary answered.
+func (s *server) promote(w http.ResponseWriter, r *http.Request) {
+	item, err := s.Sys.Promote(r.Context(), r.PathValue("id"), "connector:web")
+	switch {
+	case notFound(err):
+		writeJSON(w, http.StatusNotFound, errBody("message not found"))
+	case errors.Is(err, agents.ErrAlreadyAttributed):
+		writeJSON(w, http.StatusConflict, errBody(err.Error()))
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+	default:
+		writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "item": item})
+	}
 }
 
 func (s *server) redact(w http.ResponseWriter, r *http.Request) {

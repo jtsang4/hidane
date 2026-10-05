@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoardCard, CardState } from "../src/lib/api.js";
-import { isUnread, trayCards } from "../src/lib/board.js";
+import { attentionCards, isUnread, trayCards } from "../src/lib/board.js";
 import { addNotice, digest, dropNotices, noticeFor } from "../src/lib/notices.js";
 import { invalidationFor } from "../src/lib/live.js";
 import { focusFrom, focusHref, routeFor } from "../src/lib/router.svelte.js";
@@ -31,10 +31,15 @@ function card(id: string, state: CardState, lastSeq = 10, status: "open" | "done
 }
 
 describe("task tray", () => {
-  it("shows what is moving or waiting, waiting first, plus unread idle work", () => {
-    const cards = [card("a", "idle", 5), card("bb", "running"), card("ccc", "waiting"), card("dddd", "idle", 20)];
-    const seen = { a: 5, dddd: 10 };
-    expect(trayCards(cards, seen).map((c) => c.item.id)).toEqual(["ccc", "bb", "dddd"]);
+  it("shows what is moving plus unread idle work, and leaves what waits on the person to the queue", () => {
+    const cards = [card("a", "idle", 5), card("bb", "running"), card("ccc", "waiting"), card("dddd", "idle", 20), card("eeeee", "review", 30)];
+    const seen = { a: 5, dddd: 10, eeeee: 1 };
+    expect(trayCards(cards, seen).map((c) => c.item.id)).toEqual(["bb", "dddd"]);
+  });
+
+  it("queues questions before results to review, newest first, open tasks only", () => {
+    const cards = [card("r1", "review", 5), card("q1", "waiting", 3), card("r2", "review", 9), card("q2", "waiting", 8), card("old", "review", 50, "done"), card("x", "running")];
+    expect(attentionCards(cards).map((c) => c.item.id)).toEqual(["q2", "q1", "r2", "r1"]);
   });
 
   it("treats a card never opened as read — nothing new since the person caused it", () => {

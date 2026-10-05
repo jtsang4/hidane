@@ -134,6 +134,78 @@ func TestBoardStates(t *testing.T) {
 	_ = idle
 }
 
+// A result reported back waits for the person until they answer it, mark it
+// done or close it; an answer to what they just said does not.
+func TestReportedWorkWaitsForReview(t *testing.T) {
+	k := kerneltest.New(t)
+	item := m(k.CreateWorkItem(ctx, "rss", "test", kernel.CreateWorkItemOpts{}))
+	asked := m(k.CreateWorkItem(ctx, "asked", "test", kernel.CreateWorkItemOpts{}))
+	parent := m(k.CreateWorkItem(ctx, "parent", "test", kernel.CreateWorkItemOpts{}))
+	child := m(k.CreateWorkItem(ctx, "child", "test", kernel.CreateWorkItemOpts{ParentID: parent.ID}))
+	reply := func(id string, report bool) {
+		p := kernel.Payload{"text": "done"}
+		if report {
+			p["report"] = true
+		}
+		m(k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "agent.reply", ThreadID: "t", WorkItemID: id, Payload: p}))
+	}
+	reply(item.ID, true)
+	reply(asked.ID, false)
+	reply(child.ID, true)
+	state := func(id string) string {
+		for _, c := range m(projections.BuildBoard(ctx, k, nil)) {
+			if c.Item.ID == id {
+				return c.State
+			}
+		}
+		return ""
+	}
+	if got := state(item.ID); got != "review" {
+		t.Fatalf("a report waits for review: %s", got)
+	}
+	if got := state(asked.ID); got != "idle" {
+		t.Fatalf("a direct answer does not: %s", got)
+	}
+	if got := state(child.ID); got == "review" {
+		t.Fatal("a subtask reports to its parent, not to the person")
+	}
+	m(k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "user.message", ThreadID: "t", WorkItemID: item.ID, Payload: kernel.Payload{"text": "改一下"}}))
+	if got := state(item.ID); got != "idle" {
+		t.Fatalf("answered, it no longer waits: %s", got)
+	}
+	reply(item.ID, true)
+	m(k.SetWorkItemStatus(ctx, item.ID, kernel.StatusDone, "test"))
+	if got := state(item.ID); got != "done" {
+		t.Fatalf("marked done: %s", got)
+	}
+}
+
+func TestOpenQuestionCarriesItsOptions(t *testing.T) {
+	k := kerneltest.New(t)
+	item := m(k.CreateWorkItem(ctx, "flights", "test", kernel.CreateWorkItemOpts{}))
+	m(k.Append(ctx, kernel.EventInput{Source: "agent:primary", Kind: "escalation", ThreadID: "main", WorkItemID: item.ID,
+		Payload: kernel.Payload{"question": "when?", "reason": "question", "options": []any{"Friday", "Saturday"}}}))
+	cards := m(projections.BuildBoard(ctx, k, nil))
+	if len(cards) != 1 || cards[0].Escalation == nil || strings.Join(cards[0].Escalation.Options, ",") != "Friday,Saturday" {
+		t.Fatalf("options: %+v", cards)
+	}
+}
+
+// One message to several work items is remembered as going to all of them.
+func TestRecentNamesEveryAddressedWorkItem(t *testing.T) {
+	k := kerneltest.New(t)
+	msg := m(k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "user.message", ThreadID: "main",
+		Payload: kernel.Payload{"text": "都加上注释", "targets": []any{"wi_a", "wi_b"}}}))
+	for _, id := range []string{"wi_a", "wi_b"} {
+		m(k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "message.attributed", ThreadID: "main", WorkItemID: id,
+			Payload: kernel.Payload{"of": msg.ID, "workItemId": id, "title": "t " + id, "by": "explicit"}}))
+	}
+	rc := m(projections.Recent(ctx, k, nil, 0, 0))
+	if !strings.Contains(rc.Text, "work items wi_a") || !strings.Contains(rc.Text, "wi_b") {
+		t.Fatalf("both work items: %s", rc.Text)
+	}
+}
+
 func m2[A, B any](a A, b B, err error) (A, B) {
 	if err != nil {
 		panic(err)

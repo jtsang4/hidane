@@ -409,6 +409,13 @@ func OutboundText(e kernel.Event) string {
 			}
 		}
 		out := "❓ " + p.Str("question")
+		if opts, ok := p["options"].([]any); ok && len(opts) > 0 {
+			var names []string
+			for _, o := range opts {
+				names = append(names, fmt.Sprint(o))
+			}
+			out += "\n\n可以直接回复其中一个：" + strings.Join(names, " / ")
+		}
 		if len(trail) > 0 {
 			out += "\n\n已经尝试过：\n" + strings.Join(trail, "\n")
 		}

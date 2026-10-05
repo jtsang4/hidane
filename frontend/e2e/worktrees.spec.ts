@@ -57,6 +57,14 @@ test("a task in a repository works in its own worktree, shown on its card and ar
   await expect(card.getByText(name, { exact: true })).toBeVisible();
   await expect(card.getByText(c.branch, { exact: true })).toBeVisible();
 
+  // Its result waits for review; the task panel shows what changed in the worktree.
+  await card.getByRole("button", { name: "展开" }).click();
+  const changes = page.getByRole("region", { name: "改动" });
+  const file = changes.getByRole("button", { name: "查看 result.txt 的改动" });
+  await expect(file).toContainText("未跟踪");
+  await file.click();
+  await expect(changes.locator("pre")).toContainText(`+加一个 RSS 页面 ${name}`);
+
   await page.goto("/items");
   await page.getByRole("button", { name: "工作树", exact: true }).click();
   await expect(page).toHaveURL(/\/items\?view=worktrees$/);

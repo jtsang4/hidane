@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"sync"
 	"time"
@@ -25,6 +26,8 @@ type toolTrail struct {
 
 	mu   sync.Mutex
 	seen []guard.Block
+	// changed: some call could change something, not only look.
+	changed bool
 }
 
 func newToolTrail(k *kernel.Kernel, base kernel.EventInput, root kernel.Payload, blocks string) *toolTrail {
@@ -52,6 +55,7 @@ func (t *toolTrail) tool(e agentcli.ToolEvent) {
 	t.drain()
 	in := t.base
 	if e.Phase == "start" {
+		t.changed = t.changed || changes(e)
 		in.Kind, in.Payload = "side_effect.intent", kernel.Payload{"tool": e.Tool, "input": e.Detail}
 	} else {
 		in.Kind, in.Payload = "side_effect.result", kernel.Payload{"tool": e.Tool, "isError": e.IsError}
@@ -86,4 +90,29 @@ func (t *toolTrail) finish() []guard.Block {
 	defer t.mu.Unlock()
 	t.drain()
 	return t.seen
+}
+
+// Changed reports whether any call of the run could change something.
+func (t *toolTrail) Changed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.changed
+}
+
+// changes: a write, an edit, or a shell command that does more than look —
+// judged as the guard judges it. A detail that is not JSON is codex's own
+// command line (or a clipped input): read as the command.
+func changes(e agentcli.ToolEvent) bool {
+	var input map[string]any
+	if json.Unmarshal([]byte(e.Detail), &input) != nil {
+		input = map[string]any{"command": e.Detail}
+	}
+	call := guard.Normalize(e.Tool, input)
+	switch call.Tool {
+	case "write", "edit":
+		return true
+	case "bash":
+		return !guard.IsReadOnly(call.Subject)
+	}
+	return false
 }

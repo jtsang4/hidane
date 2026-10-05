@@ -44,6 +44,7 @@
   import BrandMark from "./components/BrandMark.svelte";
   import Input from "./components/ui/Input.svelte";
   import ConversationPage from "./pages/ConversationPage.svelte";
+  import InboxPage from "./pages/InboxPage.svelte";
   import ItemsPage from "./pages/ItemsPage.svelte";
   import LogPage from "./pages/LogPage.svelte";
   import MemoryPage from "./pages/MemoryPage.svelte";
@@ -317,6 +318,8 @@
         <main class="min-h-0 flex-1">
           {#if route.name === "chat"}
             <ConversationPage />
+          {:else if route.name === "inbox"}
+            <InboxPage />
           {:else if route.name === "items"}
             <ItemsPage />
           {:else if route.name === "log"}

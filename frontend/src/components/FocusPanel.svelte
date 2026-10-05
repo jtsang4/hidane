@@ -22,6 +22,7 @@
   import { toastError } from "../lib/toast.js";
   import { fmtDateTime } from "../lib/utils.js";
   import Artifacts from "./Artifacts.svelte";
+  import ChangesView from "./ChangesView.svelte";
   import ChatBubble from "./ChatBubble.svelte";
   import Execution from "./Execution.svelte";
   import TaskCard from "./TaskCard.svelte";
@@ -34,6 +35,7 @@
     onclose,
     onfocus,
     onanswer,
+    onchoose,
     onstop,
   }: {
     id: string;
@@ -41,6 +43,7 @@
     onclose: () => void;
     onfocus: (id: string) => void;
     onanswer: (card: BoardCard) => void;
+    onchoose?: ((card: BoardCard, option: string) => void) | undefined;
     onstop: (id: string) => void;
   } = $props();
 
@@ -183,7 +186,7 @@
 
     <div class="relative min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
       {#if card && (card.understanding || card.execution || card.escalation || card.childIds.length > 0 || card.lastPolicyBlock)}
-        <TaskCard {card} {cards} focused headless {onfocus} {onanswer} {onstop} />
+        <TaskCard {card} {cards} focused headless {onfocus} {onanswer} {onchoose} {onstop} />
       {/if}
 
       <section class="space-y-2" aria-label={$t("task.thread")}>
@@ -206,6 +209,8 @@
           <ChatBubble event={liveEvent} streaming={!reply.done} />
         {/each}
       </section>
+
+      <ChangesView workItemId={id} />
 
       <Artifacts workItemId={id} />
 

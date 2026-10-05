@@ -7,15 +7,17 @@
   import EyeOff from "@lucide/svelte/icons/eye-off";
   import ImagePlus from "@lucide/svelte/icons/image-plus";
   import Link from "@lucide/svelte/icons/link";
+  import ListPlus from "@lucide/svelte/icons/list-plus";
   import UserRound from "@lucide/svelte/icons/user-round";
   import i18n, { language, t } from "../i18n/index.js";
-  import { api, ApiError, type BoardCard, type HidaneEvent } from "../lib/api.js";
+  import { api, ApiError, type BoardCard, type HidaneEvent, type RunAs } from "../lib/api.js";
   import { boot } from "../lib/boot.js";
   import { confirmAction } from "../lib/confirm.svelte.js";
   import { openMenu, type MenuEntry, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { buildTurns, type Turn } from "../lib/conversation.js";
   import { awayFromLatest, contextBoundary, dayBreaks, loadedRange, mergeHistory, saidText } from "../lib/history.js";
   import { acknowledgeLiveReplies, liveRepliesFor, maxSeq, watchLiveReplies } from "../lib/liveText.js";
+  import type { Candidate } from "../lib/mentions.js";
   import { messageActions, type MessageAction } from "../lib/menus.js";
   import { copyText } from "../lib/native.js";
   import { addNotice, dropNotices, noticeFor, type Notice } from "../lib/notices.js";
@@ -105,6 +107,11 @@
     queryKey: ["conversation", "context"],
     queryFn: () => api.conversationContext(),
   }));
+  /** Every task, for `@`: the board holds only what is open or closed today. */
+  const itemsQuery = createQuery(() => ({
+    queryKey: ["items", true],
+    queryFn: () => api.workItems(true),
+  }));
 
   function absorb(page: { events: HidaneEvent[]; titles?: Record<string, string> }, direction: "older" | "newer" = "newer"): void {
     const merged = mergeHistory(seen.values(), page.events, direction);
@@ -170,8 +177,24 @@
   let target = $derived<ComposerTarget | null>(
     replyTarget ?? (focus ? { id: focus, title: titleOf(focus), mode: "focus" } : null),
   );
-  /** What the addressed task runs on, for the composer's picker. */
-  let targetRunAs = $derived(target ? (cardMap.get(target.id)?.item.runAs ?? null) : null);
+  let itemMap = $derived(new Map((itemsQuery.data?.items ?? []).map((item) => [item.id, item])));
+  /** Tasks an `@` can name, with what each is doing now. */
+  let candidates = $derived.by((): Candidate[] => {
+    const out = new Map<string, Candidate>();
+    for (const item of itemsQuery.data?.items ?? []) {
+      out.set(item.id, { id: item.id, title: item.title, status: item.status, state: cardMap.get(item.id)?.state ?? null, updatedAt: item.updatedAt });
+    }
+    for (const card of cards) {
+      const { item } = card;
+      out.set(item.id, { id: item.id, title: item.title, status: item.status, state: card.state, updatedAt: item.updatedAt });
+    }
+    return [...out.values()];
+  });
+
+  /** What an addressed task runs on, for the composer's picker. */
+  function runAsOf(id: string): RunAs | null {
+    return cardMap.get(id)?.item.runAs ?? itemMap.get(id)?.runAs ?? null;
+  }
 
   function titleOf(id: string): string {
     return cardMap.get(id)?.item.title ?? titles.get(id) ?? knownTitles.get(id) ?? id;
@@ -562,6 +585,36 @@
     composer?.focusInput();
   }
 
+  /** One of the answers a question offers, sent as the reply to it. */
+  async function choose(eventId: string, workItemId: string, option: string): Promise<void> {
+    try {
+      await api.chat(option, [], { target: workItemId, replyTo: eventId });
+      if (replyTarget?.replyTo === eventId) replyTarget = null;
+      void queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      void queryClient.invalidateQueries({ queryKey: ["board"] });
+    } catch (error) {
+      toastError(error);
+    }
+  }
+
+  function chooseFor(card: BoardCard, option: string): void {
+    if (card.escalation) void choose(card.escalation.id, card.item.id, option);
+  }
+
+  /** Something the Primary answered becomes a task the person can follow. */
+  async function promote(messageId: string): Promise<void> {
+    try {
+      const { item } = await api.promoteMessage(messageId);
+      pushToast(i18n.t("chat.promoted", { title: item.title }), "default");
+      void queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      void queryClient.invalidateQueries({ queryKey: ["board"] });
+      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      openFocus(item.id);
+    } catch (error) {
+      toastError(error);
+    }
+  }
+
   function stop(id: string): void {
     void stopTask(queryClient, id);
   }
@@ -600,16 +653,21 @@
     }
   }
 
-  const MESSAGE_ITEMS: Record<MessageAction, { label: "menu.copyText" | "menu.hide" | "menu.copyLink"; icon: MenuEntry["icon"] }> = {
+  const MESSAGE_ITEMS: Record<MessageAction, { label: "menu.copyText" | "menu.hide" | "menu.copyLink" | "menu.promote"; icon: MenuEntry["icon"] }> = {
     "copy-text": { label: "menu.copyText", icon: Copy },
+    promote: { label: "menu.promote", icon: ListPlus },
     hide: { label: "menu.hide", icon: EyeOff },
     "copy-link": { label: "menu.copyLink", icon: Link },
   };
 
   function messageMenu(event: HidaneEvent, placement: MenuPlacement): void {
     const own = event.kind === "user.message";
-    const redacted = event.payload["redacted"] === true || (own && turnOf(event.id)?.redacted === true);
-    const items = messageActions({ desktop, own, redacted }).map((action) => ({
+    const turn = turnOf(event.id);
+    const redacted = event.payload["redacted"] === true || (own && turn?.redacted === true);
+    // The Primary's own answer to a message that went to no task.
+    const asked = turn?.message && !turn.redacted && turn.attribution === null && turn.targets.length === 0 ? turn.message : null;
+    const promotable = event.kind === "agent.reply" && event.workItemId === null && asked !== null;
+    const items = messageActions({ desktop, own, redacted, promotable }).map((action) => ({
       id: action,
       label: i18n.t(MESSAGE_ITEMS[action].label),
       icon: MESSAGE_ITEMS[action].icon,
@@ -617,6 +675,7 @@
     }));
     openMenu(placement, i18n.t("menu.messageLabel"), items, (choice) => {
       if (choice === "copy-text") void copyMessage(event);
+      else if (choice === "promote" && asked) void promote(asked.id);
       else if (choice === "hide") void hide(event.id);
       else void copyLink(event.id);
     });
@@ -705,6 +764,7 @@
     onfocus={openFocus}
     onanswer={answer}
     onanswerEscalation={answerEscalation}
+    onchoose={(eventId, workItemId, option) => void choose(eventId, workItemId, option)}
     onstop={stop}
     onmessagemenu={messageMenu}
     ontaskmenu={taskMenu}
@@ -813,7 +873,7 @@
     {#if focus}
       <div class="col-start-1 row-start-1 flex min-h-0 min-w-0 flex-col border-border md:col-start-2 md:row-span-2 md:border-l">
         {#key focus}
-          <FocusPanel id={focus} cards={cardMap} onclose={closeFocus} onfocus={openFocus} onanswer={answer} onstop={stop} />
+          <FocusPanel id={focus} cards={cardMap} onclose={closeFocus} onfocus={openFocus} onanswer={answer} onchoose={chooseFor} onstop={stop} />
         {/key}
       </div>
     {/if}
@@ -821,7 +881,8 @@
       <Composer
         bind:this={composer}
         {target}
-        {targetRunAs}
+        {candidates}
+        {runAsOf}
         onclear={clearTarget}
         onsending={(text) => {
           // Something new said belongs at the live edge, not inside old history.

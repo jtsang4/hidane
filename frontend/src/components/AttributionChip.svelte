@@ -39,7 +39,17 @@
   }
 </script>
 
-{#if turn.ambiguous && turn.message}
+{#if turn.targets.length > 1 && turn.message}
+  <!-- Addressed by name to several tasks: nothing was guessed, so nothing to change. -->
+  <div class="flex flex-wrap items-center justify-end gap-1.5 text-xs text-muted" role="group" aria-label={$t("attribution.sentTo")}>
+    <CornerDownRight size={12} aria-hidden="true" />
+    <span aria-hidden="true">{$t("attribution.sentTo")}</span>
+    {#each turn.targets as id (id)}
+      <button class="max-w-[40vw] truncate rounded-sm bg-accent px-1.5 text-foreground/80 hover:bg-accent-strong hover:text-foreground" onclick={() => onfocus(id)}>{titleOf(id)}</button>
+    {/each}
+    <span class="hidden sm:inline">· {$t("attribution.by.explicit")}</span>
+  </div>
+{:else if turn.ambiguous && turn.message}
   <div class="flex justify-end">
     <div class="max-w-[85%] rounded-lg border border-border bg-surface px-3 py-2 text-xs" role="group" aria-label={$t("attribution.pick")}>
       <p class="text-foreground/90">{String(turn.ambiguous.payload["question"] ?? "")}</p>

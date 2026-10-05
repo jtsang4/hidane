@@ -89,10 +89,14 @@ func (s *System) surfaceEscalation(ctx context.Context, m kernel.Event) error {
 	if path == nil {
 		path = []any{}
 	}
+	payload := kernel.Payload{"question": m.Payload["question"], "path": path, "of": m.ID, "root": kernel.RootOf(m), "reason": "question"}
+	if opts, ok := m.Payload["options"].([]any); ok && len(opts) > 0 {
+		payload["options"] = opts
+	}
 	_, err := s.K.Append(ctx, kernel.EventInput{
 		Source: "agent:primary", Kind: "escalation", ThreadID: "main", WorkItemID: m.WorkItemID,
 		CausedBy: m.ID, Hop: m.Hop + 1,
-		Payload: kernel.Payload{"question": m.Payload["question"], "path": path, "of": m.ID, "root": kernel.RootOf(m), "reason": "question"},
+		Payload: payload,
 	})
 	return err
 }

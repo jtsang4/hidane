@@ -177,3 +177,31 @@ func (s *server) archiveCheckout(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "checkout": archived})
 	}
 }
+
+// changes: what a task changed in each repository it works in, read from git
+// for the person's review — committed and not, since the branch left the trunk.
+func (s *server) changes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	item, err := s.K.GetWorkItem(ctx, r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return
+	}
+	held, err := s.K.ListCheckouts(ctx, kernel.CheckoutFilter{WorkItemID: item.ID})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	out := []repos.Changes{}
+	for _, c := range held {
+		if c.Status != kernel.CheckoutActive {
+			continue
+		}
+		repo, err := s.K.GetRepo(ctx, c.RepoID)
+		if err != nil {
+			repo = kernel.Repo{ID: c.RepoID, Name: c.RepoID, Status: kernel.RepoMissing}
+		}
+		out = append(out, s.Sys.Repos.Changes(ctx, c, repo))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"checkouts": out})
+}

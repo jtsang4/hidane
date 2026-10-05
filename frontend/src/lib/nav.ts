@@ -1,13 +1,15 @@
 import AlarmClock from "@lucide/svelte/icons/alarm-clock";
 import Brain from "@lucide/svelte/icons/brain";
+import Inbox from "@lucide/svelte/icons/inbox";
 import ListTodo from "@lucide/svelte/icons/list-todo";
 import MessageCircle from "@lucide/svelte/icons/message-circle";
 import ScrollText from "@lucide/svelte/icons/scroll-text";
 import type { Command } from "./commands.js";
 
-/** The five pages of the main window, in sidebar and ⌘1–⌘5 order. */
+/** The six pages of the main window, in sidebar and ⌘1–⌘6 order. */
 export const MAIN_NAV = [
   { to: "/", key: "nav.chat", command: "go:chat", icon: MessageCircle },
+  { to: "/inbox", key: "nav.inbox", command: "go:inbox", icon: Inbox },
   { to: "/items", key: "nav.items", command: "go:items", icon: ListTodo },
   { to: "/schedules", key: "nav.schedules", command: "go:schedules", icon: AlarmClock },
   { to: "/memory", key: "nav.memory", command: "go:memory", icon: Brain },

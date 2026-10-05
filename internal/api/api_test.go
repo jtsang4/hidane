@@ -817,3 +817,66 @@ func TestPiProviderWithoutModelIsRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestChatAddressesSeveralWorkItems(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	ctx := context.Background()
+	a := m(e.k.CreateWorkItem(ctx, "alpha", "test", kernel.CreateWorkItemOpts{}))
+	b := m(e.k.CreateWorkItem(ctx, "beta", "test", kernel.CreateWorkItemOpts{}))
+	code, body := e.do("POST", "/api/chat", "", map[string]any{"text": "both", "targets": []any{a.ID, b.ID}})
+	if code != 202 {
+		t.Fatalf("%d %v", code, body)
+	}
+	for _, it := range []kernel.WorkItem{a, b} {
+		if got := m(e.k.PendingMessages(ctx, kernel.ManagerAddress(it.ID), 10)); len(got) != 1 || got[0].Payload.Str("text") != "both" {
+			t.Fatalf("%s's Manager has it: %+v", it.Title, got)
+		}
+	}
+	if got := m(e.k.PendingMessages(ctx, kernel.Primary, 10)); len(got) != 0 {
+		t.Fatalf("the Primary is not asked: %+v", got)
+	}
+	if code, _ := e.do("POST", "/api/chat", "", map[string]any{"text": "x", "targets": []any{a.ID, "wi_nope"}}); code != 404 {
+		t.Fatal("an unknown target refuses the whole message")
+	}
+	if code, _ := e.do("POST", "/api/chat", "", map[string]any{"text": "x", "targets": []any{a.ID, b.ID},
+		"runAs": map[string]any{"agent": "claude"}}); code != 400 {
+		t.Fatal("run-as needs one task")
+	}
+}
+
+func TestPromoteEndpoint(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	ctx := context.Background()
+	_, body := e.do("POST", "/api/chat", "", map[string]any{"text": "how do I rotate logs?"})
+	id := body["messageId"].(string)
+	code, body := e.do("POST", "/api/messages/"+id+"/promote", "", nil)
+	if code != 201 {
+		t.Fatalf("%d %v", code, body)
+	}
+	item := body["item"].(map[string]any)
+	if item["title"] != "how do I rotate logs?" {
+		t.Fatalf("titled after the message: %v", item)
+	}
+	if got := m(e.k.PendingMessages(ctx, kernel.ManagerAddress(item["id"].(string)), 10)); len(got) != 1 {
+		t.Fatalf("its Manager has the message: %+v", got)
+	}
+	if code, _ := e.do("POST", "/api/messages/"+id+"/promote", "", nil); code != 409 {
+		t.Fatal("a message becomes a task once")
+	}
+	if code, _ := e.do("POST", "/api/messages/ev_nope/promote", "", nil); code != 404 {
+		t.Fatal("unknown message")
+	}
+}
+
+func TestChangesEndpoint(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	ctx := context.Background()
+	item := m(e.k.CreateWorkItem(ctx, "plain", "test", kernel.CreateWorkItemOpts{}))
+	code, body := e.do("GET", "/api/work-items/"+item.ID+"/changes", "", nil)
+	if code != 200 || len(body["checkouts"].([]any)) != 0 {
+		t.Fatalf("no repository, no changes: %d %v", code, body)
+	}
+	if code, _ := e.do("GET", "/api/work-items/wi_nope/changes", "", nil); code != 404 {
+		t.Fatal("unknown item")
+	}
+}

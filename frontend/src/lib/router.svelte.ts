@@ -23,6 +23,7 @@ function isSettingsSection(value: string): value is SettingsSection {
 
 export type Route =
   | { name: "chat" }
+  | { name: "inbox" }
   | { name: "items" }
   | { name: "item"; id: string }
   | { name: "log" }
@@ -50,6 +51,7 @@ function normalize(path: string): string {
 export function routeFor(path: string): Route {
   const normalized = normalize(path);
   if (normalized === "/") return { name: "chat" };
+  if (normalized === "/inbox") return { name: "inbox" };
   if (normalized === "/items") return { name: "items" };
   if (normalized.startsWith("/items/")) {
     const id = normalized.slice("/items/".length);
@@ -70,7 +72,7 @@ export function routeFor(path: string): Route {
 /** A page of the main window — where leaving settings goes back to. */
 function isMainPath(path: string): boolean {
   const name = routeFor(path).name;
-  return name === "chat" || name === "items" || name === "item" || name === "log" || name === "memory" || name === "schedules";
+  return name === "chat" || name === "inbox" || name === "items" || name === "item" || name === "log" || name === "memory" || name === "schedules";
 }
 
 /**

@@ -231,6 +231,8 @@ type contextTurn struct {
 	routed  string
 	answers []string
 	hidden  bool
+	// multi: the person addressed several work items at once; every one counts.
+	multi bool
 }
 
 // Recent is the Primary's view of what was said before this turn: the newest
@@ -264,6 +266,9 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxT
 		case e.Kind == "user.message" && e.ThreadID == "main":
 			t := turnFor(e.ID, e)
 			t.seq, t.ts = e.Seq, e.TS
+			if list, ok := e.Payload["targets"].([]any); ok && len(list) > 1 {
+				t.multi = true
+			}
 			if e.Payload.Bool("redacted") {
 				t.hidden = true
 			} else {
@@ -273,7 +278,13 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxT
 		case e.Kind == "message.redacted" && of != "":
 			turnFor(of, e).hidden = true
 		case e.Kind == "message.attributed" && of != "":
-			turnFor(of, e).routed = fmt.Sprintf("%s %q", e.Payload.Str("workItemId"), e.Payload.Str("title"))
+			t := turnFor(of, e)
+			to := fmt.Sprintf("%s %q", e.Payload.Str("workItemId"), e.Payload.Str("title"))
+			if t.multi && t.routed != "" {
+				t.routed += ", " + to
+			} else {
+				t.routed = to
+			}
 		case (e.Kind == "agent.reply" || e.Kind == "escalation" || e.Kind == "agent.error") && root != "":
 			if e.Payload.Bool("child") {
 				continue
@@ -322,7 +333,11 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxT
 		}
 		lines := []string{head}
 		if t.routed != "" {
-			lines = append(lines, "  → work item "+t.routed)
+			label := "  → work item "
+			if t.multi {
+				label = "  → work items "
+			}
+			lines = append(lines, label+t.routed)
 		}
 		answers := t.answers
 		if len(answers) > 2 {

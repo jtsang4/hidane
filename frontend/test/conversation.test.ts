@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HidaneEvent } from "../src/lib/api.js";
-import { buildTurns, turnRouting } from "../src/lib/conversation.js";
+import { buildTurns, isReport, turnRouting } from "../src/lib/conversation.js";
 
 let seq = 0;
 function ev(kind: string, payload: Record<string, unknown> = {}, extra: Partial<HidaneEvent> = {}): HidaneEvent {
@@ -39,6 +39,23 @@ describe("conversation turns", () => {
     const [turn] = buildTurns([m, created, moved]);
     expect(turn!.createdItem).toBe("wi_a");
     expect(turn!.attribution?.workItemId).toBe("wi_b");
+  });
+
+  it("keeps every task one message addressed, and is not routing while they answer", () => {
+    const m = ev("user.message", { text: "都加注释", targets: ["wi_a", "wi_b"] }, { id: "m1", ts: new Date().toISOString() });
+    const a = ev("message.attributed", { of: "m1", by: "explicit" }, { workItemId: "wi_a" });
+    const b = ev("message.attributed", { of: "m1", by: "explicit" }, { workItemId: "wi_b" });
+    const [turn] = buildTurns([m, a, b]);
+    expect(turn!.targets).toEqual(["wi_a", "wi_b"]);
+    expect(turnRouting(turn!)).toBe(false);
+    const [single] = buildTurns([ev("user.message", { text: "x", targets: ["wi_a"] }, { id: "m2" })]);
+    expect(single!.targets).toEqual([]);
+  });
+
+  it("tells a task's report from its answer", () => {
+    expect(isReport(ev("agent.reply", { report: true }, { workItemId: "wi_a" }))).toBe(true);
+    expect(isReport(ev("agent.reply", {}, { workItemId: "wi_a" }))).toBe(false);
+    expect(isReport(ev("agent.reply", { report: true }))).toBe(false);
   });
 
   it("closes a which-one question once the person has picked", () => {

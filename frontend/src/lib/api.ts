@@ -68,7 +68,7 @@ export interface WorkItem {
   runAs?: RunAs | null;
 }
 
-export type CardState = "waiting" | "running" | "queued" | "thinking" | "delegated" | "idle" | "done" | "closed";
+export type CardState = "waiting" | "review" | "running" | "queued" | "thinking" | "delegated" | "idle" | "done" | "closed";
 
 /** One task card: the board projection's view of a work item. */
 export interface BoardCard {
@@ -84,7 +84,7 @@ export interface BoardCard {
     toolCalls: number;
     lastTool: string | null;
   } | null;
-  escalation: { id: string; question: string; reason: string; path: EscalationStep[]; ts: string } | null;
+  escalation: { id: string; question: string; reason: string; path: EscalationStep[]; options: string[]; ts: string } | null;
   lastPolicyBlock: { reason: string; ts: string } | null;
   anchor: string | null;
   childIds: string[];
@@ -145,6 +145,31 @@ export interface CheckoutView {
   itemStatus: WorkItemStatus | "";
   running: boolean;
   lastActivityAt: string;
+}
+
+/** What a task changed in one repository, read from git for review. */
+export interface CheckoutChanges {
+  checkoutId: string;
+  repo: string;
+  mode: CheckoutMode;
+  path: string;
+  branch: string;
+  /** The trunk the changes are measured from, or `HEAD` for work in place. */
+  against: string;
+  commits: { hash: string; subject: string }[];
+  files: FileChange[];
+  patch: string;
+  truncated: boolean;
+  problem?: "missing" | "repo_missing";
+}
+
+export interface FileChange {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+  from?: string;
+  /** -1 for a binary file. */
+  additions: number;
+  deletions: number;
 }
 
 export interface EscalationStep {
@@ -475,12 +500,13 @@ export const api = {
     }>(`/api/work-items/${id}${limit !== undefined ? `?limit=${limit}` : ""}`),
   /**
    * The one message door. `target` addresses a work item directly (no routing
-   * guess); `replyTo` answers a specific event, e.g. an escalated question.
+   * guess), `targets` more of them in the same message; `replyTo` answers a
+   * specific event, e.g. an escalated question.
    */
   chat: (
     text: string,
     images: OutboundImage[] = [],
-    opts: { target?: string; replyTo?: string; focus?: boolean; runAs?: RunAs } = {},
+    opts: { target?: string; targets?: string[]; replyTo?: string; focus?: boolean; runAs?: RunAs } = {},
   ) =>
     apiFetch<{ ok: boolean; messageId: string }>(`/api/chat`, {
       method: "POST",
@@ -492,7 +518,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ workItemId }),
     }),
+  /** Make a work item of a message the Primary answered; 409 once it has one. */
+  promoteMessage: (messageId: string) =>
+    apiFetch<{ ok: boolean; item: WorkItem }>(`/api/messages/${messageId}/promote`, { method: "POST" }),
   board: () => apiFetch<{ cards: BoardCard[] }>(`/api/board`),
+  /** What the task changed in each repository it works in. */
+  changes: (id: string) => apiFetch<{ checkouts: CheckoutChanges[] }>(`/api/work-items/${encodeURIComponent(id)}/changes`),
   /** `error` is set when POLICY.json exists but cannot be read — the guard then refuses every change. */
   policies: () => apiFetch<{ path: string; rules: PolicyRule[]; error?: string }>(`/api/policies`),
   addPolicy: (input: { pattern: string; reason: string; tools?: string[] }) =>

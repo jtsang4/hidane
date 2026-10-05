@@ -3,6 +3,7 @@ package agents_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/jtsang4/hidane/internal/guard/guardtest"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
+	"github.com/jtsang4/hidane/internal/projections"
 	"github.com/jtsang4/hidane/internal/settings"
 )
 
@@ -817,5 +819,191 @@ func TestTheExecutionBudgetResumesWhenAnswered(t *testing.T) {
 	w.settle()
 	if n := m(w.k.CountExecutions(ctx, item.ID)); n != 2 {
 		t.Fatalf("replying to the budget escalation must let the item continue: %d executions", n)
+	}
+}
+
+// One message addressed to several work items reaches each Manager without a
+// routing model call, and each copy says who else got it.
+func TestOneMessageReachesSeveralWorkItems(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, settings.Claude)
+	a := m(w.k.CreateWorkItem(ctx, "alpha", "test", kernel.CreateWorkItemOpts{}))
+	b := m(w.k.CreateWorkItem(ctx, "beta", "test", kernel.CreateWorkItemOpts{}))
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "都写一行注释", Source: "connector:web", Targets: []string{a.ID, b.ID, a.ID}}))
+	if msg.WorkItemID != "" || msg.Mailbox != "" || msg.ThreadID != "main" {
+		t.Fatalf("the message belongs to the main thread, not to one item: %+v", msg)
+	}
+	w.settle()
+	if len(w.events("route.decision")) != 0 {
+		t.Fatal("addressed messages need no routing model call")
+	}
+	att := w.events("message.attributed")
+	if len(att) != 2 || att[0].WorkItemID != a.ID || att[1].WorkItemID != b.ID {
+		t.Fatalf("attributed to both, in the order named: %+v", att)
+	}
+	for _, e := range att {
+		if e.Payload.Str("of") != msg.ID || e.Payload.Str("by") != "explicit" {
+			t.Fatalf("attribution: %+v", e.Payload)
+		}
+	}
+	for _, it := range []kernel.WorkItem{a, b} {
+		copies := m(w.k.ListEvents(ctx, kernel.ListFilter{Kind: "user.message", WorkItemID: it.ID}))
+		var fwd kernel.Event
+		for _, e := range copies {
+			if e.ThreadID == it.ThreadID {
+				fwd = e
+			}
+		}
+		others, _ := fwd.Payload["alsoTo"].([]any)
+		if len(others) != 1 {
+			t.Fatalf("%s's copy names the other item: %+v", it.Title, fwd.Payload)
+		}
+		if b, err := os.ReadFile(filepath.Join(it.Workspace, "result.txt")); err != nil || !strings.Contains(string(b), "都写一行注释") {
+			t.Fatalf("%s did the work: %q %v", it.Title, b, err)
+		}
+	}
+	answered := map[string]bool{}
+	for _, e := range w.events("agent.reply") {
+		if e.Payload.Str("root") != msg.ID {
+			t.Fatalf("every answer names the one message: %+v", e.Payload)
+		}
+		answered[e.WorkItemID] = true
+	}
+	if !answered[a.ID] || !answered[b.ID] {
+		t.Fatalf("both answered: %v", answered)
+	}
+}
+
+func TestAddressingIsBounded(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, settings.Claude)
+	a := m(w.k.CreateWorkItem(ctx, "alpha", "test", kernel.CreateWorkItemOpts{}))
+	b := m(w.k.CreateWorkItem(ctx, "beta", "test", kernel.CreateWorkItemOpts{}))
+	if _, err := w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "x", Source: "connector:web", Targets: []string{a.ID, b.ID},
+		RunAs: &kernel.RunAs{Agent: settings.Codex}}); !errors.Is(err, agents.ErrRunAsNeedsOneTarget) {
+		t.Fatalf("what a task runs on is chosen per task: %v", err)
+	}
+	many := make([]string, agents.MaxTargets+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("wi_%d", i)
+	}
+	if _, err := w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "x", Source: "connector:web", Targets: many}); !errors.Is(err, agents.ErrTooManyTargets) {
+		t.Fatalf("bounded: %v", err)
+	}
+	if n := len(w.events("user.message")); n != 0 {
+		t.Fatalf("a refused message records nothing: %d", n)
+	}
+}
+
+// A worker's outcome is a report the person reviews; an answer to what they
+// just said is not, and neither is acknowledging a stop they asked for.
+func TestReportsAreMarkedAndWaitForReview(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, settings.Claude)
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写一个 report 文件", Source: "connector:web"}))
+	w.settle()
+	replies := w.events("agent.reply")
+	last := replies[len(replies)-1]
+	if !last.Payload.Bool("report") || last.WorkItemID == "" {
+		t.Fatalf("the outcome is a report: %+v", last.Payload)
+	}
+	cards := m(projections.BuildBoard(ctx, w.k, nil))
+	if len(cards) != 1 || cards[0].State != "review" {
+		t.Fatalf("the task waits for review: %+v", cards)
+	}
+	m(w.s.ChangeStatus(ctx, last.WorkItemID, kernel.StatusDone, "test", nil))
+	if cards := m(projections.BuildBoard(ctx, w.k, nil)); cards[0].State != "done" {
+		t.Fatalf("done: %s", cards[0].State)
+	}
+}
+
+// A question can offer answers to pick; picking one answers it like any reply.
+func TestQuestionOffersOptions(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, settings.Claude)
+	item := m(w.k.CreateWorkItem(ctx, "flights", "test", kernel.CreateWorkItemOpts{}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "订机票 ASK_OPTIONS", Source: "connector:web", Target: item.ID}))
+	w.settle()
+	esc := w.events("escalation")
+	if len(esc) != 1 {
+		t.Fatalf("one question: %v", w.kinds())
+	}
+	opts, _ := esc[0].Payload["options"].([]any)
+	if len(opts) != 2 || opts[0] != "周五晚上" {
+		t.Fatalf("the options reach the person: %+v", esc[0].Payload)
+	}
+	cards := m(projections.BuildBoard(ctx, w.k, nil))
+	if cards[0].State != "waiting" || len(cards[0].Escalation.Options) != 2 {
+		t.Fatalf("the card offers them: %+v", cards[0])
+	}
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "周五晚上", Source: "connector:web", Target: item.ID, ReplyTo: esc[0].ID}))
+	w.settle()
+	if b, err := os.ReadFile(filepath.Join(item.Workspace, "result.txt")); err != nil || !strings.Contains(string(b), "周五晚上") {
+		t.Fatalf("the picked answer carries the work on: %q %v", b, err)
+	}
+}
+
+// Something the Primary answered becomes a task when the person says so; the
+// Manager is told what was answered, as context.
+func TestPromoteMakesATaskOfAnAnsweredQuestion(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, settings.Claude)
+	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "你好，看看 promote", Source: "connector:web"}))
+	w.settle()
+	if len(m(w.k.ListWorkItems(ctx, ""))) != 0 {
+		t.Fatal("small talk first")
+	}
+	item := m(w.s.Promote(ctx, msg.ID, "connector:web"))
+	w.settle()
+	att := w.events("message.attributed")
+	if len(att) != 1 || att[0].WorkItemID != item.ID || !att[0].Payload.Bool("created") || att[0].Payload.Str("by") != "user" {
+		t.Fatalf("attributed as a task the person made: %+v", att)
+	}
+	var fwd kernel.Event
+	for _, e := range m(w.k.ListEvents(ctx, kernel.ListFilter{Kind: "user.message", WorkItemID: item.ID})) {
+		if e.ThreadID == item.ThreadID {
+			fwd = e
+		}
+	}
+	if fwd.Payload.Str("text") != "你好，看看 promote" || !strings.Contains(fwd.Payload.Str("context"), "主代理") {
+		t.Fatalf("the person's words, with the answer as context: %+v", fwd.Payload)
+	}
+	if _, err := os.Stat(filepath.Join(item.Workspace, "result.txt")); err != nil {
+		t.Fatal("the task ran")
+	}
+	if _, err := w.s.Promote(ctx, msg.ID, "connector:web"); !errors.Is(err, agents.ErrAlreadyAttributed) {
+		t.Fatalf("only once: %v", err)
+	}
+}
+
+// A Manager that changes things with its own tools is reporting work, even in
+// the turn that answers the request; one that only looked is answering.
+func TestAManagersOwnChangesAreAReport(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, settings.Claude)
+	looked := m(w.k.CreateWorkItem(ctx, "looked", "test", kernel.CreateWorkItemOpts{}))
+	changed := m(w.k.CreateWorkItem(ctx, "changed", "test", kernel.CreateWorkItemOpts{}))
+	last := func(item kernel.WorkItem) kernel.Event {
+		replies := m(w.k.ListEvents(ctx, kernel.ListFilter{Kind: "agent.reply", WorkItemID: item.ID}))
+		return replies[len(replies)-1]
+	}
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "LOOK_FIRST: ls -la END LONG_REPLY", Source: "connector:web", Target: looked.ID}))
+	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "LOOK_FIRST: echo made > made.txt END LONG_REPLY", Source: "connector:web", Target: changed.ID}))
+	w.settle()
+	if last(looked).Payload.Bool("report") {
+		t.Fatal("looking is answering, not reporting work")
+	}
+	if _, err := os.Stat(filepath.Join(changed.Workspace, "made.txt")); err != nil {
+		t.Fatal("the Manager wrote the file itself")
+	}
+	if !last(changed).Payload.Bool("report") {
+		t.Fatalf("its own change is a report: %+v", last(changed).Payload)
+	}
+	states := map[string]string{}
+	for _, c := range m(projections.BuildBoard(ctx, w.k, nil)) {
+		states[c.Item.ID] = c.State
+	}
+	if states[changed.ID] != "review" || states[looked.ID] != "idle" {
+		t.Fatalf("only the changed one waits for review: %v", states)
 	}
 }

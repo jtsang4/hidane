@@ -283,6 +283,10 @@ func brain(system, prompt string) string {
 		if strings.Contains(turn, "(all child work items finished)") {
 			return effects(map[string]any{"type": "reply", "reply": "子任务都完成了。"})
 		}
+		if strings.Contains(turn, "ASK_OPTIONS") {
+			return effects(map[string]any{"type": "escalate", "question": "出发时间选哪个？", "tried": "查过两天的航班",
+				"options": []any{"周五晚上", "周六早上"}})
+		}
 		m := msgLine.FindStringSubmatch(turn)
 		text := ""
 		if m != nil {

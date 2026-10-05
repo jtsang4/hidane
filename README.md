@@ -108,6 +108,27 @@ not confident. The person can move a message to another item at any time. Every
 answer names the message it answers (`payload.root`), which is how the UI
 shows a late reply under its question instead of at the bottom.
 
+The conversation is where a person talks; the work happens in the tasks:
+
+- **Addressing.** `@` in the composer names one or more open tasks (archived
+  ones when searched for); the message goes to each task's Manager at once, with
+  no model deciding where it belongs, and each copy says who else got it. A
+  message without `@` goes to the Primary as before: a quick question it answers
+  itself, a new task, or an existing one it routes to. `/stop`, `/done`,
+  `/archive` and `/reopen` act on the named tasks without saying anything to
+  anyone.
+- **Reports, not chatter.** A task's own report (a worker's outcome) shows as one
+  line under the message it belongs to, opened in place or in the task's panel;
+  an answer to what the person just said shows in full.
+- **Action required.** Questions waiting for the person and results waiting for
+  review are listed apart — in the sidebar and on their own page — rather than
+  scrolled past. A question may offer answers to pick in one click. A result
+  waits until the person marks it done or asks for more; its panel shows what it
+  changed in each repository (commits, edits and new files since its branch left
+  the trunk). hidane never merges or pushes for you.
+- **A quick answer can become a task**: "Make it a task" on the Primary's reply
+  hands the question, with that answer as context, to a new task.
+
 The main conversation only ever grows, so it is read as **history, not a feed**:
 it is searched on the server (every message ever said, plus work item titles),
 opened at any event (`/?at=<event id>` — search hits, day jumps, links, a work
@@ -203,6 +224,7 @@ make app                           # bin/Hidane.app bundle
 
 bin/hidane agents                  # which CLIs are available
 bin/hidane chat "帮我写一个 hello world 脚本并运行验证"   # runs the loop in-process when no app is open
+bin/hidane chat --item wi_a,wi_b "都补上 README"          # one message to several tasks, as @ does
 bin/hidane items                   # work items
 bin/hidane events --tail 30        # the raw log
 bin/hidane log                     # daily worklog projection

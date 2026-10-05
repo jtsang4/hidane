@@ -9,12 +9,13 @@
   import { fade } from "svelte/transition";
   import { t } from "../i18n/index.js";
   import type { BoardCard } from "../lib/api.js";
-  import { stateTone } from "../lib/board.js";
+  import { STATE_DOT, stateTone } from "../lib/board.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { escalationText } from "../lib/escalation.js";
   import { liveRepliesFor } from "../lib/liveText.js";
   import { runAsSummary } from "../lib/runAs.js";
   import { cn } from "../lib/utils.js";
+  import EscalationOptions from "./EscalationOptions.svelte";
   import Markdown from "./Markdown.svelte";
   import MoreButton from "./MoreButton.svelte";
   import Badge from "./ui/Badge.svelte";
@@ -26,8 +27,10 @@
     focused = false,
     compact = false,
     headless = false,
+    hideQuestion = false,
     onfocus,
     onanswer,
+    onchoose,
     onstop,
     onmenu,
   }: {
@@ -39,8 +42,12 @@
     compact?: boolean;
     /** Inside the focus panel, whose header already names the item and its state. */
     headless?: boolean;
+    /** The question is shown in full right beside the card; once is enough. */
+    hideQuestion?: boolean;
     onfocus: (id: string) => void;
     onanswer: (card: BoardCard) => void;
+    /** Picks one of the answers the question offers. */
+    onchoose?: ((card: BoardCard, option: string) => void) | undefined;
     onstop: (id: string) => void;
     /** The task menu — from a right click on the card or its "⋯" button. */
     onmenu?: ((card: BoardCard, placement: MenuPlacement) => void) | undefined;
@@ -53,16 +60,6 @@
   let children = $derived(card.childIds.map((id) => cards.get(id)).filter((c): c is BoardCard => c !== undefined));
   /** Where the task's work lives: each repository and the branch it is on. */
   let checkouts = $derived(card.checkouts.filter((c) => c.status === "active"));
-  const dot: Record<string, string> = {
-    waiting: "bg-danger",
-    running: "animate-ember bg-primary",
-    queued: "bg-primary/50",
-    thinking: "animate-ember bg-primary/80",
-    delegated: "animate-ember bg-primary/60",
-    idle: "bg-muted",
-    done: "bg-success",
-    closed: "bg-muted",
-  };
 </script>
 
 <article
@@ -92,7 +89,7 @@
     {/if}
   {:else}
   <header class="flex items-start gap-2">
-    <span aria-hidden="true" class={cn("mt-[7px] size-1.5 shrink-0 rounded-full", dot[card.state])}></span>
+    <span aria-hidden="true" class={cn("mt-[7px] size-1.5 shrink-0 rounded-full", STATE_DOT[card.state])}></span>
     <div class="min-w-0 flex-1">
       <!-- The state keeps to the title's first line; a long title wraps in its own column. -->
       <div class="flex items-start gap-2">
@@ -145,7 +142,9 @@
     <div class="mt-2 rounded-md bg-accent px-2 py-1.5"><Markdown content={reply.text} class="select-text" /></div>
   {/each}
 
-  {#if card.escalation && compact}
+  {#if card.escalation && hideQuestion}
+    <!-- Asked in full just below. -->
+  {:else if card.escalation && compact}
     <div class="mt-2 flex items-center gap-2 rounded-md bg-danger/8 py-1 pr-1 pl-2">
       <CircleHelp size={13} class="shrink-0 text-danger" aria-hidden="true" />
       <p class="min-w-0 flex-1 truncate text-xs"><span class="font-medium text-danger">{$t("task.question")}</span> · {question}</p>
@@ -165,6 +164,9 @@
           </ul>
         </details>
       {/if}
+      {#if onchoose && card.escalation.options.length > 0}
+        <div class="mt-2"><EscalationOptions options={card.escalation.options} onchoose={(option) => onchoose(card, option)} /></div>
+      {/if}
       <div class="mt-2"><Button onclick={() => onanswer(card)}>{$t("task.answer")}</Button></div>
     </div>
   {/if}
@@ -178,7 +180,7 @@
       <span class="text-muted">{$t("task.children")}</span>
       {#each children as child (child.item.id)}
         <button class="flex h-5 items-center gap-1 rounded-md bg-accent px-1.5 hover:bg-accent-strong hover:text-foreground" onclick={() => onfocus(child.item.id)}>
-          <span aria-hidden="true" class={cn("h-1.5 w-1.5 rounded-full", dot[child.state])}></span>
+          <span aria-hidden="true" class={cn("h-1.5 w-1.5 rounded-full", STATE_DOT[child.state])}></span>
           {child.item.title}
           <span class="sr-only">{$t(`task.state.${child.state}`)}</span>
         </button>

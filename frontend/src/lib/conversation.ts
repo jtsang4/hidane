@@ -15,6 +15,8 @@ export interface Turn {
   origin: { kind: "external" | "scheduled" | "repo" | "unknown"; text: string } | null;
   /** Where the message went: the newest attribution wins. */
   attribution: HidaneEvent | null;
+  /** Every work item the person addressed at once (an `@` naming several); empty otherwise. */
+  targets: string[];
   /** "Which task is this?" — open until an attribution follows it. */
   ambiguous: HidaneEvent | null;
   /** Work item created for this message; its card is anchored here. */
@@ -70,6 +72,7 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
         message: null,
         origin: null,
         attribution: null,
+        targets: [],
         ambiguous: null,
         createdItem: null,
         answers: [],
@@ -88,6 +91,8 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
       const turn = turnFor(e.id, e.seq);
       turn.message = e;
       turn.seq = Math.min(turn.seq, e.seq);
+      const targets = e.payload["targets"];
+      if (Array.isArray(targets) && targets.length > 1) turn.targets = targets.filter((t): t is string => typeof t === "string");
       if (e.payload["redacted"] === true) turn.redacted = true;
       lastMessageRoot = e.id;
       continue;
@@ -144,6 +149,11 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
   return list.sort((a, b) => a.seq - b.seq);
 }
 
+/** The work reporting back on its own (a worker's outcome), not answering what was just said. */
+export function isReport(event: HidaneEvent): boolean {
+  return event.kind === "agent.reply" && event.workItemId !== null && event.payload["report"] === true;
+}
+
 /**
  * Is this turn still waiting for its first sign of life? Once the message is
  * attributed, the task card carries the progress; until then the turn itself
@@ -152,6 +162,7 @@ export function buildTurns(events: HidaneEvent[]): Turn[] {
 export function turnRouting(turn: Turn, now = Date.now()): boolean {
   return (
     turn.message !== null &&
+    turn.targets.length === 0 &&
     // Routing always ends in an answer within minutes (a skipped message gets a
     // fallback reply); older history without one predates answers naming
     // their message, and was never waiting.

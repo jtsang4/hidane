@@ -172,7 +172,7 @@ func serveCmd(args []string) error {
 // Without a running app it runs the loop itself; with one, it only posts.
 func chatCmd(args []string) error {
 	fs := flag.NewFlagSet("chat", flag.ExitOnError)
-	item := fs.String("item", "", "address the message to a work item")
+	item := fs.String("item", "", "address the message to a work item (comma-separated: to several at once)")
 	timeout := fs.Int("timeout", 900, "stop following after this many seconds")
 	agent := fs.String("agent", "", "run the task on this CLI (claude | codex | pi) instead of the role settings")
 	provider := fs.String("provider", "", "with --agent: a provider id from settings (default: the CLI's own login)")
@@ -203,7 +203,13 @@ func chatCmd(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	msg, err := a.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Source: "connector:cli", Target: *item, RunAs: runAs})
+	var targets []string
+	for _, id := range strings.Split(*item, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			targets = append(targets, id)
+		}
+	}
+	msg, err := a.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Source: "connector:cli", Targets: targets, RunAs: runAs})
 	if err != nil {
 		return err
 	}

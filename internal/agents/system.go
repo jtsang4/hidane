@@ -53,6 +53,8 @@ type Thought struct {
 	SessionID  string
 	// Aborted: the runtime is stopping; the turn must not act on this.
 	Aborted bool
+	// Changed: the role's own tool calls changed something, not only looked.
+	Changed bool
 }
 
 // decision is the payload of route.decision / manager.decision: what a turn
@@ -131,8 +133,10 @@ func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought 
 		defer trail.watch()()
 	}
 	res := agentcli.Call(ctx, s.Agents, r.Agent, req)
+	changed := false
 	if trail != nil {
 		trail.finish()
+		changed = trail.Changed()
 	}
 	live.End()
 	if ctx.Err() != nil {
@@ -141,7 +145,7 @@ func (s *System) think(ctx context.Context, prompt string, o thinkOpts) Thought 
 	if !res.OK {
 		return Thought{Error: res.Error, DurationMs: res.DurationMs, SessionID: res.SessionID}
 	}
-	return Thought{OK: true, Effects: ParseEffects(res.Text), Raw: res.Text, DurationMs: res.DurationMs, SessionID: res.SessionID}
+	return Thought{OK: true, Effects: ParseEffects(res.Text), Raw: res.Text, DurationMs: res.DurationMs, SessionID: res.SessionID, Changed: changed}
 }
 
 // roleDir is a reasoning role's empty working directory. Its cwd leaks into

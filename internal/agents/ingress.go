@@ -2,7 +2,9 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/settings"
@@ -15,6 +17,9 @@ type InboundMessage struct {
 	Images []InboundImage
 	// Target is a work item the person addressed directly (focused card, Feishu thread).
 	Target string
+	// Targets are more work items addressed in the same message (an @ in the
+	// composer). Every one of them gets it, each through its own Manager.
+	Targets []string
 	// ReplyTo is an event the person replied to; its work item becomes the target.
 	ReplyTo string
 	// Focus marks a target that came from what was focused rather than an explicit pick.
@@ -52,6 +57,28 @@ func ownRun(item kernel.WorkItem) *settings.RoleConfig {
 // ErrUndeliverable means the hop budget refused the message.
 var ErrUndeliverable = fmt.Errorf("message could not be delivered")
 
+// MaxTargets bounds how many work items one message may address.
+const MaxTargets = 8
+
+var (
+	ErrTooManyTargets = fmt.Errorf("a message can address at most %d work items", MaxTargets)
+	// ErrRunAsNeedsOneTarget: what a task runs on is chosen for one task at a time.
+	ErrRunAsNeedsOneTarget = errors.New("choosing what a task runs on needs exactly one addressed work item")
+)
+
+// addressed is every work item the message names, the explicit Target first.
+func addressed(m InboundMessage) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range append([]string{m.Target}, m.Targets...) {
+		if id = strings.TrimSpace(id); id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // SubmitMessage is the one door every person's message comes through, whatever
 // the channel. Recording and delivery are the same append: the message lands on
 // the main thread and is addressed to whoever should read it. Nothing waits.
@@ -60,26 +87,32 @@ var ErrUndeliverable = fmt.Errorf("message could not be delivered")
 // that belongs to a work item needs no model; only the rest go to the Primary.
 func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Event, error) {
 	k := s.K
-	target := m.Target
-	by := ""
-	if target != "" {
-		by = "explicit"
-		if m.Focus {
-			by = "focus"
-		}
+	targets := addressed(m)
+	if len(targets) > MaxTargets {
+		return kernel.Event{}, ErrTooManyTargets
 	}
-	answers := ""
+	if len(targets) > 1 && m.RunAs != nil && m.RunAs.Agent != "" {
+		return kernel.Event{}, ErrRunAsNeedsOneTarget
+	}
+	answers, answersItem := "", ""
 	if m.ReplyTo != "" {
 		ref, ok, err := k.GetEvent(ctx, m.ReplyTo)
 		if err != nil {
 			return kernel.Event{}, err
 		}
 		if ok && ref.Kind == "escalation" {
-			answers = ref.ID
+			answers, answersItem = ref.ID, ref.WorkItemID
 		}
-		if target == "" && ok && ref.WorkItemID != "" {
-			target, by = ref.WorkItemID, "explicit"
+		if len(targets) == 0 && ok && ref.WorkItemID != "" {
+			targets = []string{ref.WorkItemID}
 		}
+	}
+	// The first target came from what was focused, not from a pick.
+	byOf := func(i int) string {
+		if i == 0 && m.Target != "" && m.Focus {
+			return "focus"
+		}
+		return "explicit"
 	}
 	images, err := s.StoreImages(m.Images)
 	if err != nil {
@@ -99,8 +132,8 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 	if m.RunAs != nil && m.RunAs.Agent != "" {
 		payload["runAs"] = map[string]any{"agent": m.RunAs.Agent, "provider": m.RunAs.Provider, "model": m.RunAs.Model, "effort": m.RunAs.Effort}
 	}
-	if target != "" {
-		item, err := k.GetWorkItem(ctx, target)
+	if len(targets) == 1 {
+		item, err := k.GetWorkItem(ctx, targets[0])
 		if err != nil {
 			return kernel.Event{}, err
 		}
@@ -114,8 +147,44 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 		if err != nil {
 			return ev, err
 		}
-		_, err = s.DeliverToWorkItem(ctx, ev, item, by, DeliverOpts{Answers: answers})
+		_, err = s.DeliverToWorkItem(ctx, ev, item, byOf(0), DeliverOpts{Answers: answers})
 		return ev, err
+	}
+	if len(targets) > 1 {
+		var items []kernel.WorkItem
+		for _, id := range targets {
+			item, err := k.GetWorkItem(ctx, id)
+			if err != nil {
+				return kernel.Event{}, err
+			}
+			items = append(items, item)
+		}
+		list := make([]any, len(items))
+		for i, item := range items {
+			list[i] = item.ID
+		}
+		payload["targets"] = list
+		// One message on the main thread; it belongs to no single work item.
+		ev, err := k.Append(ctx, kernel.EventInput{Source: m.Source, Kind: "user.message", ThreadID: "main", Payload: payload})
+		if err != nil {
+			return ev, err
+		}
+		for i, item := range items {
+			var others []kernel.WorkItem
+			for _, o := range items {
+				if o.ID != item.ID {
+					others = append(others, o)
+				}
+			}
+			o := DeliverOpts{AlsoTo: others}
+			if item.ID == answersItem {
+				o.Answers = answers
+			}
+			if _, err := s.DeliverToWorkItem(ctx, ev, item, byOf(i), o); err != nil {
+				return ev, err
+			}
+		}
+		return ev, nil
 	}
 	ev, ok, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{
 		Source: m.Source, Kind: "user.message", Mailbox: kernel.Primary, Lane: kernel.LaneInterrupt, ThreadID: "main", Payload: payload,
@@ -136,6 +205,11 @@ type DeliverOpts struct {
 	Previous   string
 	Created    bool
 	Source     string
+	// AlsoTo are the other work items the same message went to.
+	AlsoTo []kernel.WorkItem
+	// Context is what the Manager should know besides the person's words; it
+	// is not shown as something they said.
+	Context string
 }
 
 // DeliverToWorkItem hands a main-thread message to a work item's Manager and
@@ -181,6 +255,16 @@ func (s *System) DeliverToWorkItem(ctx context.Context, message kernel.Event, it
 	if o.Answers != "" {
 		fwd["answers"] = o.Answers
 	}
+	if len(o.AlsoTo) > 0 {
+		others := make([]any, len(o.AlsoTo))
+		for i, other := range o.AlsoTo {
+			others[i] = map[string]any{"workItemId": other.ID, "title": other.Title}
+		}
+		fwd["alsoTo"] = others
+	}
+	if o.Context != "" {
+		fwd["context"] = o.Context
+	}
 	ev, _, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{
 		Source: source, Kind: "user.message", Mailbox: kernel.ManagerAddress(item.ID), Lane: kernel.LaneInterrupt,
 		ThreadID: item.ThreadID, WorkItemID: item.ID, Payload: fwd,
@@ -216,6 +300,63 @@ func (s *System) Reattribute(ctx context.Context, messageID, workItemID, source 
 	}
 	_, err = s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Previous: previous})
 	return err
+}
+
+// ErrAlreadyAttributed: the message already went to a work item.
+var ErrAlreadyAttributed = errors.New("the message already belongs to a work item")
+
+// Promote makes a work item of something the Primary answered in the
+// conversation: the person decided it needs following, not only an answer.
+// The Manager gets the person's words, and what was already answered as
+// context rather than as something they said.
+func (s *System) Promote(ctx context.Context, messageID, source string) (kernel.WorkItem, error) {
+	k := s.K
+	message, ok, err := k.GetEvent(ctx, messageID)
+	if err != nil {
+		return kernel.WorkItem{}, err
+	}
+	if !ok || message.Kind != "user.message" || message.ThreadID != "main" || message.Payload.Bool("redacted") {
+		return kernel.WorkItem{}, fmt.Errorf("message not found: %w", kernel.ErrNotFound)
+	}
+	prior, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "message.attributed", PayloadKey: "of", PayloadValue: messageID})
+	if err != nil {
+		return kernel.WorkItem{}, err
+	}
+	if len(prior) > 0 {
+		return kernel.WorkItem{}, ErrAlreadyAttributed
+	}
+	answers, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "agent.reply", PayloadKey: "root", PayloadValue: messageID})
+	if err != nil {
+		return kernel.WorkItem{}, err
+	}
+	var said []string
+	for _, a := range answers {
+		if a.WorkItemID == "" && strings.TrimSpace(a.Payload.Str("text")) != "" {
+			said = append(said, a.Payload.Str("text"))
+		}
+	}
+	answered := ""
+	if len(said) > 0 {
+		answered = "The Primary already answered this in the conversation:\n" + clipNoted(strings.Join(said, "\n\n"), 4000)
+	}
+	title := clipRunes(strings.Join(strings.Fields(message.Payload.Str("text")), " "), 60)
+	if title == "" {
+		title = "新任务"
+	}
+	item, problem, err := s.StartWorkItem(ctx, title, source, kernel.CreateWorkItemOpts{Of: message.ID}, nil)
+	if err != nil {
+		return item, err
+	}
+	if problem != "" {
+		return item, errors.New(problem)
+	}
+	if r := runAsOf(message); r != nil {
+		if item, err = k.SetWorkItemRunAs(ctx, item.ID, r, source); err != nil {
+			return item, err
+		}
+	}
+	_, err = s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Created: true, Context: answered})
+	return item, err
 }
 
 // RedactMessage hides something the person said. Only their own main-thread

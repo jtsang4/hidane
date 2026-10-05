@@ -7,7 +7,7 @@
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import { t } from "../i18n/index.js";
   import { api, type BoardCard } from "../lib/api.js";
-  import { isUnread, trayCards } from "../lib/board.js";
+  import { attentionCards, isUnread, STATE_DOT, trayCards } from "../lib/board.js";
   import { boot } from "../lib/boot.js";
   import { formatShortcut, isMacPlatform, shortcutKey } from "../lib/commands.js";
   import { atPointer, type MenuPlacement } from "../lib/contextMenu.svelte.js";
@@ -33,18 +33,8 @@
   let route = $derived(routeFor(routerState.path));
   let focused = $derived(route.name === "chat" ? focusFrom(routerState.search) : null);
   let cards = $derived(trayCards(boardQuery.data?.cards ?? [], seenState.map));
+  let attention = $derived(attentionCards(boardQuery.data?.cards ?? []));
   let liveLabel = $derived($t(live === "live" ? "live.live" : live === "connecting" ? "live.connecting" : "live.offline"));
-
-  const dot: Record<string, string> = {
-    waiting: "bg-danger",
-    running: "animate-ember bg-primary",
-    queued: "bg-primary/50",
-    thinking: "animate-ember bg-primary/80",
-    delegated: "animate-ember bg-primary/60",
-    idle: "bg-muted",
-    done: "bg-success",
-    closed: "bg-muted",
-  };
 
   const keyHint = (command: Parameters<typeof shortcutKey>[0]) => {
     const key = shortcutKey(command);
@@ -103,39 +93,56 @@
         aria-current={active(item.to) ? "page" : undefined}
         onclick={(event) => go(event, item.to)}
       >
-        <Icon size={16} class="shrink-0 text-muted group-hover:text-foreground/85" aria-hidden="true" />{$t(item.key)}<kbd class={kbd} aria-hidden="true">{keyHint(item.command)}</kbd>
+        <Icon size={16} class="shrink-0 text-muted group-hover:text-foreground/85" aria-hidden="true" />{$t(item.key)}
+        {#if item.to === "/inbox" && attention.length > 0}
+          <span class="ml-auto rounded-full bg-primary/12 px-1.5 text-2xs font-medium text-primary tabular-nums" aria-label={$t("shell.attentionCount", { count: attention.length })}>{attention.length}</span>
+        {/if}
+        <kbd class={cn(kbd, item.to === "/inbox" && attention.length > 0 && "ml-1")} aria-hidden="true">{keyHint(item.command)}</kbd>
       </a>
     {/each}
   </nav>
 
-  <section class="mt-4 flex min-h-0 flex-1 flex-col" aria-labelledby="sidebar-progress">
-    <h2 id="sidebar-progress" class="px-4 pb-1 text-2xs font-medium text-muted">{$t("task.tray")}</h2>
-    <ul class="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-2 pb-2">
-      {#each cards as card (card.item.id)}
-        {@const unread = card.item.id !== focused && isUnread(card, seenState.map)}
-        <li class="group relative">
-          <button
-            class={cn(row, "pr-8", card.item.id === focused && "bg-accent text-foreground")}
-            aria-current={card.item.id === focused ? "true" : undefined}
-            onclick={() => navigate(focusHref(card.item.id))}
-            oncontextmenu={(event) => { event.preventDefault(); taskMenu(card, atPointer(event)); }}
-          >
-            <span aria-hidden="true" class={cn("mx-[5px] size-1.5 shrink-0 rounded-full", dot[card.state])}></span>
-            <span class="min-w-0 flex-1 truncate">{card.item.title}</span>
-            <span class="sr-only">{$t(`task.state.${card.state}`)}</span>
-            {#if unread}<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title={$t("task.unread")}></span><span class="sr-only">{$t("task.unread")}</span>{/if}
-          </button>
-          <MoreButton
-            class="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-            label={$t("menu.moreFor", { title: card.item.title })}
-            onopen={(placement) => taskMenu(card, placement)}
-          />
-        </li>
-      {:else}
-        <li class="px-2 py-1 text-xs text-muted">{$t("shell.nothingInProgress")}</li>
-      {/each}
-    </ul>
-  </section>
+  {#snippet taskRow(card: BoardCard, unread: boolean)}
+    <li class="group relative">
+      <button
+        class={cn(row, "pr-8", card.item.id === focused && "bg-accent text-foreground")}
+        aria-current={card.item.id === focused ? "true" : undefined}
+        onclick={() => navigate(focusHref(card.item.id))}
+        oncontextmenu={(event) => { event.preventDefault(); taskMenu(card, atPointer(event)); }}
+      >
+        <span aria-hidden="true" class={cn("mx-[5px] size-1.5 shrink-0 rounded-full", STATE_DOT[card.state])}></span>
+        <span class="min-w-0 flex-1 truncate">{card.item.title}</span>
+        <span class="sr-only">{$t(`task.state.${card.state}`)}</span>
+        {#if unread}<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title={$t("task.unread")}></span><span class="sr-only">{$t("task.unread")}</span>{/if}
+      </button>
+      <MoreButton
+        class="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+        label={$t("menu.moreFor", { title: card.item.title })}
+        onopen={(placement) => taskMenu(card, placement)}
+      />
+    </li>
+  {/snippet}
+
+  <div class="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-2">
+    {#if attention.length > 0}
+      <section aria-labelledby="sidebar-attention">
+        <h2 id="sidebar-attention" class="px-4 pb-1 text-2xs font-medium text-muted">{$t("task.attention")}</h2>
+        <ul class="space-y-0.5 px-2">
+          {#each attention as card (card.item.id)}{@render taskRow(card, false)}{/each}
+        </ul>
+      </section>
+    {/if}
+    <section aria-labelledby="sidebar-progress">
+      <h2 id="sidebar-progress" class="px-4 pb-1 text-2xs font-medium text-muted">{$t("task.tray")}</h2>
+      <ul class="space-y-0.5 px-2">
+        {#each cards as card (card.item.id)}
+          {@render taskRow(card, card.item.id !== focused && isUnread(card, seenState.map))}
+        {:else}
+          <li class="px-2 py-1 text-xs text-muted">{$t("shell.nothingInProgress")}</li>
+        {/each}
+      </ul>
+    </section>
+  </div>
 
   <div class="shrink-0 space-y-0.5 border-t border-border p-2">
     <button class={row} onclick={() => openSettings()} title={`${$t("shell.settings")} (${keyHint("open-settings")})`}>

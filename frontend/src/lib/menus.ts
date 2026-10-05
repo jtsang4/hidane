@@ -5,18 +5,21 @@ import type { WorkItemStatus } from "./api.js";
  * be checked without a browser. Labels and handlers belong to the caller.
  */
 
-export type MessageAction = "copy-text" | "hide" | "copy-link";
+export type MessageAction = "copy-text" | "promote" | "hide" | "copy-link";
 
 export function messageActions(options: {
   desktop: boolean;
   /** The person's own message — the only kind that can be hidden. */
   own: boolean;
   redacted: boolean;
+  /** An answer the Primary gave to something that never became a task. */
+  promotable?: boolean;
 }): MessageAction[] {
   const actions: MessageAction[] = [];
   if (!options.redacted) actions.push("copy-text");
   // A permalink needs an address bar to be pasted into; the desktop app has none.
   if (!options.desktop) actions.push("copy-link");
+  if (options.promotable) actions.push("promote");
   // The destructive action goes last, set apart from the harmless ones.
   if (options.own && !options.redacted) actions.push("hide");
   return actions;

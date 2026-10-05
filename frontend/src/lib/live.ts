@@ -80,7 +80,7 @@ export function invalidationFor(event: {
   if (event.kind.startsWith("work_item.") || event.kind.startsWith("execution.")) {
     throttled.push(["items"]);
   }
-  if (event.workItemId && event.kind === "execution.finished") throttled.push(["files", event.workItemId]);
+  if (event.workItemId && event.kind === "execution.finished") throttled.push(["files", event.workItemId], ["changes", event.workItemId]);
   if (event.kind.startsWith("schedule.") || event.kind === "connector.http") {
     throttled.push(["schedules"], ["schedule-runs"]);
   }

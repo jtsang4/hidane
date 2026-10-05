@@ -28,6 +28,7 @@ const base = `http://127.0.0.1:${port}`;
 const token = "e2e-token";
 const pages = [
   ["conversation", "/"],
+  ["inbox", "/inbox"],
   ["items", "/items"],
   ["worktrees", "/items?view=worktrees"],
   ["schedules", "/schedules"],
@@ -119,7 +120,17 @@ try {
   }
   // A second task left open, so the sidebar's in-progress list has something in it.
   await api("/api/work-items", { method: "POST", body: JSON.stringify({ title: "整理本周会议纪要" }) });
+  // A question that offers answers to pick, for the queue of what needs the person.
+  await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "订去里斯本的机票 ASK_OPTIONS" }) });
+  for (let i = 0; i < 100; i++) {
+    const { cards } = await api("/api/board");
+    if (cards.some((card) => card.state === "waiting")) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
   const { items } = await api("/api/work-items");
+  // One message to two tasks at once.
+  const pair = items.filter((item) => item.title.includes("screenshot") || item.title.includes("会议纪要")).map((item) => item.id);
+  if (pair.length === 2) await api("/api/chat", { method: "POST", body: JSON.stringify({ text: "都在结尾补一行说明", targets: pair }) });
   const task = items.find((item) => item.title.includes("screenshot")) ?? items[0];
   // A task's own memory layer, as the distiller writes it.
   writeFileSync(
@@ -163,6 +174,18 @@ try {
         if (!want(name)) continue;
         await settle(path);
         await shot(name);
+      }
+
+      if (want("composer-mention")) {
+        await settle("/");
+        await page.getByPlaceholder(lang === "zh" ? "说点什么…" : "Say something…").click();
+        await page.keyboard.type("@");
+        await shot("composer-mention");
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Backspace");
+        await page.keyboard.type("/");
+        await shot("composer-slash");
+        await page.keyboard.press("Backspace");
       }
 
       if (want("settings-roles-pi-model", "run-as-pi-model")) {

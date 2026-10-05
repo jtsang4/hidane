@@ -8,12 +8,14 @@
   import type { BoardCard, EscalationStep, HidaneEvent } from "../lib/api.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { escalationText } from "../lib/escalation.js";
-  import { steeredKey, turnRouting, type Turn } from "../lib/conversation.js";
+  import { isReport, steeredKey, turnRouting, type Turn } from "../lib/conversation.js";
   import { payloadText } from "../lib/grouping.js";
   import { cn } from "../lib/utils.js";
   import AttributionChip from "./AttributionChip.svelte";
   import ChatBubble from "./ChatBubble.svelte";
+  import EscalationOptions from "./EscalationOptions.svelte";
   import MoreButton from "./MoreButton.svelte";
+  import ReportRow from "./ReportRow.svelte";
   import TaskCard from "./TaskCard.svelte";
   import Time from "./Time.svelte";
   import Badge from "./ui/Badge.svelte";
@@ -31,6 +33,7 @@
     onfocus,
     onanswer,
     onanswerEscalation,
+    onchoose,
     onstop,
     onmessagemenu,
     ontaskmenu,
@@ -50,6 +53,8 @@
     onfocus: (id: string) => void;
     onanswer: (card: BoardCard) => void;
     onanswerEscalation: (eventId: string, workItemId: string) => void;
+    /** Answers a question with one of the answers it offers. */
+    onchoose: (eventId: string, workItemId: string, option: string) => void;
     onstop: (id: string) => void;
     /** The message menu (copy, hide, link) — from a right click or the "⋯" button. */
     onmessagemenu: (event: HidaneEvent, placement: MenuPlacement) => void;
@@ -97,7 +102,17 @@
 
   {#if createdCard}
     <div class="flex justify-start">
-      <TaskCard card={createdCard} {cards} compact focused={focused === createdCard.item.id} {onfocus} {onanswer} {onstop} onmenu={ontaskmenu} />
+      <TaskCard
+        card={createdCard}
+        {cards}
+        compact
+        hideQuestion={turn.answers.some((answer) => answer.id === createdCard.escalation?.id)}
+        focused={focused === createdCard.item.id}
+        {onfocus}
+        {onanswer}
+        {onstop}
+        onmenu={ontaskmenu}
+      />
     </div>
   {/if}
 
@@ -121,6 +136,12 @@
               {#each path.filter((step) => step.tried) as step (step.workItemId)}<li><span class="text-foreground/80">{step.title}</span> — {step.tried}</li>{/each}
             </ul>
           {/if}
+          {#if workItemId && openEscalation.has(answer.id)}
+            {@const options = (answer.payload["options"] as unknown[] | undefined)?.filter((o): o is string => typeof o === "string") ?? []}
+            {#if options.length > 0}
+              <div class="mt-2"><EscalationOptions {options} onchoose={(option) => onchoose(answer.id, workItemId, option)} /></div>
+            {/if}
+          {/if}
           <div class="mt-2 flex items-center gap-2 text-2xs text-muted">
             {#if workItemId && openEscalation.has(answer.id)}<Button onclick={() => onanswerEscalation(answer.id, workItemId)}>{$t("task.answer")}</Button>{/if}
             <Time iso={answer.ts} />
@@ -129,6 +150,8 @@
       </div>
     {:else if answer.kind === "escalation"}
       <div class="flex justify-center"><Badge tone="muted">{payloadText(answer)}</Badge></div>
+    {:else if isReport(answer) && answer.workItemId}
+      <ReportRow event={answer} title={titleOf(answer.workItemId)} cardState={cards.get(answer.workItemId)?.state ?? null} {onfocus} onmenu={onmessagemenu} />
     {:else}
       <div class="group/answer relative space-y-0.5" role="presentation" oncontextmenu={(event) => { if (answer.kind === "agent.reply") contextMenu(event, answer); }}>
         {#if answer.kind === "agent.reply" && answer.workItemId}

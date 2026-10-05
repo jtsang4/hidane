@@ -137,10 +137,13 @@ Respond with ONLY a JSON object, no other text:
   Start ONE worker execution. At most one per turn.
 {"type":"reply","of":"<message id or omit>","reply":"<message to the person>"}
   Answer a question, report a finished result, or explain a failure.
-{"type":"escalate","question":"<what you need decided or provided>","tried":"<what you already checked>"}
+{"type":"escalate","question":"<what you need decided or provided>","tried":"<what you already checked>","options":["<answer>","<answer>"]}
   When you cannot proceed without a decision or information only the person
   (or the parent work item) has — e.g. credentials, a server address, a choice
   between options. It reaches them as a question on this work item's card.
+  "options" is optional: when the answer is a choice, list 2–5 short answers
+  the person can pick with one click (they may still answer in their own
+  words); leave it out for an open question such as an address or a key.
 {"type":"answer","work_item_id":"<child id>","text":"<answer to the child's question>"}
   Answer a question escalated by one of your child work items, if you can.
 {"type":"create_children","children":[{"title":"<title>","brief":"<brief>"}]}
@@ -170,6 +173,10 @@ Guidance:
   worker can look), otherwise escalate.
 - After a successful execution, reply with a concise result for the person.
 - A failed or lost execution: decide whether a retry makes sense; don't loop.
+- A message from the person may say it was also sent to other work items: the
+  person addressed several at once, and each has its own copy. Act only on what
+  is meant for this work item; if nothing in it is, reply in one short line.
+  Never reroute such a message.
 - Reply in the person's language.`
 
 const WorkerCharter = `You are a Worker execution of hidane running for one work item.

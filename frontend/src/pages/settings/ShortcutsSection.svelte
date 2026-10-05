@@ -11,6 +11,7 @@
     "new-task": "settings.shortcuts.newTask",
     "focus-composer": "settings.shortcuts.focusComposer",
     "go:chat": "nav.chat",
+    "go:inbox": "nav.inbox",
     "go:items": "nav.items",
     "go:schedules": "nav.schedules",
     "go:memory": "nav.memory",
@@ -19,7 +20,7 @@
     "toggle-sidebar": "settings.shortcuts.toggleSidebar",
   } as const satisfies Record<Command, string>;
 
-  const GO: readonly Command[] = ["go:chat", "go:items", "go:schedules", "go:memory", "go:log"];
+  const GO: readonly Command[] = ["go:chat", "go:inbox", "go:items", "go:schedules", "go:memory", "go:log"];
   const app = SHORTCUTS.filter((shortcut) => !GO.includes(shortcut.command));
   const go = SHORTCUTS.filter((shortcut) => GO.includes(shortcut.command));
 </script>

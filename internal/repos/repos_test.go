@@ -355,3 +355,63 @@ func TestAheadIsCountedAgainstTheTrunk(t *testing.T) {
 		t.Fatalf("three commits the trunk lacks: %+v", st)
 	}
 }
+
+// A task's changes are everything since its branch left the trunk: commits,
+// uncommitted edits and new files, each with its line counts.
+func TestChangesSinceTheBranchLeftTheTrunk(t *testing.T) {
+	hermeticGit(t)
+	k := kerneltest.New(t)
+	s := repos.New(k)
+	dir := newRepo(t, "site", map[string]string{"old.txt": "one\ntwo\n"})
+	r := must[kernel.Repo](t)(s.Register(ctx, dir, "test"))
+	item := must[kernel.WorkItem](t)(k.CreateWorkItem(ctx, "feed", "test", kernel.CreateWorkItemOpts{}))
+	c := must[kernel.Checkout](t)(s.Attach(ctx, item, r, repos.AttachSpec{}, "test"))
+	// The trunk moves on after the branch left it; that is not the task's change.
+	if err := os.WriteFile(filepath.Join(dir, "later.txt"), []byte("later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "git", "add", "-A")
+	run(t, dir, "git", "commit", "-qm", "later")
+	if err := os.WriteFile(filepath.Join(c.Path, "feed.xml"), []byte("<rss/>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, c.Path, "git", "add", "feed.xml")
+	run(t, c.Path, "git", "commit", "-qm", "add feed")
+	if err := os.WriteFile(filepath.Join(c.Path, "old.txt"), []byte("one\nTWO\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.Path, "notes.md"), []byte("a\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ch := s.Changes(ctx, c, r)
+	if ch.Problem != "" || ch.Against != "main" || len(ch.Commits) != 1 || ch.Commits[0].Subject != "add feed" {
+		t.Fatalf("changes: %+v", ch)
+	}
+	got := map[string]repos.FileChange{}
+	for _, f := range ch.Files {
+		got[f.Path] = f
+	}
+	if f := got["feed.xml"]; f.Status != "added" || f.Additions != 1 {
+		t.Fatalf("committed file: %+v", got)
+	}
+	if f := got["old.txt"]; f.Status != "modified" || f.Additions != 2 || f.Deletions != 1 {
+		t.Fatalf("uncommitted edit: %+v", got)
+	}
+	if f := got["notes.md"]; f.Status != "untracked" || f.Additions != 2 {
+		t.Fatalf("new file: %+v", got)
+	}
+	if _, ok := got["later.txt"]; ok {
+		t.Fatal("the trunk's own later work is not the task's")
+	}
+	for _, want := range []string{"+<rss/>", "+TWO", "+three", "b/notes.md", "+b"} {
+		if !strings.Contains(ch.Patch, want) {
+			t.Fatalf("patch lacks %q:\n%s", want, ch.Patch)
+		}
+	}
+	if err := os.RemoveAll(c.Path); err != nil {
+		t.Fatal(err)
+	}
+	if gone := s.Changes(ctx, c, r); gone.Problem != "missing" {
+		t.Fatalf("a missing directory says so: %+v", gone)
+	}
+}

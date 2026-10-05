@@ -24,7 +24,14 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 		if p.Bool("deferred") {
 			tags += ", recorded earlier"
 		}
-		return fmt.Sprintf("[%s] (person%s) %s", m.ID, tags, p.Str("text"))
+		if others := alsoToOf(p); len(others) > 0 {
+			tags += ", also sent to " + strings.Join(others, ", ") + " — act only on what is meant for this work item"
+		}
+		line := fmt.Sprintf("[%s] (person%s) %s", m.ID, tags, p.Str("text"))
+		if c := p.Str("context"); c != "" {
+			line += "\n(context, not said by the person) " + c
+		}
+		return line
 	case "execution.finished":
 		status := "failed"
 		switch {
@@ -62,7 +69,15 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 				title = fmt.Sprintf(" %q", c.Title)
 			}
 		}
-		return fmt.Sprintf("[%s] (question escalated by child %s%s) %s", m.ID, m.WorkItemID, title, p.Str("question"))
+		line := fmt.Sprintf("[%s] (question escalated by child %s%s) %s", m.ID, m.WorkItemID, title, p.Str("question"))
+		if opts, ok := p["options"].([]any); ok && len(opts) > 0 {
+			var names []string
+			for _, o := range opts {
+				names = append(names, fmt.Sprint(o))
+			}
+			line += "\noptions offered: " + strings.Join(names, " | ")
+		}
+		return line
 	case "children.settled":
 		var lines []string
 		if list, ok := p["children"].([]any); ok {
@@ -87,6 +102,41 @@ func describeManager(m kernel.Event, children []kernel.WorkItem) string {
 	return fmt.Sprintf("[%s] (%s) %s", m.ID, m.Kind, clipRunes(string(b), 500))
 }
 
+// alsoToOf names the other work items a message was sent to at the same time.
+func alsoToOf(p kernel.Payload) []string {
+	var out []string
+	if list, ok := p["alsoTo"].([]any); ok {
+		for _, raw := range list {
+			if o, ok := raw.(map[string]any); ok {
+				out = append(out, fmt.Sprintf("%v %q", o["workItemId"], fmt.Sprint(o["title"])))
+			}
+		}
+	}
+	return out
+}
+
+// options are the answers a question offers to pick from; the person may still
+// answer in their own words.
+func options(raw any) []any {
+	list, _ := raw.([]any)
+	var out []any
+	seen := map[string]bool{}
+	for _, v := range list {
+		s := clipRunes(strings.Join(strings.Fields(Str(v)), " "), 80)
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+		if len(out) == 5 {
+			break
+		}
+	}
+	if len(out) < 2 {
+		return nil
+	}
+	return out
+}
+
 // latest decides the chain position of everything a turn emits.
 func latest(messages []kernel.Event) kernel.Event {
 	out := messages[0]
@@ -108,6 +158,8 @@ type managerTurn struct {
 	cause kernel.Event
 	// refused: a budget stopped this turn's dispatch.
 	refused bool
+	// worked: the Manager changed things with its own tools this turn.
+	worked bool
 }
 
 func (t *managerTurn) reply(ctx context.Context, text string, of *kernel.Event) error {
@@ -117,6 +169,14 @@ func (t *managerTurn) reply(ctx context.Context, text string, of *kernel.Event) 
 	}
 	payload := kernel.Payload{"text": clipNoted(text, maxAnswerRunes), "of": anchor.ID, "root": kernel.RootOf(anchor)}
 	t.s.originOf(ctx, kernel.RootOf(anchor), payload)
+	// The work reporting back — a worker's outcome, children settling, or
+	// changes this Manager made itself — rather than an answer to what the
+	// person just asked: the conversation shows it as one line and the task
+	// waits for the person to review it. Stopping a run they asked to stop is
+	// only an acknowledgement.
+	if t.worked || (anchor.Kind != "user.message" && !(anchor.Kind == "execution.finished" && anchor.Payload.Bool("cancelled"))) {
+		payload["report"] = true
+	}
 	// A child's answer is for its parent; the person reads the parent's summary.
 	if t.item.Parent() != "" {
 		payload["child"] = true
@@ -208,7 +268,11 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			}
 		}
 		path = append(path, map[string]any{"workItemId": item.ID, "title": item.Title, "tried": Str(e["tried"])})
-		return t.bubble(ctx, "escalation.raised", kernel.Payload{"question": question, "path": path})
+		payload := kernel.Payload{"question": question, "path": path}
+		if opts := options(e["options"]); opts != nil {
+			payload["options"] = opts
+		}
+		return t.bubble(ctx, "escalation.raised", payload)
 	case "answer":
 		childID, text := Str(e["work_item_id"]), Str(e["text"])
 		if childID == "" || text == "" {
@@ -328,6 +392,11 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 			}
 		}
 		if msg == nil {
+			return nil
+		}
+		// A message the person addressed to several work items at once is
+		// theirs to split, not this Manager's to send elsewhere.
+		if len(alsoToOf(msg.Payload)) > 0 {
 			return nil
 		}
 		of := msg.Payload.Str("of")
@@ -550,6 +619,7 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 	if thought.Aborted {
 		return ctx.Err()
 	}
+	t.worked = thought.Changed
 	if thought.SessionID != "" {
 		_ = os.MkdirAll(filepath.Dir(sessionPath), 0o755)
 		b, _ := json.Marshal(managerSession{Agent: agent, SessionID: thought.SessionID})
@@ -587,6 +657,7 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		if retry.Aborted {
 			return ctx.Err()
 		}
+		t.worked = t.worked || retry.Changed
 		// The follow-up is its own decision: what was decided must be on record.
 		payload := retry.decision(messages)
 		payload["nudged"] = true

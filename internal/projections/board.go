@@ -64,7 +64,9 @@ type CardEscalation struct {
 	Question string `json:"question"`
 	Reason   string `json:"reason"`
 	Path     []any  `json:"path"`
-	TS       string `json:"ts"`
+	// Options are answers offered to pick from; empty for an open question.
+	Options []string `json:"options"`
+	TS      string   `json:"ts"`
 }
 
 type CardBlock struct {
@@ -270,6 +272,8 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 			state = "thinking"
 		case item.Status == kernel.StatusOpen && hasOpenChild:
 			state = "delegated"
+		case item.Status == kernel.StatusOpen && reportPending(item, latest):
+			state = "review"
 		case item.Status == kernel.StatusOpen:
 			state = "idle"
 		}
@@ -300,7 +304,14 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 			if path == nil {
 				path = []any{}
 			}
-			card.Escalation = &CardEscalation{ID: open.id, Question: open.payload.Str("question"), Reason: reason, Path: path, TS: open.ts}
+			card.Escalation = &CardEscalation{ID: open.id, Question: open.payload.Str("question"), Reason: reason, Path: path, Options: []string{}, TS: open.ts}
+			if list, ok := open.payload["options"].([]any); ok {
+				for _, o := range list {
+					if s, ok := o.(string); ok && s != "" {
+						card.Escalation.Options = append(card.Escalation.Options, s)
+					}
+				}
+			}
 		}
 		if b, ok := latest["policy.blocked"]; ok {
 			card.LastPolicyBlock = &CardBlock{Reason: b.payload.Str("reason"), TS: b.ts}
@@ -312,6 +323,21 @@ func BuildBoard(ctx context.Context, k *kernel.Kernel, activeTurns []string) ([]
 		cards = append(cards, card)
 	}
 	return cards, nil
+}
+
+// reportPending: the work reported back and the person has not answered it,
+// marked it done or closed it — the result waits for their review. Only for a
+// top-level item: a subtask reports to its parent, not to the person.
+func reportPending(item kernel.WorkItem, latest map[string]latestRow) bool {
+	if item.Parent() != "" {
+		return false
+	}
+	reply, ok := latest["agent.reply"]
+	if !ok || !reply.payload.Bool("report") {
+		return false
+	}
+	said, ok := latest["user.message"]
+	return !ok || said.seq < reply.seq
 }
 
 // RenderDay is the daily worklog: a projection of the log, never a second source of truth.

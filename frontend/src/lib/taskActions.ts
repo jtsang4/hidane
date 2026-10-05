@@ -5,10 +5,11 @@ import FolderOpen from "@lucide/svelte/icons/folder-open";
 import Maximize2 from "@lucide/svelte/icons/maximize-2";
 import Square from "@lucide/svelte/icons/square";
 import i18n from "../i18n/index.js";
-import { api, type WorkItemStatus } from "./api.js";
+import { api, ApiError, type WorkItemStatus } from "./api.js";
 import { boot } from "./boot.js";
 import { confirmAction } from "./confirm.svelte.js";
 import { openMenu, type MenuEntry, type MenuPlacement } from "./contextMenu.svelte.js";
+import type { SlashCommand } from "./mentions.js";
 import { taskActions, type TaskAction } from "./menus.js";
 import { focusHref, navigate } from "./router.svelte.js";
 import { pushToast, toastError } from "./toast.js";
@@ -63,6 +64,42 @@ export async function revealWorkspace(id: string): Promise<void> {
   } catch (error) {
     toastError(error);
   }
+}
+
+/**
+ * A `/` command from the composer, on every task it addresses: one
+ * confirmation for the lot when it stops or archives, then each in turn.
+ * Settles false when the person called it off.
+ */
+export async function runSlashCommand(queryClient: QueryClient, command: SlashCommand, tasks: readonly { id: string; title: string }[]): Promise<boolean> {
+  const count = tasks.length;
+  const list = (titles: string[]) => new Intl.ListFormat(i18n.language, { type: "conjunction" }).format(titles);
+  if (command === "stop" || command === "archive") {
+    const confirmed = await confirmAction({
+      title: i18n.t(command === "stop" ? "slash.stopTitle" : "slash.archiveTitle", { count }),
+      body: list(tasks.map((task) => task.title)),
+      confirmLabel: i18n.t(command === "stop" ? "task.stop" : "item.archive"),
+      destructive: command === "stop",
+    });
+    if (!confirmed) return false;
+  }
+  const status: Record<Exclude<SlashCommand, "stop">, WorkItemStatus> = { done: "done", archive: "closed", reopen: "open" };
+  const notRunning: string[] = [];
+  let handled = 0;
+  for (const task of tasks) {
+    try {
+      if (command === "stop") await api.cancelExecution(task.id);
+      else await api.setWorkItemStatus(task.id, status[command]);
+      handled += 1;
+    } catch (error) {
+      if (command === "stop" && error instanceof ApiError && error.status === 409) notRunning.push(task.title);
+      else toastError(error);
+    }
+    refresh(queryClient, task.id);
+  }
+  if (handled > 0) pushToast(i18n.t("slash.applied", { command, count: handled }), "default");
+  if (notRunning.length > 0) pushToast(i18n.t("slash.notRunning", { titles: list(notRunning) }));
+  return true;
 }
 
 export interface TaskTarget {
