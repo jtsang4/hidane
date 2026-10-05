@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+
+	"github.com/jtsang4/hidane/internal/clip"
 )
 
 // Schedules are user-defined timer connectors. Definitions live in a small
@@ -366,9 +368,7 @@ func (k *Kernel) MarkRun(ctx context.Context, id, status string, now time.Time) 
 			}
 		}
 	}
-	if len(status) > 200 {
-		status = status[:200]
-	}
+	status = clip.Runes(status, 200)
 	_, err = k.DB.ExecContext(ctx, `UPDATE schedules SET last_run_at = ?, last_status = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
 		FormatTime(now), status, next, k.stamp(), id)
 	return err
