@@ -2,10 +2,9 @@
 .DS_Store
 .acceptance-report.json
 .acceptance-sessions/
-# Environment files (keep the checked-in template visible)
+# Environment files
 .env
 .env.*
-!.env.example
 .test-home/
 dist/
 node_modules/

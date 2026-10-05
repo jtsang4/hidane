@@ -5,7 +5,7 @@ Playwright drives the **real Go backend** (`bin/hidane-nogui serve`, started by
 in for the agent CLIs (`cmd/fakeagent`: real wire protocols, real guard hook,
 scripted answers — a message containing `hello`/`你好` is small talk, `代码示例` gets a reply holding a code block, `流程图` one holding a Mermaid flowchart, anything
 else becomes a work item whose worker writes `result.txt` (`REPO=<name or path>`,
-`FROM=<work item>`, `INPLACE` (`UNASKED`: without quoting the person), `ROUTE=<work item>` steer the Primary's repo choices; `ASK_OPTIONS` makes the Manager ask a question offering 周五晚上 / 周六早上); `FAKE_FAIL` fails the
+`FROM=<work item>`, `INPLACE` (`UNASKED`: without quoting the person) steer the Primary's repo choices, `ROUTE=<work item>` sends the message to an existing task; `ASK_OPTIONS` makes the Manager ask a question offering 周五晚上 / 周六早上); `FAKE_FAIL` fails the
 CLI; `FAKEAGENT_DELAY_MS` slows each turn, `FAKEAGENT_WORKER_DELAY_MS` only a worker's). Every spec runs in zh and fails on any
 uncaught page error, any console error, and any native `confirm()`/`alert()`/
 `prompt()` (the desktop webview implements none of them).

@@ -46,9 +46,10 @@ test-frontend:
 e2e: build-nogui fakeagent
 	pnpm -C frontend e2e
 
-# Every page in zh/en at desktop and phone width → bin/screenshots/, so a UI
-# change can be looked at rather than inferred from the diff. ONLY=run-as,focus
-# takes only the pages and states whose names start with those prefixes.
+# Every page in zh/en as the desktop app, in a browser and at phone width →
+# bin/screenshots/, so a UI change can be looked at rather than inferred from
+# the diff. ONLY=run-as,focus takes only the pages and states whose names start
+# with those prefixes.
 screenshots: build-nogui fakeagent
 	ONLY="$(ONLY)" node frontend/e2e/screenshots.mjs bin/screenshots
 

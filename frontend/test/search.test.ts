@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HidaneEvent } from "../src/lib/api.js";
-import { matchesQuery } from "../src/lib/search.js";
+import { matchesItem, matchesQuery } from "../src/lib/search.js";
 
 const event = {
   seq: 42,
@@ -33,5 +33,16 @@ describe("matchesQuery", () => {
 
   it("an empty query matches everything", () => {
     expect(matchesQuery(event, "   ")).toBe(true);
+  });
+});
+
+describe("matchesItem", () => {
+  const item = { id: "wi_d2sbax", title: "讲解 arXiv 论文 2608.13120", status: "open" };
+  it("matches id, title and status, ANDing terms", () => {
+    expect(matchesItem(item, "arXiv")).toBe(true);
+    expect(matchesItem(item, "wi_d2s")).toBe(true);
+    expect(matchesItem(item, "论文 open")).toBe(true);
+    expect(matchesItem(item, "论文 closed")).toBe(false);
+    expect(matchesItem(item, "  ")).toBe(true);
   });
 });

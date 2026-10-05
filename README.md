@@ -117,9 +117,10 @@ The conversation is where a person talks; the work happens in the tasks:
   itself, a new task, or an existing one it routes to. `/stop`, `/done`,
   `/archive` and `/reopen` act on the named tasks without saying anything to
   anyone.
-- **Reports, not chatter.** A task's own report (a worker's outcome) shows as one
-  line under the message it belongs to, opened in place or in the task's panel;
-  an answer to what the person just said shows in full.
+- **Reports, not chatter.** A task's own report (a worker's outcome, or changes
+  its Manager made itself) shows as one line under the message it belongs to,
+  opened in place or in the task's panel; an answer to what the person just said
+  shows in full.
 - **Action required.** Questions waiting for the person and results waiting for
   review are listed apart — in the sidebar and on their own page — rather than
   scrolled past. A question may offer answers to pick in one click. A result
@@ -246,7 +247,7 @@ curl -X POST localhost:2718/webhook/github -d '{"hello":"world"}' \
 ```bash
 make test        # go vet (also -tags nogui) + go test ./... + svelte-check + vitest
 make e2e         # Playwright (chromium + webkit) against the real Go backend with fake CLIs
-make screenshots # every page, zh/en, desktop/phone → bin/screenshots/ (real backend, fake CLIs)
+make screenshots # every page, zh/en, desktop/browser/phone → bin/screenshots/ (real backend, fake CLIs)
 make readme-shots # this README's pictures → docs/images/ (English, a scripted demo story)
 make smoke-gui   # the real Wails window loads the UI and receives pushed frames, then quits
 make smoke-live  # one real round trip per role on your installed CLIs (spends tokens)

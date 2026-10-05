@@ -130,7 +130,8 @@ var msgLine = regexp.MustCompile(`(?m)^\[(ev_[0-9a-z]+)\] \(([a-z]+)[^)]*\)\s?(.
 var lookFirst = regexp.MustCompile(`LOOK_FIRST: ([^\n]+?)(?: END|$)`)
 
 // Hints a test puts in a message to steer the fake Primary: REPO=<name or
-// path> (several allowed), FROM=<work item>, INPLACE, ROUTE=<work item>.
+// path> (several allowed), FROM=<work item>, INPLACE (UNASKED: without quoting
+// the person), ROUTE=<work item>.
 var (
 	repoHint  = regexp.MustCompile(`REPO=(\S+)`)
 	fromHint  = regexp.MustCompile(`FROM=(wi_\w+)`)

@@ -2,10 +2,10 @@ import type { BoardCard, HidaneEvent } from "../src/lib/api.js";
 import { expect, say, test, turn, unique, waitForEvent, type Api } from "./fixtures.js";
 import type { Page } from "@playwright/test";
 
-/** Name a task with `@` in the composer: type the start of its title, pick it from the list. */
 /** The composer's field; its placeholder changes with whom it addresses. */
 const field = (page: Page) => page.getByRole("textbox", { name: "消息", exact: true });
 
+/** Name a task with `@` in the composer: type the start of its title, pick it from the list. */
 async function mention(page: Page, title: string): Promise<void> {
   const composer = field(page);
   await composer.pressSequentially(`@${title}`);

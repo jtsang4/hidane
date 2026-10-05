@@ -101,7 +101,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 - This repository's project-local Codex configuration lives in `.codex/config.toml`; do not modify `~/.codex/config.toml` for repository-specific behavior.
 - The runtime's agent-role skills remain each CLI's own pool described above; that is separate from coding-agent guidance. Shared repository coding-agent skills live in `.agents/skills/` and must remain agent-neutral. Claude Code's `.claude/skills` is only an adapter symlink to that directory.
 - Project MCP servers are declared in both `.codex/config.toml` and `.mcp.json` so Codex and Claude Code get the same tools: **svelte** (Svelte docs and autofixer — required for `.svelte` edits) and **gopls** (the Go team's language server: `go_diagnostics`, `go_symbol_references`, `go_rename_symbol`, `go_package_api`, `go_vulncheck`, …). Prefer gopls over grep for "who calls this" and for renames across packages; run `go_diagnostics` on files you edited.
-- Repository skills (`.agents/skills/`): `svelte-code-writer` and `svelte-core-bestpractices` for frontend work, `hidane-live-check` for verifying behavior on the real agent CLIs, `hidane-release` for publishing a version (a pushed `v*` tag runs `.github/workflows/release.yml`; packaging is `scripts/package.sh`).
+- Repository skills (`.agents/skills/`): `svelte-code-writer` and `svelte-core-bestpractices` for frontend work, `hidane-live-check` for verifying behavior on the real agent CLIs, `hidane-local-build` for pulling, building and installing a local macOS app, `hidane-release` for publishing a version (a pushed `v*` tag runs `.github/workflows/release.yml`; packaging is `scripts/package.sh`).
 
 ## Frontend
 
