@@ -87,12 +87,6 @@ var schema = []string{
 		seq INTEGER NOT NULL DEFAULT 0,
 		updated_at TEXT NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS threads (
-		id TEXT PRIMARY KEY,
-		work_item_id TEXT,
-		kind TEXT NOT NULL,
-		created_at TEXT NOT NULL
-	)`,
 	`CREATE TABLE IF NOT EXISTS work_items (
 		id TEXT PRIMARY KEY,
 		title TEXT NOT NULL,
@@ -104,6 +98,8 @@ var schema = []string{
 		updated_at TEXT NOT NULL
 	)`,
 	`CREATE INDEX IF NOT EXISTS work_items_parent_idx ON work_items (parent_id)`,
+	// One thread per work item: a generated id that collides must fail, not merge two items' threads.
+	`CREATE UNIQUE INDEX IF NOT EXISTS work_items_thread_idx ON work_items (thread_id)`,
 	`CREATE TABLE IF NOT EXISTS executions (
 		id TEXT PRIMARY KEY,
 		work_item_id TEXT NOT NULL,
@@ -198,10 +194,7 @@ func (k *Kernel) migrate(ctx context.Context) error {
 			}
 		}
 	}
-	_, err := k.DB.ExecContext(ctx,
-		`INSERT INTO threads (id, kind, created_at) VALUES ('main', 'main', ?) ON CONFLICT DO NOTHING`,
-		k.stamp())
-	return err
+	return nil
 }
 
 // TimeLayout matches JavaScript's Date#toISOString, so timestamps sort as

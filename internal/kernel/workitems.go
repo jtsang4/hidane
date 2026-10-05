@@ -77,10 +77,6 @@ func (k *Kernel) CreateWorkItem(ctx context.Context, title, source string, opts 
 		return WorkItem{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO threads (id, work_item_id, kind, created_at) VALUES (?, ?, 'work', ?)`,
-		threadID, id, now); err != nil {
-		return WorkItem{}, err
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items (id, title, workspace, thread_id, parent_id, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`, id, title, ws, threadID, nullable(opts.ParentID), now, now); err != nil {
 		return WorkItem{}, err
