@@ -350,7 +350,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		subject := t.attributionSubject(ctx, m)
 		title := Str(e["title"])
 		if title == "" {
-			title = clipRunes(subject.Payload.Str("text"), 60)
+			title = titleFromMessage(subject.Payload.Str("text"))
 		}
 		// Which repositories is settled before anything exists: a question
 		// goes to the person instead of work starting on a guess.

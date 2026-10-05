@@ -451,34 +451,17 @@ func (s *server) routeMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("workItemId required"))
 		return
 	}
-	ctx := r.Context()
-	messageID := r.PathValue("id")
-	workItemID := body.WorkItemID
-	if workItemID == "new" {
-		msg, ok, err := s.K.GetEvent(ctx, messageID)
-		if err != nil || !ok || msg.Kind != "user.message" {
-			writeJSON(w, http.StatusNotFound, errBody("message not found"))
-			return
-		}
-		title := strings.TrimSpace(msg.Payload.Str("text"))
-		if r := []rune(title); len(r) > 60 {
-			title = string(r[:60])
-		}
-		if title == "" {
-			title = "新任务"
-		}
-		item, err := s.K.CreateWorkItem(ctx, title, "connector:web", kernel.CreateWorkItemOpts{Of: messageID})
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-			return
-		}
-		workItemID = item.ID
-	}
-	if err := s.Sys.Reattribute(ctx, messageID, workItemID, "connector:web"); err != nil {
+	item, err := s.Sys.Reattribute(r.Context(), r.PathValue("id"), body.WorkItemID, "connector:web")
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workItemId": item.ID})
+	case body.WorkItemID != "new":
 		writeJSON(w, http.StatusNotFound, errBody(err.Error()))
-		return
+	case notFound(err):
+		writeJSON(w, http.StatusNotFound, errBody("message not found"))
+	default:
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workItemId": workItemID})
 }
 
 // promote: the person makes a work item of something the Primary answered.

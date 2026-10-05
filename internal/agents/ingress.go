@@ -268,33 +268,42 @@ func (s *System) DeliverToWorkItem(ctx context.Context, message kernel.Event, it
 	return err
 }
 
-// Reattribute: the person moved a message to another work item (or answered
-// "which one?"). The earlier decision stays in the log; the newest wins.
-func (s *System) Reattribute(ctx context.Context, messageID, workItemID, source string) error {
+// Reattribute: the person moved a message to another work item, or to a new
+// one (workItemID "new"), or answered "which one?". The earlier decision stays
+// in the log; the newest wins. It returns where the message now belongs.
+func (s *System) Reattribute(ctx context.Context, messageID, workItemID, source string) (kernel.WorkItem, error) {
 	k := s.K
 	message, ok, err := k.GetEvent(ctx, messageID)
 	if err != nil {
-		return err
+		return kernel.WorkItem{}, err
 	}
 	if !ok || message.Kind != "user.message" {
-		return fmt.Errorf("message not found: %w", kernel.ErrNotFound)
-	}
-	item, err := k.GetWorkItem(ctx, workItemID)
-	if err != nil {
-		return err
+		return kernel.WorkItem{}, fmt.Errorf("message not found: %w", kernel.ErrNotFound)
 	}
 	prior, err := k.ListEvents(ctx, kernel.ListFilter{Kind: "message.attributed", PayloadKey: "of", PayloadValue: messageID})
 	if err != nil {
-		return err
+		return kernel.WorkItem{}, err
 	}
 	previous := ""
 	if len(prior) > 0 {
 		previous = prior[len(prior)-1].WorkItemID
 	}
-	if previous == item.ID {
-		return nil
+	if workItemID == "new" {
+		return s.startFromMessage(ctx, message, source, DeliverOpts{Previous: previous})
 	}
-	return s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Previous: previous})
+	item, err := k.GetWorkItem(ctx, workItemID)
+	if err != nil || previous == item.ID {
+		return item, err
+	}
+	return item, s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Previous: previous})
+}
+
+// titleFromMessage names a work item after what the person said.
+func titleFromMessage(text string) string {
+	if title := clipRunes(strings.Join(strings.Fields(text), " "), 60); title != "" {
+		return title
+	}
+	return "新任务"
 }
 
 // ErrAlreadyAttributed: the message already went to a work item.
@@ -334,11 +343,13 @@ func (s *System) Promote(ctx context.Context, messageID, source string) (kernel.
 	if len(said) > 0 {
 		answered = "The Primary already answered this in the conversation:\n" + clipNoted(strings.Join(said, "\n\n"), 4000)
 	}
-	title := clipRunes(strings.Join(strings.Fields(message.Payload.Str("text")), " "), 60)
-	if title == "" {
-		title = "新任务"
-	}
-	item, problem, err := s.StartWorkItem(ctx, title, source, kernel.CreateWorkItemOpts{Of: message.ID}, nil)
+	return s.startFromMessage(ctx, message, source, DeliverOpts{Context: answered})
+}
+
+// startFromMessage is how the person makes a work item of their message: it
+// runs on what the message chose, and the message is attributed to it as created.
+func (s *System) startFromMessage(ctx context.Context, message kernel.Event, source string, o DeliverOpts) (kernel.WorkItem, error) {
+	item, problem, err := s.StartWorkItem(ctx, titleFromMessage(message.Payload.Str("text")), source, kernel.CreateWorkItemOpts{Of: message.ID}, nil)
 	if err != nil {
 		return item, err
 	}
@@ -346,11 +357,12 @@ func (s *System) Promote(ctx context.Context, messageID, source string) (kernel.
 		return item, errors.New(problem)
 	}
 	if r := runAsOf(message); r != nil {
-		if item, err = k.SetWorkItemRunAs(ctx, item.ID, r, source); err != nil {
+		if item, err = s.K.SetWorkItemRunAs(ctx, item.ID, r, source); err != nil {
 			return item, err
 		}
 	}
-	return item, s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Created: true, Context: answered})
+	o.Source, o.Created = source, true
+	return item, s.DeliverToWorkItem(ctx, message, item, "user", o)
 }
 
 // RedactMessage hides something the person said. Only their own main-thread
