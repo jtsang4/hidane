@@ -672,9 +672,6 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	}
 	record := func(th Thought, nudged bool) error {
 		payload := th.decision(batch)
-		if th.Effects == nil {
-			payload["effects"] = []any{map[string]any{"type": "reply", "raw": clip.Runes(th.Raw, 500)}}
-		}
 		if nudged {
 			payload["nudged"] = true
 		}

@@ -626,8 +626,16 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		b, _ := json.Marshal(managerSession{Agent: agent, SessionID: thought.SessionID})
 		_ = os.WriteFile(sessionPath, b, 0o644)
 	}
-	if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "manager.decision", ThreadID: item.ThreadID,
-		WorkItemID: item.ID, CausedBy: cause.ID, Payload: thought.decision(messages)}); err != nil {
+	record := func(th Thought, nudged bool) error {
+		payload := th.decision(messages)
+		if nudged {
+			payload["nudged"] = true
+		}
+		_, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "manager.decision", ThreadID: item.ThreadID,
+			WorkItemID: item.ID, CausedBy: cause.ID, Payload: payload})
+		return err
+	}
+	if err := record(thought, false); err != nil {
 		return err
 	}
 	if !thought.OK {
@@ -660,10 +668,7 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		}
 		t.worked = t.worked || retry.Changed
 		// The follow-up is its own decision: what was decided must be on record.
-		payload := retry.decision(messages)
-		payload["nudged"] = true
-		if _, err := k.Append(ctx, kernel.EventInput{Source: "agent:manager", Kind: "manager.decision", ThreadID: item.ThreadID,
-			WorkItemID: item.ID, CausedBy: cause.ID, Payload: payload}); err != nil {
+		if err := record(retry, true); err != nil {
 			return err
 		}
 		if retry.OK && hasAction(retry.Effects) {

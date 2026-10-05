@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agentcli"
+	"github.com/jtsang4/hidane/internal/clip"
 	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/repos"
@@ -66,6 +67,11 @@ func (th Thought) decision(of []kernel.Event) kernel.Payload {
 	recorded := []any{}
 	for _, e := range th.Effects {
 		recorded = append(recorded, map[string]any(e))
+	}
+	// Output that was not the effect list is kept: `effects: []` alone leaves
+	// nothing to diagnose it by.
+	if th.Effects == nil {
+		recorded = []any{map[string]any{"type": "reply", "raw": clip.Runes(th.Raw, 500)}}
 	}
 	return kernel.Payload{"ok": th.OK, "durationMs": th.DurationMs, "of": ids, "effects": recorded}
 }
