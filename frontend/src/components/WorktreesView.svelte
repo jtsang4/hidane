@@ -1,6 +1,10 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Archive, FolderGit2, GitBranch, MessageSquare, Trash2 } from "@lucide/svelte";
+  import Archive from "@lucide/svelte/icons/archive";
+  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
+  import Trash2 from "@lucide/svelte/icons/trash";
   import i18n, { t } from "../i18n/index.js";
   import { api, type CheckoutView, type Repo } from "../lib/api.js";
   import { confirmAction } from "../lib/confirm.svelte.js";

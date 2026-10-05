@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { FlaskConical, LoaderCircle, TriangleAlert } from "@lucide/svelte";
+  import FlaskConical from "@lucide/svelte/icons/flask-conical";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { t } from "../../i18n/index.js";
   import type { AgentCatalog, AgentKind, AgentTestResult, Effort, ProviderView, Role, RoleConfig } from "../../lib/api.js";
   import { effortOptions } from "../../lib/runAs.js";

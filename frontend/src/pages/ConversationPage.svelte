@@ -2,7 +2,12 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { ArrowDown, Copy, EyeOff, ImagePlus, Link, UserRound } from "@lucide/svelte";
+  import ArrowDown from "@lucide/svelte/icons/arrow-down";
+  import Copy from "@lucide/svelte/icons/copy";
+  import EyeOff from "@lucide/svelte/icons/eye-off";
+  import ImagePlus from "@lucide/svelte/icons/image-plus";
+  import Link from "@lucide/svelte/icons/link";
+  import UserRound from "@lucide/svelte/icons/user-round";
   import i18n, { language, t } from "../i18n/index.js";
   import { api, ApiError, type BoardCard, type HidaneEvent } from "../lib/api.js";
   import { boot } from "../lib/boot.js";

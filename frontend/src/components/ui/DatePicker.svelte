@@ -1,7 +1,9 @@
 <script lang="ts">
   import { Calendar, Popover } from "bits-ui";
   import { parseDate, type DateValue } from "@internationalized/date";
-  import { CalendarDays, ChevronLeft, ChevronRight } from "@lucide/svelte";
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
+  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import { language, t } from "../../i18n/index.js";
   import { popover, toolbarButton } from "../../lib/styles.js";
   import { cn, dateLocale, fmtDay, fmtShortDay } from "../../lib/utils.js";

@@ -1,6 +1,10 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
-  import { ChevronDown, ChevronRight, Download, FileText, FolderOpen } from "@lucide/svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import Download from "@lucide/svelte/icons/download";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import { t } from "../i18n/index.js";
   import { api, authHeaders, type ArtifactEntry } from "../lib/api.js";
   import { boot } from "../lib/boot.js";

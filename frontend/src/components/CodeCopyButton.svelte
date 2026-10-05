@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Check, Copy } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import Copy from "@lucide/svelte/icons/copy";
   import { t } from "../i18n/index.js";
   import { copyText } from "../lib/native.js";
   import { toastError } from "../lib/toast.js";

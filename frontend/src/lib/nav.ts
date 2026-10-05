@@ -1,4 +1,8 @@
-import { AlarmClock, Brain, ListTodo, MessageCircle, ScrollText } from "@lucide/svelte";
+import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+import Brain from "@lucide/svelte/icons/brain";
+import ListTodo from "@lucide/svelte/icons/list-todo";
+import MessageCircle from "@lucide/svelte/icons/message-circle";
+import ScrollText from "@lucide/svelte/icons/scroll-text";
 import type { Command } from "./commands.js";
 
 /** The five pages of the main window, in sidebar and ⌘1–⌘5 order. */

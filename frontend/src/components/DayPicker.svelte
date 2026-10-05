@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
   import { Popover } from "bits-ui";
-  import { CalendarDays } from "@lucide/svelte";
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
   import { language, t } from "../i18n/index.js";
   import { api } from "../lib/api.js";
   import { daysByMonth } from "../lib/history.js";

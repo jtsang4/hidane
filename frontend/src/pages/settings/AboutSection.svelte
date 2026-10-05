@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
-  import { Copy, FolderOpen } from "@lucide/svelte";
+  import Copy from "@lucide/svelte/icons/copy";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import i18n, { t } from "../../i18n/index.js";
   import { api } from "../../lib/api.js";
   import { boot } from "../../lib/boot.js";

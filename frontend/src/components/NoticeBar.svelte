@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X } from "@lucide/svelte";
+  import X from "@lucide/svelte/icons/x";
   import { t } from "../i18n/index.js";
   import { digest, type Notice } from "../lib/notices.js";
 

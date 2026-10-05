@@ -1,6 +1,8 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
-  import { ChevronLeft, ChevronRight, ScrollText } from "@lucide/svelte";
+  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import ScrollText from "@lucide/svelte/icons/scroll-text";
   import { t } from "../i18n/index.js";
   import { api } from "../lib/api.js";
   import { shiftDay, today } from "../lib/utils.js";

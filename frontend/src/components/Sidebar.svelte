@@ -1,6 +1,10 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { LogOut, PanelLeft, Search, Settings, SquarePen } from "@lucide/svelte";
+  import LogOut from "@lucide/svelte/icons/log-out";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import Search from "@lucide/svelte/icons/search";
+  import Settings from "@lucide/svelte/icons/settings";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
   import { t } from "../i18n/index.js";
   import { api, type BoardCard } from "../lib/api.js";
   import { isUnread, trayCards } from "../lib/board.js";

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Brain, Plus, Trash2 } from "@lucide/svelte";
+  import Brain from "@lucide/svelte/icons/brain";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Trash2 from "@lucide/svelte/icons/trash";
   import i18n, { t } from "../i18n/index.js";
   import { api, type MemoryEntry } from "../lib/api.js";
   import { confirmAction } from "../lib/confirm.svelte.js";

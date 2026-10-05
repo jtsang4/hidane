@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight } from "@lucide/svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import { t } from "../i18n/index.js";
   import type { HidaneEvent } from "../lib/api.js";
   import type { ExecutionGroup } from "../lib/grouping.js";

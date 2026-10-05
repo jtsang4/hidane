@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { RefreshCw } from "@lucide/svelte";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { t } from "../../i18n/index.js";
   import { api, type AgentKind } from "../../lib/api.js";
   import { AGENT_KINDS } from "../../lib/settings.js";

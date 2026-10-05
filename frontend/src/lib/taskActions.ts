@@ -1,5 +1,9 @@
 import type { QueryClient } from "@tanstack/svelte-query";
-import { Archive, Check, FolderOpen, Maximize2, Square } from "@lucide/svelte";
+import Archive from "@lucide/svelte/icons/archive";
+import Check from "@lucide/svelte/icons/check";
+import FolderOpen from "@lucide/svelte/icons/folder-open";
+import Maximize2 from "@lucide/svelte/icons/maximize-2";
+import Square from "@lucide/svelte/icons/square";
 import i18n from "../i18n/index.js";
 import { api, type WorkItemStatus } from "./api.js";
 import { boot } from "./boot.js";

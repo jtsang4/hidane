@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { AlarmClock, CircleHelp, CornerDownRight, FolderGit2, Webhook } from "@lucide/svelte";
+  import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+  import CircleHelp from "@lucide/svelte/icons/circle-question-mark";
+  import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
+  import FolderGit2 from "@lucide/svelte/icons/folder-git-2";
+  import Webhook from "@lucide/svelte/icons/webhook";
   import { t } from "../i18n/index.js";
   import type { BoardCard, EscalationStep, HidaneEvent } from "../lib/api.js";
   import { atPointer, keepsSystemMenu, type MenuPlacement } from "../lib/contextMenu.svelte.js";

@@ -5,7 +5,7 @@
   import { matchesQuery } from "../../lib/search.js";
   import { nextCursor } from "../../lib/pagination.js";
   import EventRow from "../../components/EventRow.svelte";
-  import { SearchX } from "@lucide/svelte";
+  import SearchX from "@lucide/svelte/icons/search-x";
   import EmptyState from "../../components/EmptyState.svelte";
   import Button from "../../components/ui/Button.svelte";
   import Input from "../../components/ui/Input.svelte";

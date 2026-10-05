@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Ellipsis } from "@lucide/svelte";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import { belowElement, type MenuPlacement } from "../lib/contextMenu.svelte.js";
   import { cn } from "../lib/utils.js";
 

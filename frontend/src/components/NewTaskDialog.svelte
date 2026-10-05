@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useQueryClient } from "@tanstack/svelte-query";
   import { Dialog } from "bits-ui";
-  import { LoaderCircle } from "@lucide/svelte";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import i18n, { t } from "../i18n/index.js";
   import { api } from "../lib/api.js";
   import { focusHref, navigate } from "../lib/router.svelte.js";

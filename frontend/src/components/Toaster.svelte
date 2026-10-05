@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X } from "@lucide/svelte";
+  import X from "@lucide/svelte/icons/x";
   import { t } from "../i18n/index.js";
   import { dismissToast, toastStore } from "../lib/toast.js";
   import { cn } from "../lib/utils.js";

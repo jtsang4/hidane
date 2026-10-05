@@ -1,6 +1,9 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
-  import { ChevronDown, ChevronRight, Play, Trash2 } from "@lucide/svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import Play from "@lucide/svelte/icons/play";
+  import Trash2 from "@lucide/svelte/icons/trash";
   import { t } from "../i18n/index.js";
   import i18n from "../i18n/index.js";
   import { api, type Schedule } from "../lib/api.js";

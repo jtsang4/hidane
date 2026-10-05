@@ -1,6 +1,8 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
-  import { ImagePlus, ArrowUp, X } from "@lucide/svelte";
+  import ImagePlus from "@lucide/svelte/icons/image-plus";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import X from "@lucide/svelte/icons/x";
   import { onDestroy } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { t } from "../i18n/index.js";

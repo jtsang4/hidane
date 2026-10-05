@@ -1,6 +1,9 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { OctagonAlert, Plus, ShieldCheck, Trash2 } from "@lucide/svelte";
+  import OctagonAlert from "@lucide/svelte/icons/octagon-alert";
+  import Plus from "@lucide/svelte/icons/plus";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import Trash2 from "@lucide/svelte/icons/trash";
   import i18n, { t } from "../../i18n/index.js";
   import { api, type PolicyRule } from "../../lib/api.js";
   import { confirmAction } from "../../lib/confirm.svelte.js";

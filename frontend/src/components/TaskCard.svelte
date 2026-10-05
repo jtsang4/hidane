@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { Ban, Bot, CircleHelp, GitBranch, Maximize2, Square } from "@lucide/svelte";
+  import Ban from "@lucide/svelte/icons/ban";
+  import Bot from "@lucide/svelte/icons/bot";
+  import CircleHelp from "@lucide/svelte/icons/circle-question-mark";
+  import GitBranch from "@lucide/svelte/icons/git-branch";
+  import Maximize2 from "@lucide/svelte/icons/maximize-2";
+  import Square from "@lucide/svelte/icons/square";
   import { prefersReducedMotion } from "svelte/motion";
   import { fade } from "svelte/transition";
   import { t } from "../i18n/index.js";

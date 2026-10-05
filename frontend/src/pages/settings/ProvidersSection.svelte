@@ -1,6 +1,9 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { KeyRound, Pencil, Plus, Trash2 } from "@lucide/svelte";
+  import KeyRound from "@lucide/svelte/icons/key-round";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Trash2 from "@lucide/svelte/icons/trash";
   import i18n, { t } from "../../i18n/index.js";
   import { api, type ProviderInput, type ProviderPatch, type ProviderView, type Role } from "../../lib/api.js";
   import { confirmAction } from "../../lib/confirm.svelte.js";

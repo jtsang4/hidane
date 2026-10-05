@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { Activity, ArrowLeft, Bot, Info, Keyboard, KeyRound, ListTree, Settings2, ShieldCheck, SquareTerminal } from "@lucide/svelte";
+  import Activity from "@lucide/svelte/icons/activity";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import Bot from "@lucide/svelte/icons/bot";
+  import Info from "@lucide/svelte/icons/info";
+  import Keyboard from "@lucide/svelte/icons/keyboard";
+  import KeyRound from "@lucide/svelte/icons/key-round";
+  import ListTree from "@lucide/svelte/icons/list-tree";
+  import Settings2 from "@lucide/svelte/icons/settings-2";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import SquareTerminal from "@lucide/svelte/icons/square-terminal";
   import { t } from "../i18n/index.js";
   import { boot } from "../lib/boot.js";
   import { plainClick } from "../lib/nav.js";

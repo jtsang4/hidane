@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { PanelLeft, Search } from "@lucide/svelte";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import Search from "@lucide/svelte/icons/search";
   import { t } from "../i18n/index.js";
   import { boot } from "../lib/boot.js";
   import { formatShortcut, isMacPlatform } from "../lib/commands.js";

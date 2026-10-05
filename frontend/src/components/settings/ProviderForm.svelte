@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ExternalLink, KeyRound } from "@lucide/svelte";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import { t } from "../../i18n/index.js";
   import type { ProviderView } from "../../lib/api.js";
   import { draftProblem, type ProviderDraft } from "../../lib/settings.js";

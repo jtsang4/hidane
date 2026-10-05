@@ -1,6 +1,10 @@
 <script lang="ts">
   import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
-  import { MessageSquarePlus, PanelLeft, Settings, SquarePen, setLucideProps } from "@lucide/svelte";
+  import { setLucideProps } from "@lucide/svelte";
+  import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
+  import PanelLeft from "@lucide/svelte/icons/panel-left";
+  import Settings from "@lucide/svelte/icons/settings";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
   import { onMount } from "svelte";
   import i18n, { t, language } from "./i18n/index.js";
   import { api, ApiError, clearToken, getToken, onUnauthorized, setToken } from "./lib/api.js";

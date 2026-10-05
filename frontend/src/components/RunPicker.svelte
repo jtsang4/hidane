@@ -2,7 +2,14 @@
   import { createQuery } from "@tanstack/svelte-query";
   import { Dialog, Popover } from "bits-ui";
   import { MediaQuery } from "svelte/reactivity";
-  import { Bot, Check, ChevronsUpDown, MessageCircle, Settings2, Star, TriangleAlert, X } from "@lucide/svelte";
+  import Bot from "@lucide/svelte/icons/bot";
+  import Check from "@lucide/svelte/icons/check";
+  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
+  import MessageCircle from "@lucide/svelte/icons/message-circle";
+  import Settings2 from "@lucide/svelte/icons/settings-2";
+  import Star from "@lucide/svelte/icons/star";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import X from "@lucide/svelte/icons/x";
   import { t } from "../i18n/index.js";
   import { api, type AgentKind, type Effort, type RunAs } from "../lib/api.js";
   import { favorites, toggleFavoriteRun } from "../lib/favorites.svelte.js";

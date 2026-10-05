@@ -21,7 +21,10 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { Dialog } from "bits-ui";
-  import { CornerDownLeft, MessageSquareText, Search, SquareCheckBig } from "@lucide/svelte";
+  import CornerDownLeft from "@lucide/svelte/icons/corner-down-left";
+  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
+  import Search from "@lucide/svelte/icons/search";
+  import SquareCheckBig from "@lucide/svelte/icons/square-check-big";
   import { t } from "../i18n/index.js";
   import { api, type HidaneEvent, type WorkItem } from "../lib/api.js";
   import { excerpt, highlight, saidText, searchTerms } from "../lib/history.js";

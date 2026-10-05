@@ -1,6 +1,7 @@
 <script lang="ts">
   import { DropdownMenu } from "bits-ui";
-  import { CornerDownRight, Plus } from "@lucide/svelte";
+  import CornerDownRight from "@lucide/svelte/icons/corner-down-right";
+  import Plus from "@lucide/svelte/icons/plus";
   import { t } from "../i18n/index.js";
   import type { Turn } from "../lib/conversation.js";
   import { popover, popoverItem } from "../lib/styles.js";

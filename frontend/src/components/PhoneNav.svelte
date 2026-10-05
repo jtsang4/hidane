@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Settings } from "@lucide/svelte";
+  import Settings from "@lucide/svelte/icons/settings";
   import { t } from "../i18n/index.js";
   import { MAIN_NAV, plainClick } from "../lib/nav.js";
   import { navigate, openSettings, routeFor, routerState } from "../lib/router.svelte.js";

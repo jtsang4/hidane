@@ -1,6 +1,13 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Archive, ArrowUpLeft, Check, FolderOpen, MessageSquareText, RotateCcw, Square, X } from "@lucide/svelte";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ArrowUpLeft from "@lucide/svelte/icons/arrow-up-left";
+  import Check from "@lucide/svelte/icons/check";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import MessageSquareText from "@lucide/svelte/icons/message-square-text";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Square from "@lucide/svelte/icons/square";
+  import X from "@lucide/svelte/icons/x";
   import { SvelteMap } from "svelte/reactivity";
   import { t } from "../i18n/index.js";
   import { api, type BoardCard, type HidaneEvent, type WorkItemStatus } from "../lib/api.js";

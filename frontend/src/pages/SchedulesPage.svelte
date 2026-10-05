@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { AlarmClock, Plus } from "@lucide/svelte";
+  import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+  import Plus from "@lucide/svelte/icons/plus";
   import { t } from "../i18n/index.js";
   import { api, type ScheduleInput } from "../lib/api.js";
   import { toastError } from "../lib/toast.js";

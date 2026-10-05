@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { Check, LoaderCircle, TriangleAlert } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { t } from "../../i18n/index.js";
 
   /** Inline state of an auto-saved setting. */

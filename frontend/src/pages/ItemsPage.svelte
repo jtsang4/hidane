@@ -1,6 +1,9 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { Archive, ListTodo, Plus, SearchX } from "@lucide/svelte";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ListTodo from "@lucide/svelte/icons/list-todo";
+  import Plus from "@lucide/svelte/icons/plus";
+  import SearchX from "@lucide/svelte/icons/search-x";
   import { t } from "../i18n/index.js";
   import { api, type WorkItem } from "../lib/api.js";
   import { atPointer, type MenuPlacement } from "../lib/contextMenu.svelte.js";

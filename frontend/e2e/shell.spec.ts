@@ -383,6 +383,16 @@ test("⌘B collapses the sidebar, and it stays that way after a reload", async (
   await expect(sidebar(page)).toBeVisible();
 });
 
+// Icons are imported one module each; the shell's setLucideProps must still
+// reach them, or every icon falls back to lucide's heavier default stroke.
+test("every icon is drawn with the shell's stroke width", async ({ page }) => {
+  await page.goto("/");
+  await expect(sidebar(page)).toBeVisible();
+  const widths = await page.locator("svg.lucide-icon").evaluateAll((icons) => icons.map((icon) => icon.getAttribute("stroke-width")));
+  expect(widths.length).toBeGreaterThan(3);
+  expect(new Set(widths)).toEqual(new Set(["1.5"]));
+});
+
 test("an image dragged onto the conversation is attached to the next message", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByPlaceholder("说点什么…")).toBeVisible();

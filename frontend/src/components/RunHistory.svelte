@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery } from "@tanstack/svelte-query";
-  import { ChevronDown, ChevronRight } from "@lucide/svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import { t } from "../i18n/index.js";
   import { api } from "../lib/api.js";
   import { cn } from "../lib/utils.js";
