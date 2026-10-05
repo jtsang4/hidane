@@ -173,9 +173,13 @@ func blocksOf(raw json.RawMessage) []claudeBlock {
 	return nil
 }
 
+// clip keeps the first n runes of s: a byte cut can split a character.
 func clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	for i := range s {
+		if n == 0 {
+			return s[:i]
+		}
+		n--
 	}
 	return s
 }
