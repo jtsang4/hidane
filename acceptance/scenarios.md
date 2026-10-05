@@ -18,7 +18,8 @@
   `sqlite3 $HIDANE_HOME/hidane.db`（只读查询；事件表有触发器，UPDATE/DELETE 会被拒绝）
 - `hidane serve --addr 127.0.0.1:<端口>`：同一个 http.Handler 提供 Web 界面、`/api/*`、`/health`、
   `/webhook/:name`。`/api/*` 始终需要 Bearer token：设了 `HIDANE_API_TOKEN` 就用它，否则启动时随机生成并打印
-  `?token=` 链接；SSE 也接受 `?token=`。同一 HIDANE_HOME 只允许一个 runtime（文件锁）
+  `?token=` 链接；只有 SSE（`/api/events/stream`，EventSource 不能带请求头）也接受 `?token=`，文件下载等其他
+  `/api/*` 只认请求头（网页的下载按钮带请求头取文件，由 e2e 守住）。同一 HIDANE_HOME 只允许一个 runtime（文件锁）
 - 运行模型：每个 agent（`primary`、`manager:<wi>`）有一个收件箱，它是事件日志的派生视图
   （`events.mailbox` + `cursors` 里的 `mailbox:<地址>` 游标）。一个 turn 取走积压的全部消息，
   只做决策、不等待；worker 结果以 `execution.finished` 投递回 Manager 的收件箱。
@@ -93,8 +94,6 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
   ——注意 `abort()` 会让 agent 自然 idle，若按「谁先完成」判定会把被中止的执行错记为成功，结果标签必须跟随用户意图。
 - 也应能在主会话中说“停止这个正在运行的工作项”；Primary 直接发出同样的取消意图，
   不应把停止请求转成新的 Manager/Worker 执行。
-- worker 的长总结（几千字以上）原样落进 `execution.finished` 的 `summary`，不被截断
-- Primary 的输出连续两次都不是效果列表时（追问一次后仍然不是），把原文作为回复发出，而不是吞掉
 
 > **清理约定**：任何写入 MEMORY.md 的场景（4B）在结束前必须把自己写的记忆
 > `forget` 掉。留下的记忆会注入后续每一次路由——曾有一条「回复开场白永远用『好的』」

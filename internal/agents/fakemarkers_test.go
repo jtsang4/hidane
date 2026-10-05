@@ -3,6 +3,7 @@ package agents_test
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 	"github.com/jtsang4/hidane/internal/agents"
+	"github.com/jtsang4/hidane/internal/connectors"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/settings"
 )
@@ -47,6 +49,46 @@ func (r *recorder) expect(t *testing.T, role, charter string, markers map[string
 	}
 }
 
+// lines is one line format the fake reads, where it reads it (from the first
+// `after` on), and the lines it must find there: a description of each, and
+// whether a match is that line.
+type lines struct {
+	name, pattern, after string
+	want                 map[string]func(match []string) bool
+}
+
+// expectLines names each wanted line that the format reads from no prompt
+// sent under the charter.
+func (r *recorder) expectLines(t *testing.T, role, charter string, l lines) {
+	t.Helper()
+	re := regexp.MustCompile(l.pattern)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for what, is := range l.want {
+		found := false
+		for _, req := range r.reqs {
+			_, read, ok := strings.Cut(req.Prompt, l.after)
+			if req.SystemPrompt != charter || !ok {
+				continue
+			}
+			for _, match := range re.FindAllStringSubmatch(read, -1) {
+				found = found || is(match)
+			}
+		}
+		if !found {
+			t.Errorf("fakecli.%s reads no %s from any %s prompt hidane sent", l.name, what, role)
+		}
+	}
+}
+
+// messageLine is a fakecli.MessageLine match for one message: its id, the
+// word its parenthesis opens with, and its text ("" for any).
+func messageLine(id, kind, text string) func([]string) bool {
+	return func(m []string) bool {
+		return m[1] == id && (kind == "" || m[2] == kind) && (text == "" || strings.TrimSpace(m[3]) == text)
+	}
+}
+
 func markerWorld(t *testing.T, extraEnv ...string) (*world, *recorder) {
 	w := newWorld(t, settings.Claude, extraEnv...)
 	rec := &recorder{next: w.s.Agents}
@@ -69,9 +111,9 @@ func waitRunning(t *testing.T, w *world, itemID string) {
 }
 
 // The fake CLIs tell roles and situations apart by words of the charters and
-// turn prompts (the fakecli markers). Reworded, the fake would answer as if
-// nothing had happened and some unrelated test would fail; here it fails by
-// the marker's name.
+// turn prompts (the fakecli markers), and read messages out of their lines.
+// Reworded, the fake would answer as if nothing had happened and some
+// unrelated test would fail; here it fails by the marker's name.
 func TestFakeMarkersAreInWhatHidaneSends(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct{ charter, marker string }{
@@ -86,15 +128,36 @@ func TestFakeMarkersAreInWhatHidaneSends(t *testing.T) {
 		}
 	}
 
+	// A person's message, a webhook triage woke it for, and a recall's findings.
 	t.Run("primary", func(t *testing.T) {
 		t.Parallel()
 		w, rec := markerWorld(t)
-		m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "你好 JUNK_PRIMARY", Source: "connector:web"}))
+		msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "你好 JUNK_PRIMARY", Source: "connector:web"}))
+		m(w.k.Append(ctx, kernel.EventInput{Source: "connector:webhook", Kind: "connector.webhook", Payload: kernel.Payload{"note": "deployed"}}))
+		if _, _, err := connectors.TriageOnce(ctx, w.k); err != nil {
+			t.Fatal(err)
+		}
+		woke := w.events("triage.decision")
+		if len(woke) != 1 || woke[0].Mailbox != kernel.Primary {
+			t.Fatalf("triage wakes the Primary: %+v", woke)
+		}
+		recalled, _, err := w.k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{Source: "agent:primary", Kind: "conversation.recalled",
+			Mailbox: kernel.Primary, Lane: kernel.LaneInterrupt, ThreadID: "main",
+			Payload: kernel.Payload{"of": msg.ID, "root": msg.ID, "query": "deploy", "original": "earlier", "text": "(nothing found)"}}, CausedBy: &msg})
+		if err != nil {
+			t.Fatal(err)
+		}
 		w.settle()
 		rec.expect(t, "Primary", agents.PrimaryCharter, map[string]string{
 			"MessagesThisTurn": fakecli.MessagesThisTurn,
 			"PrimaryRetry":     fakecli.PrimaryRetry,
 		})
+		rec.expectLines(t, "Primary", agents.PrimaryCharter, lines{name: "MessageLine", pattern: fakecli.MessageLine, after: fakecli.MessagesThisTurn,
+			want: map[string]func([]string) bool{
+				"(user) line with the person's text": messageLine(msg.ID, "user", "你好 JUNK_PRIMARY"),
+				"(external) line":                    messageLine(woke[0].ID, "external", ""),
+				"(recall) line":                      messageLine(recalled.ID, "recall", ""),
+			}})
 	})
 
 	// A child's turn, nudged once, then its worker's result, then its parent's turn.
@@ -115,6 +178,12 @@ func TestFakeMarkersAreInWhatHidaneSends(t *testing.T) {
 			"ResultSummary":    fakecli.ResultSummary,
 			"ChildrenSettled":  fakecli.ChildrenSettled,
 		})
+		var copied kernel.Event
+		for _, e := range m(w.k.ListEvents(ctx, kernel.ListFilter{Kind: "user.message", ThreadID: child.ThreadID})) {
+			copied = e
+		}
+		rec.expectLines(t, "Manager", agents.ManagerCharter, lines{name: "MessageLine", pattern: fakecli.MessageLine, after: fakecli.MessagesThisTurn,
+			want: map[string]func([]string) bool{"line with the person's text": messageLine(copied.ID, "", "ONLY_UNDERSTAND 写一个文件")}})
 	})
 
 	t.Run("steered", func(t *testing.T) {
@@ -189,5 +258,9 @@ func TestFakeMarkersAreInWhatHidaneSends(t *testing.T) {
 			"ExistingMemories": fakecli.ExistingMemories,
 			"RecentEvents":     fakecli.RecentEvents,
 		})
+		rec.expectLines(t, "distiller", agents.DistillerCharter, lines{name: "DistilledItemMessage", pattern: fakecli.DistilledItemMessage + `(.*)`,
+			after: fakecli.RecentEvents, want: map[string]func([]string) bool{
+				"work item message": func(m []string) bool { return m[1] == item.ID && m[2] == "任务约定：部署走main分支" },
+			}})
 	})
 }

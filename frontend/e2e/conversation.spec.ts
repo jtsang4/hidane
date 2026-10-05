@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { HidaneEvent, WorkItem } from "../src/lib/api.js";
 import type { Page } from "@playwright/test";
 import { choose, confirmDialog, expect, test, turn, say, unique, waitForEvent } from "./fixtures.js";
@@ -113,6 +114,17 @@ for (const kind of ["claude", "codex", "pi"] as const) {
     await expect(artifact).toBeVisible();
     // A webview has nowhere to save a download: the desktop app shows the file in Finder instead.
     await expect(panel.getByRole("button", { name: desktop ? "在文件夹中显示 result.txt" : "下载 result.txt" })).toBeVisible();
+    if (!desktop) {
+      // Behind the token gate the file is fetched with the bearer header and saved:
+      // only the event stream may carry the token in its URL.
+      const request = page.waitForRequest((r) => r.url().includes(`/api/work-items/${workItemId}/file?download`));
+      const download = page.waitForEvent("download");
+      await panel.getByRole("button", { name: "下载 result.txt" }).click();
+      expect((await request).url()).not.toContain("token=");
+      const saved = await download;
+      expect(saved.suggestedFilename()).toBe("result.txt");
+      expect(await readFile(await saved.path(), "utf8")).toContain(marker);
+    }
     await artifact.click();
     await expect(panel.locator("pre").filter({ hasText: marker })).toBeVisible();
 

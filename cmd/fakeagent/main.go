@@ -126,7 +126,10 @@ func emit(v any) {
 
 // ---- the scripted brain ----------------------------------------------------
 
-var msgLine = regexp.MustCompile(`(?m)^\[(ev_[0-9a-z]+)\] \(([a-z]+)[^)]*\)\s?(.*)$`)
+var (
+	msgLine      = regexp.MustCompile(fakecli.MessageLine)
+	itemDecision = regexp.MustCompile(fakecli.DistilledItemMessage + `任务约定：(\S+)`)
+)
 
 var lookFirst = regexp.MustCompile(`LOOK_FIRST: ([^\n]+?)(?: END|$)`)
 
@@ -161,6 +164,10 @@ func brain(system, prompt string) string {
 		if strings.Contains(prompt, "JUNK_PRIMARY") && !strings.Contains(prompt, fakecli.PrimaryRetry) {
 			return "<reasoning_effort>5</reasoning_effort>"
 		}
+		if strings.Contains(section(prompt, fakecli.MessagesThisTurn), "PLAIN_PRIMARY") {
+			// A model that answers in prose, asked twice.
+			return "我直接回答，没有效果列表。"
+		}
 		var list []map[string]any
 		demo := loadDemo()
 		for _, m := range msgLine.FindAllStringSubmatch(section(prompt, fakecli.MessagesThisTurn), -1) {
@@ -186,6 +193,12 @@ func brain(system, prompt string) string {
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就停止并关闭。"},
 					map[string]any{"type": "cancel", "of": id, "all_running": true},
 					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"})
+			case strings.Contains(text, "关闭所有任务"):
+				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就关闭。"},
+					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"})
+			case strings.Contains(text, "停止正在跑的"):
+				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就停止。"},
+					map[string]any{"type": "cancel", "of": id, "all_running": true})
 			case routeHint.MatchString(text):
 				list = append(list, map[string]any{"type": "route", "of": id, "work_item_id": routeHint.FindStringSubmatch(text)[1],
 					"message": text, "confidence": 1.0})
@@ -287,7 +300,7 @@ func brain(system, prompt string) string {
 			map[string]any{"type": "spawn", "instructions": workerInstructions(text), "expect": "result.txt exists"},
 		)
 	case strings.Contains(system, fakecli.DistillerRole):
-		if m := regexp.MustCompile(`\[user\.message (wi_\w+)\] 任务约定：(\S+)`).FindStringSubmatch(prompt); m != nil {
+		if m := itemDecision.FindStringSubmatch(prompt); m != nil {
 			// A model words a memory afresh every time; only the existing list
 			// keeps it from promoting the same thing again.
 			existing, _, _ := strings.Cut(section(prompt, fakecli.ExistingMemories), fakecli.RecentEvents)
@@ -346,7 +359,23 @@ func workerPlan(prompt, cwd string) []toolCall {
 }
 
 // worker tracks what the guard and the file system made of a worker's calls.
-type worker struct{ blocked, done []string }
+type worker struct {
+	blocked, done []string
+	// report ends the summary, as a long account of the work would.
+	report string
+}
+
+// LONG_SUMMARY=<n> makes a worker end its summary with n characters.
+var longSummary = regexp.MustCompile(`LONG_SUMMARY=(\d+)`)
+
+func newWorker(prompt string) worker {
+	var w worker
+	if m := longSummary.FindStringSubmatch(prompt); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		w.report = strings.Repeat("长", n)
+	}
+	return w
+}
 
 // run performs a call the hook did not refuse; it reports whether the call failed.
 func (w *worker) run(call toolCall, refused string) bool {
@@ -370,6 +399,7 @@ func (w *worker) summary() string {
 	for _, r := range w.blocked {
 		b.WriteString("Refused: " + r + "\n")
 	}
+	b.WriteString(w.report)
 	if b.Len() == 0 {
 		b.WriteString("Nothing to do.")
 	}
@@ -531,7 +561,7 @@ func runClaude(args []string) {
 		}
 		var answer string
 		if toolsOn && strings.Contains(system, fakecli.WorkerRole) {
-			var wk worker
+			wk := newWorker(prompt)
 			var plan []toolCall
 			for _, part := range parts {
 				plan = append(plan, workerPlan(part, cwd)...)
@@ -689,7 +719,7 @@ func runCodex(args []string) {
 		item(t, "completed", um)
 		var answer string
 		if sandbox != "read-only" && strings.Contains(system, fakecli.WorkerRole) {
-			var wk worker
+			wk := newWorker(prompt)
 			n := 0
 			for inputs := []string{prompt}; len(inputs) > 0; {
 				text := inputs[0]
@@ -921,7 +951,7 @@ func runPi(args []string) {
 				emit(map[string]any{"type": "agent_start"})
 				var answer string
 				if toolsOn && strings.Contains(system, fakecli.WorkerRole) {
-					var wk worker
+					wk := newWorker(prompt)
 					for i, call := range workerPlan(prompt, cwd) {
 						name := strings.ToLower(call.tool)
 						emit(map[string]any{"type": "tool_execution_start", "toolCallId": fmt.Sprint(i), "toolName": name, "args": call.input})

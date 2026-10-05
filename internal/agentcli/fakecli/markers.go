@@ -1,7 +1,8 @@
 package fakecli
 
 // Markers are the words of hidane's charters and turn prompts by which the
-// fake CLIs (cmd/fakeagent) tell which role is asking and what happened.
+// fake CLIs (cmd/fakeagent) tell which role is asking and what happened, and
+// the line formats it reads messages from.
 // internal/agents/fakemarkers_test.go asserts each one still appears in what
 // hidane sends, so a reworded prompt fails there by name instead of leaving
 // the fake answering as if nothing had happened.
@@ -40,4 +41,16 @@ const (
 	// In the distiller's prompt.
 	ExistingMemories = "Existing memories"
 	RecentEvents     = "Recent events:"
+)
+
+// Line formats the fake parses, as regular expressions; the marker test
+// checks each against what hidane sends.
+const (
+	// MessageLine is a message in a Primary's or a Manager's turn: its id, the
+	// word that opens the parenthesis (the Primary's user, external, recall),
+	// and its text.
+	MessageLine = `(?m)^\[(ev_[0-9a-z]+)\] \(([a-z]+)[^)]*\)\s?(.*)$`
+	// DistilledItemMessage opens a work item's user.message in the
+	// distiller's prompt: the work item, then the text.
+	DistilledItemMessage = `\[user\.message (wi_\w+)\] `
 )
