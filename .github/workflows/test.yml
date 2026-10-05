@@ -93,6 +93,15 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: make build-nogui fakeagent
+      # The browsers are cached per Playwright version; their system packages
+      # are not, so `install --with-deps` still runs on a hit.
+      - name: playwright version
+        id: playwright
+        run: echo "version=$(pnpm -C frontend exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
       - run: pnpm -C frontend exec playwright install --with-deps chromium webkit
       - run: pnpm -C frontend e2e
       - uses: actions/upload-artifact@v7
