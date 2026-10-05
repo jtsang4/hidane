@@ -14,6 +14,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 - `frontend/` is the Svelte 5 SPA (the only pnpm workspace). Its build output `frontend/dist` is embedded into the binary (`frontend/assets.go`).
 - Kernel code lives in `internal/kernel/` — its invariants below apply there. Agent roles live in `internal/agents/`, the CLI drivers in `internal/agentcli/`, the capture-phase guard in `internal/guard/`.
 - `docs/wails-migration.md` records why the Node/Postgres web version became this desktop app and the decisions real runs forced; `docs/desktop-ux.md` records the desktop interaction decisions.
+- Before writing a helper or a component, look for the one that exists (gopls `go_symbol_references`, `rg`): text clipping is `internal/clip`, the answer and conversation event kinds are `kernel.AnswerKinds` / `frontend/src/lib/kinds.ts`, and how a task is shown (state dot, badge, branch line, question) is the set listed in `frontend/DESIGN.md`. Each was rebuilt in several places before it had one home.
 
 ## Toolchain
 
@@ -36,7 +37,7 @@ Rules for AI coding agents working in this repository. Project introduction live
   - a driver, the guard, a charter or a role's context: the `hidane-live-check` skill (minutes, a few real calls);
   - behavior a scenario describes: `make acceptance ARGS="--changed origin/main"` (only the scenarios the changed paths map to) or `ARGS="--only 4F,6E"`. Rebase onto the trunk first: the script refuses to start while `main` or `origin/main` has commits the branch lacks (`--behind-ok` overrides), since a run against code about to be rebased is paid for again;
   - the full `make acceptance`: before a minor or major release (the `hidane-release` skill), or after a sweeping change.
-- Scenarios hold only what needs a real model, a real CLI, the OS, or judgement. An expectation a test can assert — a status code, an event row, a file, a validation error — goes into a Go or Playwright test instead, where CI checks it on every push and no tester pays to re-verify it.
+- Scenarios hold only what needs a real model, a real CLI, the OS, or judgement. An expectation a test can assert — a status code, an event row, a file, a validation error — goes into a Go or Playwright test instead, where CI checks it on every push and no tester pays to re-verify it. Before adding a bullet to a scenario, ask whether a test can assert it; if one can, write the test instead.
 - A finding the acceptance makes more than once becomes a Go or Playwright test, so the next run need not rediscover it. Only a violated written expectation is a FAIL; everything else the tester notices is a note for the backlog, and a gateway error is retried, not a FAIL.
 - The fakes prove protocol handling, not the real CLIs: after changing a driver, the guard, a charter or a role's context, follow the `hidane-live-check` skill (real `claude` / `codex` / `pi`, fresh `HIDANE_HOME`, judged against the files on disk — not the reply).
 - Tests are hermetic: a temp `HIDANE_HOME`, fake CLIs by absolute path, `HIDANE_LOGIN_SHELL=0` for any spawned `hidane`. A test must never read the developer's `~/.hidane`, `~/.claude`, `~/.codex`, keychain, or shell startup files, and never start a real agent CLI.
