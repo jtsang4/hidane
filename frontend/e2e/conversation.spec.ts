@@ -246,6 +246,54 @@ test("the composer picks what a task runs on: agent, model and effort, like Pase
   await expect(page.getByRole("dialog", { name: "新任务的运行方式" }).getByRole("button", { name: "Codex · gpt-fake-mini · 中", exact: true })).toBeVisible();
 });
 
+for (const kind of ["conversation", "new", "task"] as const) {
+  test(`the ${kind} picker saves a pi provider only after a model is chosen`, async ({ page, api }) => {
+    await api.resetSettings();
+    try {
+      await api.send("POST", "/api/providers", { id: "pi-test", label: "Pi test", piProvider: "deepseek", models: ["custom-model"] }, 201);
+      const item = kind === "task" ? (await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title: unique("pi-picker") }, 201)).item : null;
+      const readChoice = async () => {
+        if (kind === "conversation") return (await api.settings()).roles.primary;
+        if (item) return (await api.workItems()).find((candidate) => candidate.id === item.id)?.runAs ?? null;
+        return page.evaluate(() => JSON.parse(localStorage.getItem("hidane.runAs") ?? "null") as unknown);
+      };
+      await page.goto(item ? `/?focus=${item.id}` : "/");
+      const trigger = page.getByRole("group", { name: "运行方式" }).getByRole("button", { name: kind === "conversation" ? /^对话：/ : /^任务：/ });
+      const picker = page.getByRole("dialog", { name: kind === "conversation" ? "对话由谁回复" : kind === "new" ? "新任务的运行方式" : "这个任务的运行方式" });
+      await trigger.click();
+      await picker.getByRole("button", { name: "pi", exact: true }).click();
+      await expect.poll(readChoice).toMatchObject({ agent: "pi", provider: "", model: "" });
+      await choose(picker.getByRole("combobox", { name: "模型服务" }), "Pi test");
+      await expect(picker.getByRole("alert")).toHaveText("pi 选择模型服务后必须填写模型，填写后才会保存。");
+      await expect(picker.getByRole("button", { name: "收藏当前组合" })).toBeDisabled();
+      expect(await readChoice()).toMatchObject({ provider: "", model: "" });
+
+      // Closing an incomplete choice returns to what is actually saved.
+      await page.keyboard.press("Escape");
+      await expect(picker).toBeHidden();
+      await trigger.click();
+      await expect(picker.getByRole("combobox", { name: "模型服务" })).toHaveText("CLI 自己的登录与默认设置");
+      await choose(picker.getByRole("combobox", { name: "模型服务" }), "Pi test");
+      const model = picker.getByRole("combobox", { name: "模型", exact: true });
+      await model.fill("custom-model");
+      await model.press("Enter");
+      await expect(picker.getByRole("alert")).toHaveCount(0);
+      await expect.poll(readChoice).toMatchObject({ agent: "pi", provider: "pi-test", model: "custom-model" });
+
+      // Clearing the required model cannot replace the saved, usable pair.
+      await picker.getByRole("button", { name: "显示选项" }).click();
+      await page.getByRole("listbox").getByRole("option", { name: "默认模型", exact: true }).click();
+      await expect(picker.getByRole("alert")).toBeVisible();
+      expect(await readChoice()).toMatchObject({ provider: "pi-test", model: "custom-model" });
+      await choose(picker.getByRole("combobox", { name: "模型服务" }), "CLI 自己的登录与默认设置");
+      await expect.poll(readChoice).toMatchObject({ provider: "", model: "" });
+      await page.keyboard.press("Escape");
+    } finally {
+      await api.resetSettings();
+    }
+  });
+}
+
 test("the composer switches who replies in the conversation, a favorite switching the whole combination", async ({ page, api }) => {
   await api.setAllRoles("claude");
   await page.goto("/");

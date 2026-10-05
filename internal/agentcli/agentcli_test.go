@@ -210,6 +210,29 @@ func TestWorkersPassTheGuardOnEveryCLI(t *testing.T) {
 	}
 }
 
+func TestPiProviderRequiresModelBeforeStarting(t *testing.T) {
+	for _, model := range []string{"", " \t\r\n"} {
+		t.Run(model, func(t *testing.T) {
+			h := newHarness(t)
+			req := h.req("ping")
+			req.Provider = &settings.Provider{ID: "test", PiProvider: "deepseek"}
+			req.Model = model
+			run, err := h.l.Start(context.Background(), settings.Pi, req)
+			if err == nil {
+				run.Cancel()
+				run.Wait()
+				t.Fatal("pi started without a model for its provider")
+			}
+			if !strings.Contains(err.Error(), "requires a model") {
+				t.Fatal(err)
+			}
+			if len(h.invocations()) != 0 {
+				t.Fatal("invalid configuration spawned pi")
+			}
+		})
+	}
+}
+
 func TestProviderInjectionKeepsKeysOffTheCommandLine(t *testing.T) {
 	p := &settings.Provider{ID: "ds", Label: "DeepSeek", AnthropicBaseURL: "https://api.deepseek.com/anthropic",
 		OpenAIBaseURL: "https://gw.example.com/v1", PiProvider: "deepseek", APIKey: "sk-secret-123456"}

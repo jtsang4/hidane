@@ -509,6 +509,7 @@ export const zh = {
         claude: "Claude Code 需要该服务提供 Anthropic 兼容地址。",
         codex: "Codex 需要该服务提供 OpenAI Responses 地址。",
         pi: "pi 需要该服务填写 pi provider 名称。",
+        piModel: "pi 选择模型服务后必须填写模型，填写后才会保存。",
         unknownProvider: "所选模型服务已不存在。",
       },
       providers: {
@@ -1086,6 +1087,7 @@ export const en = {
         claude: "Claude Code needs a provider with an Anthropic-compatible base URL.",
         codex: "Codex needs a provider with an OpenAI Responses base URL.",
         pi: "pi needs a provider with a pi provider name.",
+        piModel: "pi requires a model when a provider is selected. Choose a model to save this configuration.",
         unknownProvider: "The selected provider no longer exists.",
       },
       providers: {

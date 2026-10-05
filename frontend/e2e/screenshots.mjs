@@ -164,6 +164,37 @@ try {
         await shot(name);
       }
 
+      if (want("settings-roles-pi-model", "run-as-pi-model")) {
+        const saved = await api("/api/settings");
+        await api("/api/providers", { method: "POST", body: JSON.stringify({ id: "pi-shot", label: "Pi provider", piProvider: "deepseek" }) });
+        const pick = async (trigger, name) => {
+          await trigger.click();
+          await page.getByRole("listbox").getByRole("option", { name, exact: true }).click();
+        };
+        if (want("settings-roles-pi-model")) {
+          await settle("/settings/roles");
+          const row = page.getByRole("group", { name: lang === "zh" ? "Worker（执行）" : "Worker (execution)", exact: true });
+          await pick(row.getByLabel("Agent CLI"), "pi");
+          await pick(row.getByLabel(lang === "zh" ? "模型服务" : "Provider"), "Pi provider (pi-shot)");
+          await row.getByRole("alert").waitFor();
+          await row.evaluate((element) => element.scrollIntoView({ block: "center" }));
+          await shot("settings-roles-pi-model");
+        }
+        if (want("run-as-pi-model")) {
+          await settle("/");
+          await page.getByRole("group", { name: lang === "zh" ? "运行方式" : "Run on" }).getByRole("button").last().click();
+          const picker = page.getByRole("dialog");
+          await picker.getByRole("button", { name: "pi", exact: true }).click();
+          await pick(picker.getByRole("combobox", { name: lang === "zh" ? "模型服务" : "Provider" }), "Pi provider");
+          await picker.getByRole("alert").waitFor();
+          await shot("run-as-pi-model");
+          await page.keyboard.press("Escape");
+          await page.evaluate(() => localStorage.removeItem("hidane.runAs"));
+        }
+        await api("/api/settings/roles", { method: "PUT", body: JSON.stringify({ roles: saved.roles }) });
+        await api("/api/providers/pi-shot", { method: "DELETE" });
+      }
+
       // States worth seeing: a task open beside the conversation, the palette,
       // a new task, a message's menu and the confirm it leads to.
       if (task && want("focus")) {

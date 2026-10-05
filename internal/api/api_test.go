@@ -779,3 +779,35 @@ func TestRunAsOnChatAndWorkItems(t *testing.T) {
 		t.Fatalf("unknown agent: %d", code)
 	}
 }
+
+func TestPiProviderWithoutModelIsRefused(t *testing.T) {
+	e := newEnv(t, api.Options{})
+	id, label, provider := "test", "Test", "deepseek"
+	if _, err := e.st.AddProvider(settings.ProviderInput{ID: &id, Label: &label, PiProvider: &provider}); err != nil {
+		t.Fatal(err)
+	}
+	item := m(e.k.CreateWorkItem(context.Background(), "pi config", "test", kernel.CreateWorkItemOpts{}))
+	for _, model := range []string{"", " \t\r\n"} {
+		run := map[string]any{"agent": "pi", "provider": "test", "model": model}
+		for _, tc := range []struct {
+			method, path string
+			body         map[string]any
+		}{
+			{"PUT", "/api/settings/roles", map[string]any{"roles": map[string]any{"worker": run}}},
+			{"POST", "/api/chat", map[string]any{"text": "go", "runAs": run}},
+			{"PATCH", "/api/work-items/" + item.ID, map[string]any{"runAs": run}},
+		} {
+			if code, body := e.do(tc.method, tc.path, "", tc.body); code != 400 || !strings.Contains(body["error"].(string), "requires a model") {
+				t.Fatalf("%s %s: %d %v", tc.method, tc.path, code, body)
+			}
+		}
+	}
+	if e.st.Get().Roles["worker"] != settings.Default().Roles["worker"] || m(e.k.GetWorkItem(context.Background(), item.ID)).RunAs != nil {
+		t.Fatal("rejected configuration was persisted")
+	}
+	for _, kind := range []string{"user.message", "work_item.run_as_changed", "settings.updated"} {
+		if events := m(e.k.ListEvents(context.Background(), kernel.ListFilter{Kind: kind})); len(events) != 0 {
+			t.Fatalf("rejected requests produced %s: %+v", kind, events)
+		}
+	}
+}

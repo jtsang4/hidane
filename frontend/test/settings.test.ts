@@ -61,10 +61,20 @@ describe("compatibility", () => {
 
   it("resolves a role's provider id, flagging one that no longer exists", () => {
     const list = [provider({ piProvider: "deepseek" })];
-    expect(roleCompatibility({ agent: "pi", provider: "deepseek" }, list)).toBeNull();
-    expect(roleCompatibility({ agent: "claude", provider: "deepseek" }, list)).toBe("settings.compat.claude");
-    expect(roleCompatibility({ agent: "claude", provider: "gone" }, list)).toBe("settings.compat.unknownProvider");
-    expect(roleCompatibility({ agent: "claude", provider: "" }, [])).toBeNull();
+    expect(roleCompatibility({ agent: "pi", provider: "deepseek", model: "custom-model" }, list)).toBeNull();
+    expect(roleCompatibility({ agent: "claude", provider: "deepseek", model: "" }, list)).toBe("settings.compat.claude");
+    expect(roleCompatibility({ agent: "claude", provider: "gone", model: "" }, list)).toBe("settings.compat.unknownProvider");
+    expect(roleCompatibility({ agent: "claude", provider: "", model: "" }, [])).toBeNull();
+  });
+
+  it("requires a model only when pi uses an explicit provider", () => {
+    const list = [provider({ piProvider: "deepseek", anthropicBaseUrl: "https://a", openaiBaseUrl: "https://o" })];
+    for (const model of ["", " \t\r\n"]) {
+      expect(roleCompatibility({ agent: "pi", provider: "deepseek", model }, list)).toBe("settings.compat.piModel");
+    }
+    expect(roleCompatibility({ agent: "pi", provider: "", model: "" }, [])).toBeNull();
+    expect(roleCompatibility({ agent: "claude", provider: "deepseek", model: "" }, list)).toBeNull();
+    expect(roleCompatibility({ agent: "codex", provider: "deepseek", model: "" }, list)).toBeNull();
   });
 });
 

@@ -312,6 +312,7 @@ func (s Settings) ValidateRun(rc RoleConfig) error {
 	if efforts := EffortsFor(rc.Agent); !contains(efforts, rc.Effort) {
 		return fmt.Errorf("%s effort must be one of %s", rc.Agent, strings.Join(efforts[1:], ", "))
 	}
+	var provider *Provider
 	if rc.Provider != "" {
 		p, ok := s.Provider(rc.Provider)
 		if !ok {
@@ -320,8 +321,18 @@ func (s Settings) ValidateRun(rc RoleConfig) error {
 		if msg := Compatibility(rc.Agent, &p); msg != "" {
 			return fmt.Errorf("%s", msg)
 		}
+		provider = &p
 	}
-	if strings.ContainsAny(rc.Model, " \n\t") {
+	return ValidateModel(rc.Agent, rc.Model, provider)
+}
+
+// ValidateModel also runs before launching pi, since settings loaded from disk
+// may predate its requirement to pair --provider with --model.
+func ValidateModel(agent, model string, provider *Provider) error {
+	if agent == Pi && provider != nil && strings.TrimSpace(model) == "" {
+		return fmt.Errorf("pi requires a model when a provider is selected")
+	}
+	if strings.ContainsAny(model, " \n\t") {
 		return fmt.Errorf("model must not contain spaces")
 	}
 	return nil

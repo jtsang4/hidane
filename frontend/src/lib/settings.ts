@@ -32,6 +32,7 @@ export type CompatibilityIssue =
   | "settings.compat.claude"
   | "settings.compat.codex"
   | "settings.compat.pi"
+  | "settings.compat.piModel"
   | "settings.compat.unknownProvider";
 
 /**
@@ -47,14 +48,18 @@ export function compatibility(agent: AgentKind, provider: ProviderEndpoints | ""
   return null;
 }
 
-/** `compatibility` for a role row, resolving its provider id against the saved list. */
+/** Checks a role or task choice against the saved providers and the CLI's model requirements. */
 export function roleCompatibility(
-  config: Pick<RoleConfig, "agent" | "provider">,
+  config: Pick<RoleConfig, "agent" | "provider" | "model">,
   providers: readonly ProviderView[],
 ): CompatibilityIssue | null {
   if (config.provider === "") return null;
   const provider = providers.find((p) => p.id === config.provider);
-  return provider ? compatibility(config.agent, provider) : "settings.compat.unknownProvider";
+  if (!provider) return "settings.compat.unknownProvider";
+  const issue = compatibility(config.agent, provider);
+  if (issue) return issue;
+  if (config.agent === "pi" && !config.model.trim()) return "settings.compat.piModel";
+  return null;
 }
 
 /** Roles whose saved configuration points at a provider — the reason a delete is refused. */

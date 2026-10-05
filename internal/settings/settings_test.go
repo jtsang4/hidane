@@ -54,6 +54,59 @@ func TestDefaultsAndPersistence(t *testing.T) {
 
 func ptr(s string) *string { return &s }
 
+func TestPiProviderRequiresModel(t *testing.T) {
+	s := settings.Default()
+	s.Providers = []settings.Provider{{ID: "test", Label: "Test", PiProvider: "deepseek", AnthropicBaseURL: "https://example.com", OpenAIBaseURL: "https://example.com"}}
+	for _, tc := range []struct {
+		name string
+		run  settings.RoleConfig
+		bad  bool
+	}{
+		{"pi provider without model", settings.RoleConfig{Agent: settings.Pi, Provider: "test"}, true},
+		{"pi provider with blank model", settings.RoleConfig{Agent: settings.Pi, Provider: "test", Model: " \t\r\n"}, true},
+		{"pi provider with model", settings.RoleConfig{Agent: settings.Pi, Provider: "test", Model: "custom-model"}, false},
+		{"pi defaults", settings.RoleConfig{Agent: settings.Pi}, false},
+		{"pi model only", settings.RoleConfig{Agent: settings.Pi, Model: "custom-model"}, false},
+		{"claude provider defaults", settings.RoleConfig{Agent: settings.Claude, Provider: "test"}, false},
+		{"codex provider defaults", settings.RoleConfig{Agent: settings.Codex, Provider: "test"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := s.ValidateRun(tc.run)
+			if tc.bad {
+				if err == nil || !strings.Contains(err.Error(), "requires a model") {
+					t.Fatalf("missing model: %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	st, err := settings.Load(filepath.Join(t.TempDir(), "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddProvider(settings.ProviderInput{ID: ptr("test"), Label: ptr("Test"), PiProvider: ptr("deepseek")}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(st.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range settings.Roles {
+		if _, err := st.SetRoles(map[string]settings.RoleConfig{role: {Agent: settings.Pi, Provider: "test"}}); err == nil || !strings.Contains(err.Error(), "requires a model") {
+			t.Fatalf("%s: %v", role, err)
+		}
+		if got := st.Get().Roles[role]; got != settings.Default().Roles[role] {
+			t.Fatalf("rejected change updated %s: %+v", role, got)
+		}
+	}
+	after, err := os.ReadFile(st.Path())
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("rejected changes modified settings on disk: %v", err)
+	}
+}
+
 func TestValidation(t *testing.T) {
 	st, _ := settings.Load(filepath.Join(t.TempDir(), "s.json"))
 	cases := []settings.ProviderInput{

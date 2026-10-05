@@ -82,6 +82,10 @@ test.describe("settings", () => {
       const distiller = page.getByRole("group", { name: "Distiller（记忆提炼）" });
       await choose(distiller.getByLabel("Agent CLI"), "pi");
       await choose(distiller.getByLabel("模型服务"), "DeepSeek (deepseek)");
+      await expect(distiller.getByRole("alert")).toHaveText("pi 选择模型服务后必须填写模型，填写后才会保存。");
+      await expect(distiller.getByRole("status")).toHaveText("未保存");
+      await expect(distiller.getByRole("button", { name: "测试", exact: true })).toBeDisabled();
+      expect((await api.settings()).roles.distiller).toMatchObject({ agent: "pi", provider: "", model: "" });
       const model = distiller.getByLabel("模型", { exact: true });
       await model.fill("deepseek-v4-pro");
       // Typing alone does not save the model…

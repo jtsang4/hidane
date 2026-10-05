@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jtsang4/hidane/internal/settings"
 )
 
 // pi in RPC mode: JSONL commands on stdin, responses and session events on
@@ -106,6 +108,9 @@ func piArgs(l *Launcher, req Request) ([]string, []string) {
 }
 
 func startPi(ctx context.Context, l *Launcher, bin string, req Request) (Run, error) {
+	if err := settings.ValidateModel(settings.Pi, req.Model, req.Provider); err != nil {
+		return nil, err
+	}
 	if req.Tools && !fileExists(l.piShimPath()) {
 		if err := l.EnsureRuntimeFiles(); err != nil {
 			return nil, err
