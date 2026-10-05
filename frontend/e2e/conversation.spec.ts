@@ -443,6 +443,8 @@ test("long history stays bounded, pages both ways without moving the reader, and
     kind: "user.message", threadId: "main", workItemId: null, executionId: null,
     payload: { text: `History message ${i + 1}\n${"Long history. ".repeat(20)}` },
   }));
+  /** Holds a page on its way, so the reader can scroll before it lands. */
+  let held: Promise<void> | null = null;
   // A deterministic archive isolates pagination from the shared server's agents.
   await page.route("**/api/events?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
@@ -458,6 +460,7 @@ test("long history stays bounded, pages both ways without moving the reader, and
     } else if (before) events = history.filter((event) => event.seq < Number(before)).slice(-limit);
     else if (after) events = history.filter((event) => event.seq > Number(after)).slice(0, limit);
     else events = history.slice(-limit);
+    if ((before || after) && held) await held;
     await route.fulfill({ json: { events, hasMore: (events[0]?.seq ?? 1) > 1, hasNewer: (events.at(-1)?.seq ?? 1_000) < 1_000, titles: {} } });
   });
   await page.goto("/");
@@ -469,18 +472,30 @@ test("long history stays bounded, pages both ways without moving the reader, and
     await log.dispatchEvent("wheel");
     await log.evaluate((el, direction) => { el.scrollTop = direction === "older" ? 700 : el.scrollHeight - el.clientHeight - 700; }, direction);
     await expect(page.getByRole("button", { name: "回到最新" })).toBeVisible();
+    const edge = direction === "older" ? rows.first() : rows.last();
+    const beforeEdge = await edge.getAttribute("data-root");
+    const cursor = direction === "older" ? "before" : "after";
+    let release = () => {};
+    held = new Promise((resolve) => (release = resolve));
+    const request = page.waitForRequest((r) => new URL(r.url()).searchParams.has(cursor));
+    await page.getByRole("button", { name: direction === "older" ? "加载更早的消息" : "加载更新的消息", exact: true }).dispatchEvent("click");
+    await request;
+    // The reader goes on scrolling while the page is on its way; where they are when it lands is what must stay put.
+    await log.dispatchEvent("wheel");
+    await log.evaluate((el, dy) => { el.scrollTop += dy; }, direction === "older" ? -25 : 25);
     const anchor = await rows.evaluateAll((nodes) => {
       const top = nodes[0]?.closest('[role="log"]')?.getBoundingClientRect().top ?? 0;
       const node = nodes.find((node) => node.getBoundingClientRect().bottom > top) as HTMLElement | undefined;
       return { root: node?.dataset["root"] ?? "", top: node?.getBoundingClientRect().top ?? 0 };
     });
-    const edge = direction === "older" ? rows.first() : rows.last();
-    const beforeEdge = await edge.getAttribute("data-root");
-    const response = page.waitForResponse((r) => new URL(r.url()).searchParams.has(direction === "older" ? "before" : "after"));
-    await page.getByRole("button", { name: direction === "older" ? "加载更早的消息" : "加载更新的消息", exact: true }).dispatchEvent("click");
+    const response = page.waitForResponse((r) => new URL(r.url()).searchParams.has(cursor));
+    held = null;
+    release();
     await response;
     await expect(edge).not.toHaveAttribute("data-root", beforeEdge!);
-    await expect.poll(async () => Math.abs((await turn(page, anchor.root).boundingBox())!.y - anchor.top)).toBeLessThan(2);
+    // Settled, not merely passing through the right place on the way.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(Math.abs((await turn(page, anchor.root).boundingBox())!.y - anchor.top), "the turn on screen did not move").toBeLessThan(1);
     expect(await rows.count()).toBeLessThanOrEqual(HISTORY_EVENT_LIMIT);
   }
 

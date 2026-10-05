@@ -460,7 +460,11 @@
     if (!revealLoaded(notice.root)) goTo(notice.root);
   }
 
-  /** Restore a visible turn after adding a page and evicting the opposite end. */
+  /**
+   * Restore a visible turn after adding a page and evicting the opposite end.
+   * Taken once the page has arrived: the reader goes on scrolling while it is
+   * on its way, and restoring an earlier place would undo that.
+   */
   function preserveScroll(direction: "older" | "newer"): () => void {
     const el = viewport;
     if (!el) return () => {};
@@ -481,10 +485,10 @@
     if (loadingOlder || !hasOlder) return;
     const cursor = loadedRange(seen.values())?.oldest;
     if (cursor === undefined) return;
-    const restore = preserveScroll("older");
     loadingOlder = true;
     try {
       const page = await api.eventsPage({ conversation: true, personOnly, before: cursor, limit: PAGE_SIZE });
+      const restore = preserveScroll("older");
       absorb(page, "older");
       olderKnown = page.hasMore && page.events.length > 0;
       await tick();
@@ -500,10 +504,10 @@
     if (loadingNewer || mode !== "window" || !hasNewer) return;
     const cursor = loadedRange(seen.values())?.newest;
     if (cursor === undefined) return;
-    const restore = preserveScroll("newer");
     loadingNewer = true;
     try {
       const page = await api.eventsPage({ conversation: true, personOnly, after: cursor, limit: PAGE_SIZE });
+      const restore = preserveScroll("newer");
       absorb(page);
       hasNewer = page.hasNewer ?? false;
       if (!hasNewer) rejoinLive();
