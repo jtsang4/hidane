@@ -3,6 +3,7 @@ import type { AgentCatalog } from "../src/lib/api.js";
 import {
   effortOptions,
   favoriteLabel,
+  fitEffort,
   loadDraftRunAs,
   loadFavorites,
   MAX_FAVORITES,
@@ -62,6 +63,16 @@ describe("run-as choice", () => {
     expect(effortOptions({ agent: "pi", provider: "", model: "", effort: "" }, undefined)).toContain("off");
     // A value chosen elsewhere stays visible.
     expect(effortOptions({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "xhigh" }, codex)).toContain("xhigh");
+  });
+
+  it("drops an effort the newly chosen model or CLI does not take, back to the default", () => {
+    // The catalog knows the model: only its own efforts are kept.
+    expect(fitEffort({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "ultra" }, codex)).toBe("");
+    expect(fitEffort({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "medium" }, codex)).toBe("medium");
+    // A model the catalog does not list, or one behind a provider, is held to the CLI's efforts.
+    expect(fitEffort({ agent: "codex", provider: "", model: "other", effort: "ultra" }, codex)).toBe("ultra");
+    expect(fitEffort({ agent: "codex", provider: "deepseek", model: "gpt-fake-mini", effort: "ultra" }, codex)).toBe("ultra");
+    expect(fitEffort({ agent: "claude", provider: "", model: "", effort: "ultra" }, undefined)).toBe("");
   });
 
   it("says what a task runs on in one line", () => {

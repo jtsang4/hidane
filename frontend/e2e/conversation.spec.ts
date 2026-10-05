@@ -329,6 +329,11 @@ test("the composer switches who replies in the conversation, a favorite switchin
   await choose(picker.getByRole("combobox", { name: "推理强度" }), "高");
   await expect.poll(async () => (await api.settings()).roles.primary).toEqual({ agent: "codex", provider: "", model: "gpt-fake-1", effort: "high" });
   await picker.getByRole("button", { name: "收藏当前组合" }).click();
+  // A model that does not take that effort takes it back to the default, in the same save.
+  await model.fill("gpt-fake-mini");
+  await model.press("Enter");
+  await expect(picker.getByRole("combobox", { name: "推理强度" })).toHaveText("默认");
+  await expect.poll(async () => (await api.settings()).roles.primary).toEqual({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "" });
 
   // Switching again is saved at once; the other roles stay as they were.
   await picker.getByRole("button", { name: "pi" }).click();

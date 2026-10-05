@@ -152,6 +152,33 @@ describe("RoleRow", () => {
     expect((await screen.findAllByRole("option")).map((option) => option.textContent?.trim())).toEqual([zh.translation.runAs.defaultModel, "deepseek-chat"]);
   });
 
+  it("drops an effort the new model does not take before saving, never sending the pair", async () => {
+    const codex: AgentCatalog = {
+      agent: "codex",
+      models: [
+        { id: "gpt-fake-1", label: "GPT Fake 1", efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+        { id: "gpt-fake-mini", label: "GPT Fake Mini", efforts: ["low", "medium"], defaultEffort: "low" },
+      ],
+      efforts: ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+      source: "cli",
+    };
+    const openai: ProviderView = { ...deepseek, id: "openai", label: "OpenAI", openaiBaseUrl: "https://api.openai.com/v1" };
+    const onsave = vi.fn((_config: RoleConfig) => Promise.resolve());
+    const ontest = vi.fn(() => Promise.resolve({ ok: true, text: "", error: "", durationMs: 1, agent: "codex", model: "" }));
+    const config: RoleConfig = { agent: "codex", provider: "", model: "gpt-fake-1", effort: "xhigh" };
+    const { rerender } = render(RoleRow, { props: { role: "worker", config, providers: [openai], catalogs: { codex }, onsave, ontest } });
+    const model = screen.getByLabelText(text.roles.model);
+    await fireEvent.input(model, { target: { value: "gpt-fake-mini" } });
+    await fireEvent.blur(model);
+    expect(onsave).toHaveBeenLastCalledWith({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "" });
+
+    // Back on the CLI's own login from a provider, the catalog's limits apply again.
+    await rerender({ config: { agent: "codex", provider: "openai", model: "gpt-fake-mini", effort: "high" } });
+    await choose(screen.getByLabelText(text.roles.provider), text.ownLogin);
+    expect(onsave).toHaveBeenLastCalledWith({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "" });
+    expect(onsave.mock.calls.filter(([sent]) => sent.provider === "" && sent.model === "gpt-fake-mini" && !["", "low", "medium"].includes(sent.effort))).toEqual([]);
+  });
+
   it("shows a failed test's error", async () => {
     renderRow({
       ontest: () => Promise.resolve({ ok: false, text: "", error: "401 invalid api key", durationMs: 80, agent: "pi", model: "" }),

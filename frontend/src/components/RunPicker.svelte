@@ -14,7 +14,7 @@
   import { api, type AgentKind, type Effort, type RunAs } from "../lib/api.js";
   import { favorites, toggleFavoriteRun } from "../lib/favorites.svelte.js";
   import { openSettings } from "../lib/router.svelte.js";
-  import { AGENT_LABELS, effortOptions, favoriteLabel, sameRunAs, withAgent } from "../lib/runAs.js";
+  import { AGENT_LABELS, effortOptions, favoriteLabel, fitEffort, sameRunAs, withAgent } from "../lib/runAs.js";
   import { AGENT_KINDS, compatibility, roleCompatibility } from "../lib/settings.js";
   import { dialogOverlay, segment, segmented, segmentOff, segmentOn, sheetHandle } from "../lib/styles.js";
   import { cn } from "../lib/utils.js";
@@ -133,7 +133,8 @@
 
   function commitModel(next: string): void {
     typed = null;
-    if (value !== null && next !== value.model) set({ model: next });
+    // An effort the new model does not take goes back to the default in the same change.
+    if (value !== null && next !== value.model) set({ model: next, effort: fitEffort({ ...value, model: next }, catalogQuery.data) });
   }
 
   function commitTyped(): void {

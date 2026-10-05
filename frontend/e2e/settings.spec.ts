@@ -149,6 +149,28 @@ test.describe("settings", () => {
     });
   });
 
+  test("a new model takes the effort back to its default when it does not take the chosen one, in the same save", async ({ page, api }) => {
+    const sent: unknown[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/settings/roles") sent.push(request.postDataJSON());
+    });
+    await page.goto("/settings/roles");
+    const worker = page.getByRole("group", { name: "Worker（执行）" });
+    await choose(worker.getByLabel("Agent CLI"), "Codex");
+    const model = worker.getByRole("combobox", { name: "模型", exact: true });
+    const effort = worker.getByLabel("推理强度");
+    await model.click();
+    await page.getByRole("option", { name: /^gpt-fake-1/ }).click();
+    await choose(effort, "很高");
+    await expect.poll(async () => (await api.settings()).roles.worker).toEqual({ agent: "codex", provider: "", model: "gpt-fake-1", effort: "xhigh" });
+    // The fake's gpt-fake-mini takes only low and medium.
+    await model.click();
+    await page.getByRole("option", { name: /^gpt-fake-mini/ }).click();
+    await expect(effort).toHaveText("默认");
+    await expect.poll(async () => (await api.settings()).roles.worker).toEqual({ agent: "codex", provider: "", model: "gpt-fake-mini", effort: "" });
+    expect(sent).not.toContainEqual({ roles: { worker: expect.objectContaining({ model: "gpt-fake-mini", effort: "xhigh" }) } });
+  });
+
   test("role test button makes a real round trip through the fake CLI", async ({ page, api }) => {
     await api.setAllRoles("claude");
     await page.goto("/settings/roles");

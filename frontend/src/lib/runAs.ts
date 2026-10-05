@@ -43,16 +43,29 @@ export function withAgent(agent: AgentKind | ""): RunAs | null {
   return agent === "" ? null : { agent, provider: "", model: "", effort: "" };
 }
 
+/** The efforts the chosen model takes, when the catalog knows it, else every effort the CLI accepts. */
+function supportedEfforts(value: RunAs, catalog: AgentCatalog | undefined): Effort[] {
+  const model = value.provider === "" ? catalog?.models.find((m) => m.id === value.model) : undefined;
+  return model?.efforts && model.efforts.length > 0 ? ["", ...model.efforts] : [...effortsFor(value.agent)];
+}
+
 /**
- * The efforts to offer: those the chosen model takes, when the catalog knows
- * it, else every effort the CLI accepts. The current value stays listed so a
- * choice made elsewhere is never silently dropped from view.
+ * The efforts to offer. The current value stays listed so a choice made
+ * elsewhere is never silently dropped from view.
  */
 export function effortOptions(value: RunAs, catalog: AgentCatalog | undefined): Effort[] {
-  const model = value.provider === "" ? catalog?.models.find((m) => m.id === value.model) : undefined;
-  const base: Effort[] = model?.efforts && model.efforts.length > 0 ? ["", ...model.efforts] : [...effortsFor(value.agent)];
+  const base = supportedEfforts(value, catalog);
   if (!base.includes(value.effort)) base.push(value.effort);
   return base;
+}
+
+/**
+ * The effort a choice keeps once its CLI, provider or model changed: one the
+ * new choice does not take goes back to the default before anything is
+ * saved — the server knows only each CLI's efforts, not each model's.
+ */
+export function fitEffort(value: RunAs, catalog: AgentCatalog | undefined): Effort {
+  return supportedEfforts(value, catalog).includes(value.effort) ? value.effort : "";
 }
 
 /** "Codex · gpt-5.5 · 高" — the label words come from the caller's translations. */

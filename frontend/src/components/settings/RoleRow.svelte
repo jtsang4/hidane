@@ -4,8 +4,8 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import { t } from "../../i18n/index.js";
   import type { AgentCatalog, AgentKind, AgentTestResult, Effort, ProviderView, Role, RoleConfig } from "../../lib/api.js";
-  import { effortOptions } from "../../lib/runAs.js";
-  import { AGENT_KINDS, effortsFor, errorText, roleCompatibility } from "../../lib/settings.js";
+  import { effortOptions, fitEffort } from "../../lib/runAs.js";
+  import { AGENT_KINDS, errorText, roleCompatibility } from "../../lib/settings.js";
   import Button from "../ui/Button.svelte";
   import Combobox, { type ComboboxSuggestion } from "../ui/Combobox.svelte";
   import Select, { type SelectOption } from "../ui/Select.svelte";
@@ -119,6 +119,12 @@
     void commit();
   }
 
+  /** A new CLI, provider or model; an effort it does not take goes back to the default in the same save. */
+  function rechoose(patch: Partial<RoleConfig>): void {
+    const next = { ...draft, ...patch };
+    change({ ...patch, effort: fitEffort(next, catalogs[next.agent]) });
+  }
+
   async function test(): Promise<void> {
     testing = true;
     result = null;
@@ -160,11 +166,11 @@
         class="w-full sm:w-56"
         value={draft.agent}
         options={AGENT_KINDS.map((kind) => ({ value: kind, label: $t(`settings.kinds.${kind}`) }))}
-        onchange={(next) => { const agent = next as AgentKind; change({ agent, ...(effortsFor(agent).includes(draft.effort) ? {} : { effort: "" }) }); }}
+        onchange={(next) => rechoose({ agent: next as AgentKind })}
       />
     </SettingsRow>
     <SettingsRow wide label={$t("settings.roles.provider")} for={ids.provider} below={issue ? warning : undefined}>
-      <Select id={ids.provider} class="w-full sm:w-56" value={draft.provider} options={providerOptions} onchange={(next) => change({ provider: next })} />
+      <Select id={ids.provider} class="w-full sm:w-56" value={draft.provider} options={providerOptions} onchange={(next) => rechoose({ provider: next })} />
     </SettingsRow>
     <SettingsRow wide label={$t("settings.roles.model")} hint={$t("settings.roles.modelHint")} for={ids.model}>
       <Combobox
@@ -174,7 +180,7 @@
         value={draft.model}
         suggestions={models}
         oninput={(text) => update({ model: text })}
-        onchange={(next) => change({ model: next })}
+        onchange={(next) => rechoose({ model: next })}
       />
     </SettingsRow>
     <SettingsRow wide label={$t("settings.roles.effort")} for={ids.effort}>
