@@ -81,8 +81,8 @@ const codexProviderID = "hidane"
 var codexToolFeatures = []string{"shell_tool", "unified_exec", "multi_agent", "goals", "apps", "plugins", "browser_use",
 	"in_app_browser", "computer_use", "image_generation", "view_image", "sleep_tool", "tool_suggest", "skill_search"}
 
-func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
-	cfg = []string{"approval_policy=" + tomlString("never")}
+func codexArgs(l *Launcher, req Request) (args []string, env []string) {
+	cfg := []string{"approval_policy=" + tomlString("never")}
 	if req.Tools {
 		// Codex's own bypass, as the other CLIs run: the workspace is where an
 		// agent starts, not a fence. The hook still asks the guard first.
@@ -121,12 +121,7 @@ func codexConfig(l *Launcher, req Request) (cfg []string, env []string) {
 		env = append(env, "HIDANE_CODEX_API_KEY="+p.APIKey)
 	}
 	env = append(env, req.Env...)
-	return cfg, env
-}
-
-func codexArgs(l *Launcher, req Request) ([]string, []string) {
-	cfg, env := codexConfig(l, req)
-	args := []string{"app-server"}
+	args = []string{"app-server"}
 	for _, c := range cfg {
 		args = append(args, "-c", c)
 	}

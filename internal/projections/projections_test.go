@@ -77,13 +77,16 @@ func TestRecentConversationIsBoundedAndSkipsHidden(t *testing.T) {
 	hidden := say(k, "删掉我")
 	m(k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "message.redacted", ThreadID: "main", Payload: kernel.Payload{"of": hidden.ID}}))
 	current := say(k, "现在的问题")
-	rc := m(projections.Recent(ctx, k, map[string]bool{current.ID: true}, 0, 0))
+	rc := m(projections.Recent(ctx, k, map[string]bool{current.ID: true}))
 	if rc.Turns != projections.ContextTurns || strings.Contains(rc.Text, "删掉我") || strings.Contains(rc.Text, "现在的问题") {
 		t.Fatalf("turns=%d text=%s", rc.Turns, rc.Text)
 	}
-	small := m(projections.Recent(ctx, k, nil, 50, 200))
-	if small.Turns >= 20 {
-		t.Fatal("the size bound applies")
+	long := strings.Repeat("话", 300)
+	for i := 0; i < 4; i++ {
+		answer(k, say(k, long), long, nil)
+	}
+	if big := m(projections.Recent(ctx, k, nil)); big.Turns >= 4 || len(big.Text) > projections.ContextChars+200 {
+		t.Fatalf("the size bound applies: %d turns, %d bytes", big.Turns, len(big.Text))
 	}
 	days := m(projections.ConversationDays(ctx, k, "Asia/Shanghai"))
 	if len(days) != 1 || days[0].Count < 40 {
@@ -200,7 +203,7 @@ func TestRecentNamesEveryAddressedWorkItem(t *testing.T) {
 		m(k.Append(ctx, kernel.EventInput{Source: "connector:web", Kind: "message.attributed", ThreadID: "main", WorkItemID: id,
 			Payload: kernel.Payload{"of": msg.ID, "workItemId": id, "title": "t " + id, "by": "explicit"}}))
 	}
-	rc := m(projections.Recent(ctx, k, nil, 0, 0))
+	rc := m(projections.Recent(ctx, k, nil))
 	if !strings.Contains(rc.Text, "work items wi_a") || !strings.Contains(rc.Text, "wi_b") {
 		t.Fatalf("both work items: %s", rc.Text)
 	}

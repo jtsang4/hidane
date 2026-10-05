@@ -152,8 +152,8 @@ func NormalizeRemote(url string) string {
 	return strings.ToLower(u)
 }
 
-// present: the directory is still a git checkout.
-func present(path string) bool {
+// Present reports whether a checkout's directory is still a git checkout.
+func Present(path string) bool {
 	_, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil
 }
@@ -263,7 +263,7 @@ func (s *Service) Forget(ctx context.Context, id, source string) error {
 	if err != nil {
 		return err
 	}
-	if present(r.Path) {
+	if Present(r.Path) {
 		return s.K.ForgetRepo(ctx, id, source)
 	}
 	active, err := s.K.ListCheckouts(ctx, kernel.CheckoutFilter{RepoID: id, Status: kernel.CheckoutActive})
@@ -272,7 +272,7 @@ func (s *Service) Forget(ctx context.Context, id, source string) error {
 	}
 	for _, c := range active {
 		detail := kernel.Payload{"reason": "repository forgotten"}
-		if c.Mode == kernel.CheckoutWorktree && present(c.Path) {
+		if c.Mode == kernel.CheckoutWorktree && Present(c.Path) {
 			detail["directoryKept"] = c.Path
 		}
 		if _, err := s.K.ArchiveCheckout(ctx, c.ID, source, detail); err != nil {
@@ -286,7 +286,7 @@ func (s *Service) Forget(ctx context.Context, id, source string) error {
 // change, and tells the person when it went missing.
 func (s *Service) Check(ctx context.Context, r kernel.Repo, source string) (kernel.Repo, error) {
 	status := kernel.RepoPresent
-	if !present(r.Path) {
+	if !Present(r.Path) {
 		status = kernel.RepoMissing
 	}
 	updated, changed, err := s.K.SetRepoStatus(ctx, r.ID, status, source)
@@ -414,7 +414,7 @@ func (s *Service) Attach(ctx context.Context, item kernel.WorkItem, r kernel.Rep
 	if len(existing) > 0 {
 		return existing[0], nil
 	}
-	if !present(r.Path) {
+	if !Present(r.Path) {
 		return kernel.Checkout{}, &MissingError{Repo: r}
 	}
 	if spec.InPlace {
@@ -555,10 +555,10 @@ func (s *Service) Describe(ctx context.Context, c kernel.Checkout, r kernel.Repo
 		return st
 	}
 	switch {
-	case r.Status == kernel.RepoMissing || !present(r.Path):
+	case r.Status == kernel.RepoMissing || !Present(r.Path):
 		st.Health = "repo_missing"
 		return st
-	case !present(c.Path):
+	case !Present(c.Path):
 		st.Health = "missing"
 		return st
 	}
@@ -607,8 +607,8 @@ func (s *Service) Archive(ctx context.Context, id string, force bool, source str
 	}
 	detail := kernel.Payload{"branchKept": c.Branch != ""}
 	r, rerr := s.K.GetRepo(ctx, c.RepoID)
-	repoHere := rerr == nil && present(r.Path)
-	if !present(c.Path) {
+	repoHere := rerr == nil && Present(r.Path)
+	if !Present(c.Path) {
 		if repoHere {
 			_, _ = s.git(ctx, r.Path, "worktree", "prune")
 		}
@@ -660,9 +660,6 @@ func (s *Service) Archive(ctx context.Context, id string, force bool, source str
 	_, _ = s.git(ctx, r.Path, "worktree", "prune")
 	return s.K.ArchiveCheckout(ctx, id, source, detail)
 }
-
-// Present reports whether a checkout's directory is still a git checkout.
-func Present(path string) bool { return present(path) }
 
 // LogPath is where a checkout's setup and teardown output goes.
 func LogPath(item kernel.WorkItem, c kernel.Checkout, phase string) string {

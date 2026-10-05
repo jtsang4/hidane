@@ -193,9 +193,12 @@ func (k *Kernel) WorkItemMemories(ctx context.Context) ([]MemoryLayer, error) {
 	return out, nil
 }
 
-// Forget removes a memory from whichever layer holds it.
+// Forget removes a memory from whichever layer holds it. Memory must be able
+// to expire: a lesson distilled from a since-fixed bug becomes an actively
+// wrong instruction, so removal is as first-class as promotion, and equally
+// recorded.
 func (k *Kernel) Forget(ctx context.Context, memoryID, source string) (bool, error) {
-	if ok, err := k.ForgetMemory(ctx, k.GlobalMemoryPath(), memoryID, source); ok || err != nil {
+	if ok, err := k.forgetIn(ctx, k.GlobalMemoryPath(), "", memoryID, source); ok || err != nil {
 		return ok, err
 	}
 	layers, err := k.WorkItemMemories(ctx)
@@ -210,13 +213,6 @@ func (k *Kernel) Forget(ctx context.Context, memoryID, source string) (bool, err
 		}
 	}
 	return false, nil
-}
-
-// ForgetMemory removes a memory line. Memory must be able to expire: a lesson
-// distilled from a since-fixed bug becomes an actively wrong instruction, so
-// removal is as first-class as promotion, and equally recorded.
-func (k *Kernel) ForgetMemory(ctx context.Context, path, memoryID, source string) (bool, error) {
-	return k.forgetIn(ctx, path, "", memoryID, source)
 }
 
 func (k *Kernel) forgetIn(ctx context.Context, path, workItemID, memoryID, source string) (bool, error) {

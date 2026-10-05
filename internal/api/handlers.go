@@ -532,7 +532,7 @@ func (s *server) days(w http.ResponseWriter, r *http.Request) {
 // conversationContext: where the Primary's view of the conversation begins,
 // so nobody assumes the assistant remembers everything above it.
 func (s *server) conversationContext(w http.ResponseWriter, r *http.Request) {
-	rc, err := projections.Recent(r.Context(), s.K, nil, 0, 0)
+	rc, err := projections.Recent(r.Context(), s.K, nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return

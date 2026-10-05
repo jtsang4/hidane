@@ -579,7 +579,7 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 	for _, m := range batch {
 		exclude[kernel.RootOf(m)] = true
 	}
-	recentConv, err := projections.Recent(ctx, k, exclude, 0, 0)
+	recentConv, err := projections.Recent(ctx, k, exclude)
 	if err != nil {
 		return err
 	}

@@ -420,7 +420,7 @@ func TestMemoryFilesPromoteParseForget(t *testing.T) {
 	if prefs != 2 {
 		t.Fatalf("section grouping: %+v", entries)
 	}
-	ok := m(k.ForgetMemory(ctx, k.GlobalMemoryPath(), a.ID, "test"))
+	ok := m(k.Forget(ctx, a.ID, "test"))
 	if !ok || len(kernel.ParseMemories(kernel.ReadTextFile(k.GlobalMemoryPath()))) != 2 {
 		t.Fatal("forget did not remove the entry")
 	}

@@ -61,10 +61,10 @@ func (s *Service) Changes(ctx context.Context, c kernel.Checkout, r kernel.Repo)
 	ch := Changes{CheckoutID: c.ID, Repo: r.Name, Mode: c.Mode, Path: c.Path, Branch: c.Branch, Against: "HEAD",
 		Commits: []Commit{}, Files: []FileChange{}}
 	switch {
-	case r.Status == kernel.RepoMissing || !present(r.Path):
+	case r.Status == kernel.RepoMissing || !Present(r.Path):
 		ch.Problem = "repo_missing"
 		return ch
-	case !present(c.Path):
+	case !Present(c.Path):
 		ch.Problem = "missing"
 		return ch
 	}

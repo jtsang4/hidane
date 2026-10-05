@@ -143,7 +143,8 @@ const SelectCols = `events.seq, events.id, events.ts, events.source, events.kind
 
 type scanner interface{ Scan(dest ...any) error }
 
-func scanEvent(s scanner) (Event, error) {
+// ScanEvent reads one row selected with SelectCols.
+func ScanEvent(s scanner) (Event, error) {
 	var e Event
 	var thread, item, exec, mailbox, lane, caused sql.NullString
 	var payload string
@@ -225,7 +226,7 @@ func (k *Kernel) appendTx(ctx context.Context, db execer, in EventInput) (Event,
 // GetEvent returns one event by id (masked), or ok=false.
 func (k *Kernel) GetEvent(ctx context.Context, id string) (Event, bool, error) {
 	row := k.DB.QueryRowContext(ctx, `SELECT `+SelectCols+` FROM events WHERE id = ?`, id)
-	e, err := scanEvent(row)
+	e, err := ScanEvent(row)
 	if err == sql.ErrNoRows {
 		return Event{}, false, nil
 	}
@@ -370,7 +371,7 @@ func (k *Kernel) ListEvents(ctx context.Context, f ListFilter) ([]Event, error) 
 	defer rows.Close()
 	var out []Event
 	for rows.Next() {
-		e, err := scanEvent(rows)
+		e, err := ScanEvent(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -432,6 +433,3 @@ func (k *Kernel) NextBatch(ctx context.Context, consumer string, limit int) ([]E
 	}
 	return k.ListEvents(ctx, ListFilter{AfterSeq: &after, Limit: limit})
 }
-
-// ScanEvent reads one row selected with SelectCols.
-func ScanEvent(s interface{ Scan(dest ...any) error }) (Event, error) { return scanEvent(s) }

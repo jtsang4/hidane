@@ -138,16 +138,11 @@ func (k *Kernel) CountExecutions(ctx context.Context, workItemID string) (int, e
 	return n, err
 }
 
-// WorkspacePath: every work item owns exactly one workspace directory.
-func (k *Kernel) WorkspacePath(workItemID string) string {
-	return filepath.Join(k.Cfg.WorkspacesDir(), workItemID)
-}
-
-// EnsureWorkspace creates the work item's own directory. The repositories it
-// works on are checkouts attached to it later (internal/repos), so the
-// kernel never needs to know what carries them.
+// EnsureWorkspace creates the work item's own directory: every work item owns
+// exactly one. The repositories it works on are checkouts attached to it
+// later (internal/repos), so the kernel never needs to know what carries them.
 func (k *Kernel) EnsureWorkspace(workItemID string) string {
-	dir := k.WorkspacePath(workItemID)
+	dir := filepath.Join(k.Cfg.WorkspacesDir(), workItemID)
 	_ = os.MkdirAll(filepath.Join(dir, ".hidane", "sessions"), 0o755)
 	return dir
 }

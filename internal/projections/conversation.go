@@ -127,21 +127,12 @@ type ConversationDay struct {
 	FirstID string `json:"firstId"`
 }
 
-// SafeZone returns a valid IANA zone, or UTC.
-func SafeZone(zone string) *time.Location {
-	if zone == "" {
-		return time.UTC
-	}
-	loc, err := time.LoadLocation(zone)
-	if err != nil {
-		return time.UTC
-	}
-	return loc
-}
-
 // ConversationDays lists every day something was said, newest first.
 func ConversationDays(ctx context.Context, k *kernel.Kernel, zone string) ([]ConversationDay, error) {
-	loc := SafeZone(zone)
+	loc, err := time.LoadLocation(zone) // "" is UTC
+	if err != nil {
+		loc = time.UTC
+	}
 	rows, err := k.DB.QueryContext(ctx, `SELECT events.id, events.ts FROM events WHERE `+VisibleSQL+` ORDER BY events.seq ASC`)
 	if err != nil {
 		return nil, err
@@ -240,13 +231,7 @@ type contextTurn struct {
 // every time. It replaces an ever-growing model session: the same before and
 // after a restart, never compacted mid-turn, and showable to the person,
 // because the view calls this same function.
-func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxTurns, maxChars int) (RecentConversation, error) {
-	if maxTurns <= 0 {
-		maxTurns = ContextTurns
-	}
-	if maxChars <= 0 {
-		maxChars = ContextChars
-	}
+func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool) (RecentConversation, error) {
 	events, err := k.ListEvents(ctx, kernel.ListFilter{Conversation: true, Tail: 400})
 	if err != nil {
 		return RecentConversation{}, err
@@ -323,7 +308,7 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxT
 	var picked []string
 	used := 0
 	var from string
-	for i := len(ordered) - 1; i >= 0 && len(picked) < maxTurns; i-- {
+	for i := len(ordered) - 1; i >= 0 && len(picked) < ContextTurns; i-- {
 		t := ordered[i]
 		head := fmt.Sprintf("[%s] %s ", t.root, stamp(t.ts))
 		if t.said != nil {
@@ -347,7 +332,7 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool, maxT
 			lines = append(lines, "  → "+a)
 		}
 		block := strings.Join(lines, "\n")
-		if len(picked) > 0 && used+len(block) > maxChars {
+		if len(picked) > 0 && used+len(block) > ContextChars {
 			break
 		}
 		picked = append([]string{block}, picked...)
