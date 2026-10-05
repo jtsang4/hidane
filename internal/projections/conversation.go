@@ -6,6 +6,7 @@ package projections
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -14,9 +15,11 @@ import (
 	"github.com/jtsang4/hidane/internal/kernel"
 )
 
-// VisibleSQL is what the conversation view renders: the person's messages and
-// questions on the main thread, plus answers from any thread that name the
-// message they answer. A subtask's report to its parent is not shown.
+// VisibleSQL is what was said, for search and the day index — narrower than
+// kernel.ConversationSQL, which also holds routing, errors and steer notes:
+// the person's messages and questions on the main thread, plus answers from
+// any thread that name the message they answer. A subtask's report to its
+// parent is not shown.
 const VisibleSQL = `(events.kind IN ('user.message', 'agent.reply', 'escalation')
   AND (events.thread_id = 'main' OR (events.kind = 'agent.reply' AND json_extract(events.payload, '$.root') IS NOT NULL))
   AND coalesce(json_extract(events.payload, '$.child'), 0) <> 1)`
@@ -262,7 +265,9 @@ func Recent(ctx context.Context, k *kernel.Kernel, exclude map[string]bool) (Rec
 			} else {
 				t.routed = to
 			}
-		case (e.Kind == "agent.reply" || e.Kind == "escalation" || e.Kind == "agent.error") && root != "":
+		// A "which task?" question is settled by the attribution that follows;
+		// a steer note repeats the person's words.
+		case root != "" && e.Kind != "attribution.ambiguous" && e.Kind != "execution.steered" && slices.Contains(kernel.AnswerKinds, e.Kind):
 			if e.Payload.Bool("child") {
 				continue
 			}

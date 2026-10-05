@@ -19,6 +19,7 @@ const (
 	recallCap         = 4000
 )
 
+// Not kernel.AnswerKinds: an error is current breakage, which memory must not keep.
 var meaningfulKinds = map[string]bool{
 	"user.message": true, "agent.reply": true, "escalation": true, "execution.finished": true,
 	"work_item.created": true, "work_item.status_changed": true,

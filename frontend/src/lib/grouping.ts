@@ -8,14 +8,6 @@ export interface ExecutionGroup {
   ok: boolean | null;
 }
 
-/** The kinds rendered as chat bubbles. */
-export const CONVERSATION_KINDS = [
-  "user.message",
-  "agent.reply",
-  "escalation",
-  "agent.error",
-] as const;
-
 /** Group execution lifecycle events into per-execution timelines. */
 export function executionGroups(events: HidaneEvent[]): ExecutionGroup[] {
   const groups = new Map<string, ExecutionGroup>();

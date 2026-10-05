@@ -1,14 +1,13 @@
 import { SvelteMap } from "svelte/reactivity";
-import { CONVERSATION_KINDS } from "./grouping.js";
+import { ANSWER_KINDS } from "./kinds.js";
 
 /**
  * A reply being written, rendered before the event that records it exists.
  *
- * The runtime's answer is append-only and arrives as one finished `agent.reply`
- * event, which is why the chat used to sit silent and then print a paragraph at
- * once. The server now also pushes the text as it is produced, over the same SSE
- * connection but as frames that are never written to the log. This holds them
- * until the durable event catches up and takes over.
+ * The runtime's answer is append-only and lands as one finished `agent.reply`
+ * event. Meanwhile the server pushes the text as it is produced, over the same
+ * live channel but as frames that are never written to the log; this holds them
+ * until the durable event arrives and takes over.
  */
 export interface LiveReply {
   id: string;
@@ -32,12 +31,10 @@ export interface LiveReply {
 /**
  * Kinds that constitute the durable answer a live bubble stands in for. A
  * "which task?" question is streamed like a reply but lands as its own kind,
- * and must retire the bubble too or the question shows twice.
+ * and must retire the bubble too or the question shows twice. A steer note
+ * says where the person's words went; it stands for no bubble.
  */
-const ANSWER_KINDS = new Set<string>([
-  ...CONVERSATION_KINDS.filter((kind) => kind !== "user.message"),
-  "attribution.ambiguous",
-]);
+const DURABLE_KINDS = new Set([...ANSWER_KINDS].filter((kind) => kind !== "execution.steered"));
 
 const replies = new SvelteMap<string, LiveReply>();
 /**
@@ -183,7 +180,7 @@ export function noteLiveEvent(event: {
   threadId: string | null;
 }): void {
   if (Number.isFinite(event.seq) && event.seq > lastSeq) lastSeq = event.seq;
-  if (!ANSWER_KINDS.has(event.kind) || event.threadId === null) return;
+  if (!DURABLE_KINDS.has(event.kind) || event.threadId === null) return;
   for (const [id, reply] of replies) {
     if (reply.threadId === event.threadId && event.seq > reply.sinceSeq) {
       if (readers.has(reply.threadId)) retiring.set(id, event.seq);

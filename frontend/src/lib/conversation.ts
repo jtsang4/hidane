@@ -1,4 +1,5 @@
 import type { HidaneEvent } from "./api.js";
+import { ANSWER_KINDS } from "./kinds.js";
 
 /**
  * The conversation as the person reads it: each thing they said, with every
@@ -40,8 +41,6 @@ export function steeredKey(event: HidaneEvent): "conversation.steered" | "conver
   if (event.payload["late"] === true) return "conversation.steeredLate";
   return event.payload["queued"] === true ? "conversation.steeredQueued" : "conversation.steered";
 }
-
-const ANSWER_KINDS = new Set(["agent.reply", "escalation", "agent.error", "execution.steered"]);
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -514,7 +515,10 @@ func (c *Channel) deliver(ctx context.Context, e kernel.Event) error {
 
 const outbox = "feishu-outbox"
 
-var outboundKinds = []string{"agent.reply", "escalation", "attribution.ambiguous"}
+// Errors and steer notes are not sent: OutboundText has no words for them.
+var outboundKinds = slices.DeleteFunc(slices.Clone(kernel.AnswerKinds), func(kind string) bool {
+	return kind == "agent.error" || kind == "execution.steered"
+})
 
 // OutboxOnce runs one pass of the outbox consumer. A fresh install starts at
 // the tail: history is never re-sent. Delivery failures are recorded and skipped.

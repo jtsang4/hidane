@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -237,8 +238,8 @@ func follow(ctx context.Context, a *app.App, messageID string, timeout time.Dura
 			if e.Payload.Str("root") != messageID && e.Payload.Str("of") != messageID {
 				continue
 			}
-			switch e.Kind {
-			case "agent.reply", "escalation", "attribution.ambiguous", "agent.error":
+			// A steer note says where the words went, not what came of them.
+			if e.Kind != "execution.steered" && slices.Contains(kernel.AnswerKinds, e.Kind) {
 				answered = true
 			}
 			if seen[e.ID] {

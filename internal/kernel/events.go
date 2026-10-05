@@ -274,11 +274,12 @@ type ListFilter struct {
 	Limit      int
 }
 
+// AnswerKinds answer a message and name it in payload.root. The SPA's copy of
+// these lists is frontend/src/lib/kinds.ts; frontend/kinds_test.go holds them equal.
+var AnswerKinds = []string{"agent.reply", "escalation", "attribution.ambiguous", "agent.error", "execution.steered"}
+
 // ConversationMainKinds are rendered from the main thread.
-var ConversationMainKinds = []string{
-	"user.message", "agent.reply", "agent.error", "escalation",
-	"message.attributed", "attribution.ambiguous", "message.redacted",
-}
+var ConversationMainKinds = append([]string{"user.message", "message.attributed", "message.redacted"}, AnswerKinds...)
 
 // ConversationAnyKinds are rendered whichever thread they were written on.
 var ConversationAnyKinds = []string{"agent.reply", "execution.steered"}

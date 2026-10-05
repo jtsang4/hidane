@@ -1,3 +1,5 @@
+import { inConversation } from "./kinds.js";
+
 export type LiveState = "connecting" | "live" | "offline";
 
 /**
@@ -46,17 +48,6 @@ export function shouldReconnect(
   return now - lastHeardAt > reconnectAfterMs && now - connectedAt > reconnectAfterMs;
 }
 
-const CONVERSATION = new Set([
-  "user.message",
-  "agent.reply",
-  "agent.error",
-  "escalation",
-  "message.attributed",
-  "attribution.ambiguous",
-  "execution.steered",
-  "message.redacted",
-]);
-
 /**
  * Which cached queries one log event can have made stale.
  *
@@ -73,9 +64,7 @@ export function invalidationFor(event: {
 }): { now: string[][]; throttled: string[][] } {
   const now: string[][] = [];
   const throttled: string[][] = [["board"], ["status"], ["events"], ["worklog"]];
-  if (CONVERSATION.has(event.kind) && (event.threadId === "main" || event.kind === "agent.reply" || event.kind === "execution.steered")) {
-    now.push(["conversation"]);
-  }
+  if (inConversation(event)) now.push(["conversation"]);
   if (event.workItemId) now.push(["item", event.workItemId]);
   if (event.kind.startsWith("work_item.") || event.kind.startsWith("execution.")) {
     throttled.push(["items"]);
