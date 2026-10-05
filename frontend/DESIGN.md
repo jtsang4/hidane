@@ -152,6 +152,20 @@ card per row. Section labels sit flush with the card edge, `text-sm
 font-medium`. Every page-level empty state is an `EmptyState`. Long paths go through
 `PathText`, which wraps only after a slash.
 
+### Diagrams
+
+A ```` ```mermaid ```` block in an agent's Markdown is drawn in place of its
+code, in the same well (`bg-well`, `rounded-sm`) and with the same copy button,
+which still copies the source. `src/lib/mermaid.ts` hands Mermaid the tokens,
+resolved to the colors they paint: shapes are `surface-2` with `input-strong`
+edges, groups `surface` with `border`, notes `accent-strong`, lines `muted`,
+text `foreground` at 13px Geist, corners `rounded-sm` (groups `rounded-md`),
+no gradients or shadows. The ember is kept for live state (a Gantt chart's
+active work and today line), `danger` for critical work; categories (pie
+slices, series, mindmap branches) are steps of `foreground`, never hues. A
+wide diagram shrinks to 85% and then scrolls sideways; one Mermaid cannot draw
+stays a code block. Mermaid loads with the first diagram, not with the app.
+
 ### Status
 
 Badges label state, not category: `default` (ember) for live work or something
