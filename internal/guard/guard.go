@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -73,6 +74,32 @@ func WriteFile(path string, f File) error {
 		return err
 	}
 	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+// AddRule appends a rule to a policy file. A file that cannot be parsed is
+// refused rather than overwritten with this one rule.
+func AddRule(path string, rule Rule) error {
+	f, err := Load(path)
+	if err != nil {
+		return err
+	}
+	f.Rules = append(f.Rules, rule)
+	return WriteFile(path, f)
+}
+
+// RemoveRule drops a rule from a policy file; false when it holds none by that
+// id. A file that cannot be parsed is refused, as in AddRule.
+func RemoveRule(path, id string) (bool, error) {
+	f, err := Load(path)
+	if err != nil {
+		return false, err
+	}
+	n := len(f.Rules)
+	f.Rules = slices.DeleteFunc(f.Rules, func(r Rule) bool { return r.ID == id })
+	if len(f.Rules) == n {
+		return false, nil
+	}
+	return true, WriteFile(path, f)
 }
 
 func compile(pattern string) (*regexp.Regexp, error) { return regexp.Compile("(?i)" + pattern) }

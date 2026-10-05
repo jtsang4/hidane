@@ -13,6 +13,7 @@ import (
 	"github.com/jtsang4/hidane/internal/agentcli"
 	"github.com/jtsang4/hidane/internal/agentcli/fakecli"
 	"github.com/jtsang4/hidane/internal/agents"
+	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/guard/guardtest"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/kernel/kerneltest"
@@ -595,7 +596,9 @@ func TestRestartReportsLostExecutions(t *testing.T) {
 func TestPolicyRefusalsAreRecorded(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, settings.Codex)
-	m(w.k.AddGlobalRule(`result\.txt`, "no result files here", nil))
+	if err := guard.AddRule(w.k.GlobalPolicyPath(), guard.Rule{ID: "pol_t", Pattern: `result\.txt`, Reason: "no result files here"}); err != nil {
+		t.Fatal(err)
+	}
 	item := m(w.k.CreateWorkItem(ctx, "guarded", "test", kernel.CreateWorkItemOpts{}))
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "write it", Source: "connector:web", Target: item.ID}))
 	w.settle()

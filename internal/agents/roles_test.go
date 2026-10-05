@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jtsang4/hidane/internal/agents"
+	"github.com/jtsang4/hidane/internal/guard"
 	"github.com/jtsang4/hidane/internal/kernel"
 	"github.com/jtsang4/hidane/internal/projections"
 	"github.com/jtsang4/hidane/internal/settings"
@@ -94,7 +95,7 @@ func TestPrimaryAndManagerWorkWithTools(t *testing.T) {
 func TestARefusedPrimaryCallIsRecorded(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, settings.Claude)
-	if _, err := w.k.AddGlobalRule(`forbidden\.txt`, "not that file", nil); err != nil {
+	if err := guard.AddRule(w.k.GlobalPolicyPath(), guard.Rule{ID: "pol_t", Pattern: `forbidden\.txt`, Reason: "not that file"}); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "forbidden.txt")
@@ -119,7 +120,9 @@ func TestRefusalsAreRecordedWhileTheRunGoesOn(t *testing.T) {
 		t.Run(agent, func(t *testing.T) {
 			t.Parallel()
 			w := newWorld(t, agent, "FAKEAGENT_WORKER_DELAY_MS=2500")
-			m(w.k.AddGlobalRule(`forbidden\.txt`, "not that file", nil))
+			if err := guard.AddRule(w.k.GlobalPolicyPath(), guard.Rule{ID: "pol_t", Pattern: `forbidden\.txt`, Reason: "not that file"}); err != nil {
+				t.Fatal(err)
+			}
 			item := m(w.k.CreateWorkItem(ctx, "guarded", "test", kernel.CreateWorkItemOpts{}))
 			m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "RUN: echo x > forbidden.txt", Source: "connector:web", Target: item.ID}))
 			// The Manager's turn dispatches the worker; the run then goes on alone.

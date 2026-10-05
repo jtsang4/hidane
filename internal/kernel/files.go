@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/jtsang4/hidane/internal/guard"
 )
 
 // GlobalPolicyPath is the outermost capture-phase policy file.
@@ -27,39 +25,6 @@ func (k *Kernel) PolicyFilesFor(ctx context.Context, item WorkItem) []string {
 		files = append(files, WorkspacePolicyPath(chain[i].Workspace))
 	}
 	return append(files, WorkspacePolicyPath(item.Workspace))
-}
-
-func (k *Kernel) AddGlobalRule(pattern, reason string, tools []string) (guard.Rule, error) {
-	path := k.GlobalPolicyPath()
-	// A broken file is refused rather than overwritten with this one rule.
-	f, err := guard.Load(path)
-	if err != nil {
-		return guard.Rule{}, err
-	}
-	rule := guard.Rule{ID: GenID("pol", 6), Pattern: pattern, Reason: reason}
-	if len(tools) > 0 {
-		rule.Tools = tools
-	}
-	f.Rules = append(f.Rules, rule)
-	return rule, guard.WriteFile(path, f)
-}
-
-func (k *Kernel) RemoveGlobalRule(id string) (bool, error) {
-	path := k.GlobalPolicyPath()
-	f, err := guard.Load(path)
-	if err != nil {
-		return false, err
-	}
-	kept := make([]guard.Rule, 0, len(f.Rules))
-	for _, r := range f.Rules {
-		if r.ID != id {
-			kept = append(kept, r)
-		}
-	}
-	if len(kept) == len(f.Rules) {
-		return false, nil
-	}
-	return true, guard.WriteFile(path, guard.File{Rules: kept})
 }
 
 // Memory lives in layered markdown FILES — the canonical current state,

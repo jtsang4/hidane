@@ -586,8 +586,8 @@ func (s *server) addPolicy(w http.ResponseWriter, r *http.Request) {
 			tools = append(tools, strings.TrimSpace(t))
 		}
 	}
-	rule, err := s.K.AddGlobalRule(pattern, reason, tools)
-	if err != nil {
+	rule := guard.Rule{ID: kernel.GenID("pol", 6), Pattern: pattern, Reason: reason, Tools: tools}
+	if err := guard.AddRule(s.K.GlobalPolicyPath(), rule); err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
 	}
@@ -598,7 +598,7 @@ func (s *server) addPolicy(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	ok, err := s.K.RemoveGlobalRule(id)
+	ok, err := guard.RemoveRule(s.K.GlobalPolicyPath(), id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
 		return
