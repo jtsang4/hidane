@@ -1,6 +1,9 @@
 module github.com/jtsang4/hidane
 
-go 1.26.2
+// At least go1.26.8: go1.26.2's -race binaries could crash a child between fork
+// and exec on darwin (golang/go#79804), and the parallel agent tests fork many
+// children at once.
+go 1.26.8
 
 require (
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.0

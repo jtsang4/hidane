@@ -34,7 +34,7 @@ Do not push a version tag as part of a local build.
 
 ## Check the toolchain and build
 
-The desktop procedure below requires macOS, Go at least 1.26, Node at least 24,
+The desktop procedure below requires macOS, Go at least 1.26.8, Node at least 24,
 pnpm, Python 3 for the smoke check, and Apple's command-line tools.
 Check `go version`, `node --version`,
 `pnpm --version`, `uname -m`, and `xcrun --find clang`. The Makefile builds for

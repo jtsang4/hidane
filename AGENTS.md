@@ -17,7 +17,7 @@ Rules for AI coding agents working in this repository. Project introduction live
 
 ## Toolchain
 
-- Go ≥ 1.26 (`gofmt`, `go vet` clean). Node ≥ 24 with **pnpm only** for the frontend (never npm/yarn commands or lockfiles).
+- Go ≥ 1.26.8 (`gofmt`, `go vet` clean). Node ≥ 24 with **pnpm only** for the frontend (never npm/yarn commands or lockfiles).
 - Wails v3 (`github.com/wailsapp/wails/v3`, currently `v3.0.0-beta.27`); keep it on the latest release when bumping.
 - Prefer the latest stable version when adding a dependency; justify any pin. Prefer the standard library.
 - SQLite through the pure-Go `modernc.org/sqlite` driver, so `-tags nogui` builds stay `CGO_ENABLED=0`.

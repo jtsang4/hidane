@@ -192,7 +192,7 @@ the Settings page.
 
 ## Quickstart
 
-Requirements: Go ≥ 1.26, Node ≥ 24 with pnpm, macOS (the desktop shell; the
+Requirements: Go ≥ 1.26.8, Node ≥ 24 with pnpm, macOS (the desktop shell; the
 headless server and CLI build anywhere), and at least one of `claude`, `codex`,
 `pi` installed and logged in.
 
