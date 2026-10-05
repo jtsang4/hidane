@@ -6,6 +6,21 @@ import Markdown from "../src/components/Markdown.svelte";
 import i18n from "../src/i18n/index.js";
 import { clearToasts, toastStore } from "../src/lib/toast.js";
 
+// jsdom cannot lay out a diagram: Mermaid is replaced by a stand-in that "draws" what the real one could
+// return from hostile input, so these tests cover what hidane does with its output.
+const mermaid = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  parse: vi.fn(async (source: string) => (source.includes("broken") ? false : { diagramType: "flowchart-v2" })),
+  render: vi.fn(async (id: string, source: string) => ({
+    svg:
+      `<svg id="${id}" aria-roledescription="flowchart-v2" style="max-width: 400px;" onload="alert(1)">` +
+      `<script>alert(1)</script><style>#${id} .node{stroke-width:1px}</style>` +
+      `<a href="javascript:alert(1)"><g class="node"><foreignObject width="80" height="20"><div><p>${source.split("\n").at(-1)?.trim()}</p>` +
+      `<img src="x" onerror="alert(1)"></div></foreignObject></g></a></svg>`,
+  })),
+}));
+vi.mock("mermaid", () => ({ default: mermaid }));
+
 describe("Markdown", () => {
   it("renders GFM while stripping executable HTML attributes", () => {
     const { container } = render(Markdown, {
@@ -75,6 +90,49 @@ describe("Markdown", () => {
       expect(writeText).toHaveBeenCalledWith("three");
       await vi.waitFor(() => expect(get(toastStore).map((t) => t.message).join()).toContain("denied"));
       expect(screen.queryByRole("button", { name: "已复制" })).toBeNull();
+    });
+  });
+
+  describe("mermaid blocks", () => {
+    beforeEach(async () => {
+      await i18n.changeLanguage("zh");
+      // jsdom has no canvas; the theme then takes the tokens as written.
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    });
+
+    it("draws a diagram in place of its code, sanitized, keeping the source to copy", async () => {
+      const writeText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+      const source = "flowchart LR\n  A --> B";
+      const { container } = render(Markdown, { props: { content: `Plan:\n\n\`\`\`mermaid\n${source}\n\`\`\`\n\n\`\`\`sh\nmake test\n\`\`\`` } });
+
+      const svg = await vi.waitFor(() => {
+        const drawn = container.querySelector<SVGSVGElement>("svg[aria-roledescription]");
+        expect(drawn).not.toBeNull();
+        return drawn!;
+      });
+      expect(svg.textContent).toContain("A --> B");
+      expect(container.querySelectorAll("pre")).toHaveLength(1);
+      expect(container.querySelector("pre")?.textContent).toContain("make test");
+      // Strict level asked of Mermaid, and nothing executable let through regardless.
+      expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", theme: "base", startOnLoad: false }));
+      expect(container.querySelector("script, [onload], [onerror]")).toBeNull();
+      expect(container.querySelector("a")?.getAttribute("href") ?? "").not.toContain("javascript:");
+      // Shrinks to fit only so far, then scrolls.
+      expect(svg.style.minWidth).toBe("340px");
+
+      const buttons = screen.getAllByRole("button", { name: "复制代码" });
+      expect(buttons).toHaveLength(2);
+      await fireEvent.click(buttons[0]!);
+      expect(writeText).toHaveBeenCalledWith(source);
+    });
+
+    it("leaves a block Mermaid cannot draw as code", async () => {
+      const { container } = render(Markdown, { props: { content: "```mermaid\nflowchart broken ((\n```" } });
+      await vi.waitFor(() => expect(mermaid.parse).toHaveBeenCalledWith("flowchart broken ((", { suppressErrors: true }));
+      await Promise.resolve();
+      expect(container.querySelector("svg[aria-roledescription]")).toBeNull();
+      expect(container.querySelector("pre code.language-mermaid")?.textContent).toContain("flowchart broken ((");
     });
   });
 });

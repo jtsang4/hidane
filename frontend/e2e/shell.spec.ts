@@ -265,6 +265,57 @@ test("a code block in a reply: its copy button copies the code and says so", asy
   await expect(asked.getByRole("button", { name: "复制代码" })).toBeVisible();
 });
 
+test("a mermaid block in a reply is drawn as a diagram, its source still copied", async ({ page, api, desktop, hostCalls }) => {
+  await api.setAllRoles("claude");
+  if (!desktop) {
+    await page.addInitScript(() => {
+      const copied: string[] = [];
+      (window as unknown as { __copied: string[] }).__copied = copied;
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => void copied.push(text) } });
+    });
+  }
+  await page.goto("/");
+  const asked = turn(page, await say(page, `画一个流程图 ${unique("e2e-mermaid")}`));
+  const diagram = asked.locator("svg[aria-roledescription='flowchart-v2']");
+  await expect(diagram).toBeVisible();
+  await expect(diagram).toContainText("收到消息");
+  await expect(diagram).toContainText("派给 worker");
+  await expect(asked.locator("pre")).toHaveCount(0);
+  // Drawn in the theme's colors, not Mermaid's defaults: a node takes surface-2 and its label the foreground.
+  const node = diagram.locator(".node rect").first();
+  const colors = await page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.className = "bg-surface-2 text-foreground";
+    document.body.append(probe);
+    const canvas = document.createElement("canvas").getContext("2d")!;
+    const srgb = (color: string) => {
+      canvas.fillStyle = color;
+      canvas.fillRect(0, 0, 1, 1);
+      return [...canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)].join(",");
+    };
+    const style = getComputedStyle(probe);
+    const tokens = { fill: srgb(style.backgroundColor), text: srgb(style.color) };
+    probe.remove();
+    return tokens;
+  });
+  const drawn = await node.evaluate((rect) => getComputedStyle(rect).fill);
+  const label = await diagram.getByText("收到消息").evaluate((el) => getComputedStyle(el).color);
+  const srgb = (color: string) => color.match(/\d+/g)!.slice(0, 3).join(",");
+  expect(srgb(drawn)).toBe(colors.fill);
+  expect(srgb(label)).toBe(colors.text);
+
+  await expect(async () => {
+    await diagram.hover();
+    await asked.getByRole("button", { name: "复制代码" }).click({ timeout: 1_000 });
+  }).toPass();
+  const source = "flowchart LR\n  A[收到消息] --> B{要动手吗}\n  B -->|是| C[派给 worker]\n  B -->|否| D[直接回复]";
+  if (desktop) {
+    await expect.poll(() => hostCalls).toContainEqual({ path: "/api/desktop/clipboard", body: { text: source } });
+  } else {
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual([source]);
+  }
+});
+
 test("a task's menu: open, mark done, archive — and in the desktop app, show its workspace", async ({ page, api, desktop, hostCalls }) => {
   const title = unique("e2e-task-menu");
   const { item } = await api.send<{ item: WorkItem }>("POST", "/api/work-items", { title }, 201);

@@ -2,6 +2,7 @@
   import DOMPurify from "dompurify";
   import { marked } from "marked";
   import { mount, unmount } from "svelte";
+  import { isMermaidBlock, renderMermaid } from "../lib/mermaid.js";
   import { cn } from "../lib/utils.js";
   import CodeCopyButton from "./CodeCopyButton.svelte";
 
@@ -41,8 +42,21 @@
       On a touch screen the button is always shown, so the code makes room for it. */
   const CODE_FRAME = "group/code relative my-2 coarse:[&>pre]:min-h-11 coarse:[&>pre]:pr-11";
 
+  /** A drawn ```mermaid block, in the place of its code; on a touch screen it clears the copy button above it. */
+  const DIAGRAM = "overflow-x-auto rounded-sm bg-well p-3 coarse:pt-11 [&>svg]:mx-auto [&>svg]:block [&>svg]:h-auto";
+
   function codeText(pre: HTMLPreElement): string {
     return ((pre.querySelector("code") ?? pre).textContent ?? "").replace(/\n$/, "");
+  }
+
+  /** The code stays until the diagram is drawn, and for good when Mermaid cannot draw it. */
+  async function drawDiagram(pre: HTMLPreElement): Promise<void> {
+    const drawn = await renderMermaid(codeText(pre)).catch(() => null);
+    if (!drawn) return;
+    const diagram = document.createElement("div");
+    diagram.className = DIAGRAM;
+    diagram.append(drawn);
+    pre.replaceWith(diagram);
   }
 
   function renderMarkdown(node: HTMLDivElement): () => void {
@@ -52,6 +66,7 @@
       frame.className = CODE_FRAME;
       pre.replaceWith(frame);
       frame.append(pre);
+      if (isMermaidBlock(pre)) void drawDiagram(pre);
       return mount(CodeCopyButton, { target: frame, props: { text: codeText(pre) } });
     });
     return () => {
