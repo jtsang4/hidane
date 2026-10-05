@@ -286,4 +286,4 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 - 原生菜单（hidane / File / Edit / View / Window）存在且带快捷键：Settings… ⌘,、New Task… ⌘N、New Message ⌘L、
   会话/任务/定时/记忆/日志 ⌘1–⌘5、Search ⌘K、Toggle Sidebar ⌘B——可用 `osascript` 读取应用菜单栏验证（若无辅助功能权限则 BLOCKED）
 - 隐藏式标题栏：窗口大小与位置在移动/缩放后写入 `$HIDANE_HOME/runtime/window.json`，下次启动恢复
-- 再次打开不会起第二个实例
+- 再次打开不会起第二个实例（换一个 `HIDANE_HOME` 再开时，在交给已运行实例之前不会在那个目录里创建任何东西，由 `go test ./internal/desktop/` 守住）

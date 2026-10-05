@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -28,18 +29,20 @@ import (
 // FrameEvent is the Wails event carrying one live frame.
 const FrameEvent = "hidane:frame"
 
+// newShell is application.New, which hands a second launch to the running
+// instance and exits the process.
+var newShell = application.New
+
 // Run opens the app and blocks until it quits.
 //
 // With HIDANE_GUI_SMOKE=1 the app quits as soon as the page in the webview
 // has loaded and reached the backend, and fails if that does not happen in
 // time: proof that the real window, asset server and API work together.
 func Run(cfg *config.Config) error {
-	a, err := app.Open(cfg, app.Options{LoginShell: true})
-	if err != nil {
-		return err
-	}
 	smoke := os.Getenv("HIDANE_GUI_SMOKE") == "1"
 	var ready atomic.Bool
+	var a *app.App
+	var handler http.Handler
 	var wapp *application.App
 	var window *application.WebviewWindow
 	ctx, cancel := context.WithCancel(context.Background())
@@ -50,7 +53,40 @@ func Run(cfg *config.Config) error {
 		h.notifications = notifications.New()
 		services = append(services, application.NewService(h.notifications))
 	}
-	handler := a.Handler(app.HandlerOptions{
+	// newShell makes the single-instance hand-off, so it comes before the
+	// home is opened: a second launch naming another HIDANE_HOME must create
+	// nothing there. Nothing is served before wapp.Run, when handler is set.
+	wapp = newShell(application.Options{
+		// An identifier, not the displayed name: Wails derives the Linux GTK
+		// application id and the autostart entry from it.
+		Name:        "hidane",
+		Description: "Hidane (火种) — a persistent personal agent runtime",
+		Assets: application.AssetOptions{
+			Handler:        http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler.ServeHTTP(w, r) }),
+			DisableLogging: true,
+		},
+		Mac: application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.jtsang4.hidane",
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if window != nil {
+					window.Restore()
+					window.Show()
+					window.Focus()
+				}
+			},
+		},
+		Services: services,
+		OnShutdown: func() {
+			cancel()
+			a.Stop()
+		},
+	})
+	a, err := app.Open(cfg, app.Options{LoginShell: true})
+	if err != nil {
+		return err
+	}
+	handler = a.Handler(app.HandlerOptions{
 		Desktop: true,
 		Host:    h,
 		OnLiveHello: func() {
@@ -74,29 +110,6 @@ func Run(cfg *config.Config) error {
 					wapp.Quit()
 				}()
 			}
-		},
-	})
-	wapp = application.New(application.Options{
-		// An identifier, not the displayed name: Wails derives the Linux GTK
-		// application id and the autostart entry from it.
-		Name:        "hidane",
-		Description: "Hidane (火种) — a persistent personal agent runtime",
-		Assets:      application.AssetOptions{Handler: handler, DisableLogging: true},
-		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
-		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.jtsang4.hidane",
-			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-				if window != nil {
-					window.Restore()
-					window.Show()
-					window.Focus()
-				}
-			},
-		},
-		Services: services,
-		OnShutdown: func() {
-			cancel()
-			a.Stop()
 		},
 	})
 	h.app = wapp
