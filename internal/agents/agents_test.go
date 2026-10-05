@@ -570,6 +570,12 @@ func TestCancelTreeStopsARunningWorker(t *testing.T) {
 	if !cancelledAck {
 		t.Fatalf("a cancelled run is acknowledged without a model call: %+v", w.events("agent.reply"))
 	}
+	// The fake would write the same words; only the missing decision shows no model was asked.
+	for _, d := range w.events("manager.decision") {
+		if d.WorkItemID == child.ID && d.Seq > finished[0].Seq {
+			t.Fatalf("the cancelled outcome went to the model: %+v", d.Payload)
+		}
+	}
 }
 
 func TestRestartReportsLostExecutions(t *testing.T) {

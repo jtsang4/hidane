@@ -48,18 +48,19 @@ fi
 # Which scenarios a path can break. Keep in step with acceptance/scenarios.md.
 scenarios_for() {
   case "$1" in
-    internal/guard/*) echo "5E 6B 7F" ;;
+    internal/guard/*) echo "1B 6B 7F" ;;
     internal/repos/*) echo "7A 7B 7C 7D 7E 7F 7G" ;;
-    internal/agentcli/*) echo "1 5B 6A 6B 6E" ;;
-    internal/agents/*) echo "1 1B 2 4B 4F 4I 4R 5A 5B 5C 5D 5F 5H 5J 6E 7A 7B 7C 7E 7F 7G" ;;
-    internal/kernel/*) echo "3 4 5G 5H" ;;
-    internal/projections/*) echo "3 4O 4P 4R 5J" ;;
-    internal/api/*) echo "4J 4K 4O 4P 4Q 5J 7D 7E" ;;
-    internal/connectors/*) echo "2" ;;
+    internal/agentcli/*) echo "1 1B 4G 4I 5B 5G 6A 6B 6E" ;;
+    internal/agents/*) echo "1 1B 2 4 4B 4F 4G 4I 4K 4R 5B 5C 5D 5F 5G 5J 6E 7A 7B 7C 7D 7E 7F 7G" ;;
+    internal/kernel/*) echo "2 4 4B 4F 4K 5G 6B 7A 7B 7C 7D 7E 7F 7G" ;;
+    internal/projections/*) echo "4B 4R 5D 5F 5J" ;;
+    internal/api/*) echo "2 4G 4I 4K 4R 5C 5D 5J 6C 6E 7D 7E" ;;
+    internal/connectors/* | internal/config/*) echo "2" ;;
     internal/feishu/*) echo "4C" ;;
     internal/settings/*) echo "6A 6E" ;;
     internal/desktop/* | gui_on.go | gui_off.go | build/*) echo "6C" ;;
-    internal/app/* | main.go) echo "1 6A 6C" ;;
+    internal/app/*) echo "1 6A 6C" ;;
+    main.go) echo "1 2 4 4B 5G 5J 6A 6B 6C" ;;
     frontend/src/components/RunPicker.svelte | frontend/src/components/RunAsBar.svelte | frontend/src/components/Composer.svelte | frontend/src/lib/runAs.ts | frontend/src/lib/favorites.svelte.ts) echo "5I 6E" ;;
     frontend/src/components/WorktreesView.svelte | frontend/src/pages/ItemsPage.svelte | frontend/src/lib/worktrees.ts) echo "5I 7D" ;;
     frontend/*) echo "5I" ;;

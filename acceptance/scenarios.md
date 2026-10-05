@@ -33,46 +33,30 @@
 期望：
 
 - primary 将其路由为新工作项（而不是直接回复敷衍）
-- 工作项拥有自己的线程和工作区目录
 - worker 真的在工作区产出了文件，且文件内容与任务相符
-- 事件日志里有完整链条：`user.message`（主线程，mailbox=primary）→ `route.decision` →
-  `message.attributed`（created=true）→ 转发到 Manager 收件箱的 `user.message` → `manager.decision` →
-  `execution.started` → `execution.finished`（ok=true，mailbox=`manager:<wi>`）→ 第二个 `manager.decision` → `agent.reply`
-- 所有回复的 `payload.root` 都指向最初那条 `user.message` 的 id（界面靠它把回复放在问题下面）
 - 最终回复内容与实际产物一致（不是编造的）
-- `hidane chat` 等到 Manager 的最终回复（「已完成…」一类）打印出来才退出，不会停在「已安排执行」
 
 ## 场景 1B：小事 Primary 自己动手
 
 Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的高危命令与规则约束）。期望：
 
 - 问一个看一眼就能答的问题（例如「/tmp 下某个你刚建的文件里写了什么」）：Primary 自己用工具查完直接回答，
-  不开工作项；它的工具调用记为 `agent:primary` 的 `side_effect.intent` / `side_effect.result`；回答与文件内容一致
+  不开工作项；回答与文件内容一致
 - 明显要多步完成、值得跟进的活，仍然开工作项交给 worker
 
-## 场景 2：后台车道与分诊
+## 场景 2：外部事件由 Primary 回应
 
-用 `hidane serve`（设置 `HIDANE_WEBHOOK_SECRET`）启动，向 webhook 端点投递一条带正确签名的事件；未设置 secret 时 webhook 一律 403。期望：
+用 `hidane serve`（设置 `HIDANE_WEBHOOK_SECRET`）启动，向 webhook 端点投递一条带正确签名、内容明确的事件。期望：
 
-- webhook 立即被接受并落日志（`connector.webhook`），此时不阻塞、不判断
-- 分诊循环在几秒内产出 `triage.decision`，webhook 规则为唤醒 primary；这条决策本身就是投给
-  primary 收件箱的消息（`mailbox = 'primary'`），分诊循环**不等** primary 处理完
-- primary 对该外部事件产出了合理的回应（`agent.reply`，`payload.rootKind = external`，内容与事件相关，非乱答）
-- 心跳事件（`connector.heartbeat`）只被记录，分诊决定为 record，不唤醒任何模型
-- `/health` 返回数据库正常
+- primary 对该外部事件的回复（`agent.reply`，`payload.rootKind = external`）内容与事件相关，不是乱答
 - 结束后清理你启动的后台进程
 
 ## 场景 4B：记忆蒸馏与跨日召回
 
 用 `chat` 告诉 Primary 一条明确的、此前不存在的长期偏好（编一条具体的），然后 `hidane distill --min 1`。期望：
 
-- 偏好被提取并晋升进 `~/.hidane/memory/MEMORY.md`（带日期与 id 注释）
-- `memory.candidate` 与 `memory.promoted` 事件落日志
+- 偏好被提取并晋升进 `~/.hidane/memory/MEMORY.md`
 - 之后的新 `chat` 提问相关话题时，Primary 的回答引用了该偏好（跨进程召回）
-- 召回里的日期是本地日期（晚上说的话不会被说成前一天）
-- 蒸馏若写进了某个工作项的 `MEMORY.md`：`hidane memories --ids`、`GET /api/memories`（`workItems`）与
-  「记忆」页都能看到它；`hidane forget <id>` 或 `DELETE /api/memories/:id` 能删掉它，并落 `memory.forgotten`（带 `workItemId`）；
-  `hidane forget` 一个不存在的 id 以非零状态退出
 
 ## 场景 4C：飞书连接器（长连接，无公开回调）
 
@@ -84,17 +68,11 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 
 ## 场景 4F：工作项状态可改
 
-- `PATCH /api/work-items/:id` 传 `{"status":"done"}` 返回 200，工作项状态变为 done，
-  且落一条 `work_item.status_changed`（含 from/to）
-- 传回 `{"status":"open"}` 可重新打开
-- 传非法状态（如 `banana`）返回 400 且**不**落事件
-- 未知 id 返回 404
 - 通过主会话 `chat` 请求“把当前所有打开的工作项关停/关闭”时，Primary 应直接执行
   批量状态变更，不再回复“没有相应能力”；当时所有 open 工作项均变为 closed，
-  每个变更都有 `work_item.status_changed`（source 为 `agent:primary`），主线程收到
-  **一条**包含变更数量的确认回复（系统按实际结果写的确认，不再加上模型自己的那句）。
-  该操作不是删除，也不应启动 Manager/Worker。用主会话让 Primary 停止一个运行中的任务同理：只有一条确认；
-  同一句话里既停止又关闭（「停掉正在跑的并把所有任务关掉」）也只有一条确认，内容同时说明两件事。
+  每个变更都有 `work_item.status_changed`（source 为 `agent:primary`）。
+  该操作不是删除，也不应启动 Manager/Worker。用主会话让 Primary 停止一个运行中的任务、或同一句话里既停止又关闭
+  （「停掉正在跑的并把所有任务关掉」），同样直接执行。
 - 通过主会话请求将一个已完成或已归档的工作项重新打开时，Primary 应使用其真实 ID
   将状态改回 open；请求“所有已有工作项”时可用批量状态操作，不能凭空编造 ID。
 
@@ -103,51 +81,27 @@ Primary 和 Manager 都带工具（各 CLI 的 bypass 模式，只受闸门的�
 `POST /api/chat` 接受 `{"text": "...", "images": [{"data": "<base64>", "mimeType": "image/png"}]}`。
 期望（需在设置里把 primary 角色指向一个能看图的模型，例如 claude 自带登录的默认模型）：
 
-- 带图请求返回 202，`user.message` 事件 payload 带 `imageCount`
 - 模型**真的看到了图**：自己构造一张内容明确的图（例如中间一个洋红色方块），
   问它"图里是什么颜色的形状"，回复必须与你画的内容相符，而不是"我没有收到图片"
-- 只有图片、没有文字时同样接受（202），文字与图片都没有时返回 400
-- 非图片 mimeType、超过 6MB、超过 4 张的部分被丢弃而不是让整条请求失败
 
-## 场景 4I：长回复不截断、执行可中止、记忆可手写
+## 场景 4I：执行可中止
 
-- **长回复**：`ChunkText`（`internal/feishu`）把超长文本按段落切块而非截断。构造一段 >8000 字的文本，
-  确认切块后**每块不超上限、拼回来内容不丢**（真实事故：8000 字回复在飞书被 `slice(0,4000)`
-  砍掉一半，用户读到半截以为系统卡死，在执行早已成功 80 分钟后问「你是不是卡住了？」）
-  回复本身也不被截断：Manager 的 >8000 字回复（以及 worker 的长总结）原样落进 `agent.reply`；
-  只有超过 20 万字的极端情况才截，并且文末注明省略了多少字
-- 模型输出不是效果列表（例如只回了一句「response.」或 `<reasoning_effort>5</reasoning_effort>`）时，
-  Primary 与 Manager 都不把它当回复发给人：先自动追问一次（追问单独记一条 `route.decision` /
-  `manager.decision`，带 `nudged: true`），追问仍拿不到效果列表才把原文作为回复
-- **中止执行**：让一个工作项跑起来（要求它做几十次工具调用），在执行中
-  `POST /api/work-items/:id/cancel`。期望：先落 `execution.cancelled`（意图在前），
-  执行**数秒内**结束并落 `execution.finished`，且 `cancelled: true` / `ok: false`
-  ——注意 `abort()` 会让 agent 自然 idle，若按「谁先完成」判定会把被中止的执行
-  错记为成功，结果标签必须跟随用户意图。没有执行在跑时 cancel 返回 409 且不落事件。
-  Manager 收到被取消的结果时按规则直接回复「执行已取消。」，不调用模型。
+- **中止执行**：让一个工作项在真实 CLI 上跑起来（要求它做几十次工具调用），在执行中
+  `POST /api/work-items/:id/cancel`。期望：执行**数秒内**结束，`execution.finished` 带 `cancelled: true` / `ok: false`
+  ——注意 `abort()` 会让 agent 自然 idle，若按「谁先完成」判定会把被中止的执行错记为成功，结果标签必须跟随用户意图。
 - 也应能在主会话中说“停止这个正在运行的工作项”；Primary 直接发出同样的取消意图，
   不应把停止请求转成新的 Manager/Worker 执行。
-- **手写记忆**：`POST /api/memories` 写入一条，出现在 `/api/memories` 列表中，
-  并落 `memory.promoted` 且带 `manual: true`（与蒸馏产出可区分）；空内容返回 400。
+- worker 的长总结（几千字以上）原样落进 `execution.finished` 的 `summary`，不被截断
+- Primary 的输出连续两次都不是效果列表时（追问一次后仍然不是），把原文作为回复发出，而不是吞掉
 
-> **清理约定**：任何写入 MEMORY.md 的场景（4B、4I）在结束前必须把自己写的记忆
+> **清理约定**：任何写入 MEMORY.md 的场景（4B）在结束前必须把自己写的记忆
 > `forget` 掉。留下的记忆会注入后续每一次路由——曾有一条「回复开场白永远用『好的』」
 > 的验收残留，让之后所有回复都以「好的」开头。
 
-## 场景 4K：工作项可直接创建、可归档
+## 场景 4K：先记下、暂不开始的工作项
 
-不是每个任务都从对话开始。`POST /api/work-items` 直接开一个工作项。期望：
-
-- 只给 `title` → 201，工作项 status 为 `open`，**不**触发 Manager（没有 brief 就没有派活）
-- 给 `title` + `brief` → 201，brief 作为「对这个工作项说的话」落在主线程（带 `target`），
-  并记一条 `message.attributed`（by=explicit），再投递到 Manager 收件箱；Manager 真被调起
-  （可观察到 `manager.decision` 或后续执行事件）
 - 通过主会话说“先记录这个工作项，暂时不要开始”时，Primary 应创建 open 工作项并记录
   deferred 消息，但不启动 Manager/Worker；后续明确要求开始时仍可正常路由。
-- `title` 为空或纯空白 → 400
-- `PATCH {status:"closed"}` 归档后：`GET /api/work-items` 默认列表**不含**它，
-  `GET /api/work-items?all` **含**它，且事件与工作区产物均保留（归档不是删除）
-- `closed` 与 `done` 是两种状态，不要混用
 
 ## 场景 4R：Primary 的上下文有界，更早的内容靠检索
 
@@ -165,17 +119,10 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 对同一个工作项在它执行期间连续补充两句（直接对工作项说：`POST /api/chat` 带 `target`）。期望：
 
-- worker 运行中收到的话被**直接转给正在运行的执行**（`execution.steered`，不产生新的 `manager.decision`）
 - 最终产物体现了补充的要求（例如补充「支持 --dry-run」，脚本里就有这个参数）
 - 用真实 CLI 当 worker 时（`claude`、`codex`、`pi` 各一次），补充都并进**正在运行的这一轮**：这项工作只有一个
   `execution.started` / `execution.finished`，补充要求的产物出自这次执行，没有另派 worker，也不是等这一轮做完才另起一轮返工；
   补充之后执行照常结束（不会挂到超时）
-- 在 Manager 规划期间（尚未派出 worker）到达的几句话，下一个 turn 一次取走：
-  只有一个 `manager.decision` 的 `of` 同时包含这几条消息；若下一个 turn 时规划派出的 worker 已经在跑，
-  这几句直接转给它（`execution.steered`，不再有新的 `manager.decision`）；刚派出、执行还在排队时到达的，记为
-  `execution.steered`（`queued: true`）并写进 worker 的指令
-- 任何情况下都**不**出现「could not deliver」之类的 `agent.error`：执行正要结束、送不进去的话记为
-  `execution.steered`（`late: true`），随该执行的结果一起交给 Manager，Manager 的下一次回复要处理它
 
 ## 场景 5C：归属有歧义时不瞎猜，可改派
 
@@ -191,69 +138,35 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 
 提一个缺信息就做不了的任务（如「把 register.html 部署到我的服务器」，不给地址）。期望：
 
-- Manager 不会静默停住：要么派 worker，要么回复，要么上报；只写「当前理解」的 turn 会被自动追问一次，
-  追问的结果单独记一条 `manager.decision`（`nudged: true`）
-- 上报路径：`escalation.raised`（投给父级收件箱，顶层即 primary）→ primary 按规则（不调模型）
-  在主线程落 `escalation`，带 `question`、`path`（每层写明已尝试过什么）与 `workItemId`
-- 看板 `/api/board` 中该卡片 `state = waiting`，`escalation.question` 即该问题
-- 用 `POST /api/chat {replyTo: <escalation id>}` 回答后，消息投给该工作项的 Manager（payload 带 `answers`），
-  卡片不再是 waiting，任务继续推进
-- 缺的是一个选择时（例如「部署到 staging 还是 production」），上报带 `options`（2–5 个短答案，看板卡片的
-  `escalation.options` 里也有）；缺的是开放的信息（地址、密钥）时不带 `options`
+- Manager 不会静默停住：要么派 worker，要么回复，要么上报；缺地址这类信息时上报问人，问题问到点子上
+- 用 `POST /api/chat {replyTo: <escalation id>}` 回答后，任务用上你的回答继续推进
+- 缺的是一个选择时（例如「部署到 staging 还是 production」），上报带 `options`（2–5 个短答案）；
+  缺的是开放的信息（地址、密钥）时不带 `options`
 
-## 场景 5J：一句话发给几个任务，结果等人审阅
+## 场景 5J：一句话发给几个任务，答过的问题转成任务
 
 先让两个互不相关的工作项各跑完一次（例如「写 notes-a.md，内容随意」「写 notes-b.md，内容随意」），再用**一条**消息
 同时发给这两个（界面里用 `@` 选两个，或 `POST /api/chat {"targets":[a,b]}`，或 `hidane chat --item a,b`），话里
 给两边不同的要求（「a 里加一节安装说明；b 全部改成英文」）。期望：
 
-- 不经过 Primary：没有这条消息的 `route.decision`，两个 Manager 各收到一份（转发的 `user.message` 带 `alsoTo`
-  写明另一个任务）
 - 各自只做属于自己的部分：notes-a.md 有了安装说明、没被改成英文；notes-b.md 改成了英文、没有安装说明；两边都没有把
   这条消息 reroute 回 Primary
-- 两边的结果回复都以这条消息为 root，带 `report: true`；`/api/board` 上两个卡片随后是 `review`，标记完成
-  （`PATCH /api/work-items/:id {"status":"done"}`）后是 `done`
-- 对 Primary 直接回答过的一个小问题调用 `POST /api/messages/:id/promote`：新建的工作项的 Manager 收到的消息带
-  `context`（Primary 已有的回答），它的第一次决定用上了这个回答（不是从零重复去查同一件事，也不把回答当成人说的话）
+- 对 Primary 直接回答过的一个小问题调用 `POST /api/messages/:id/promote`：新建的工作项的 Manager 第一次决定用上了
+  Primary 已有的回答（不是从零重复去查同一件事），也不把这个回答当成人说的话
 
-## 场景 5E：捕获阶段的规则可以拦下动作
-
-`POST /api/policies {"pattern":"\\brm\\b","reason":"不允许删除文件"}` 加一条全局规则，然后让某个工作项
-「用 rm 删掉工作区里的某个文件」。期望：
-
-- 文件仍在；落 `policy.blocked`（payload 含 `rule` 与规则原文 `reason`，不含守卫的英文前缀）
-- 该执行的 `execution.finished.payload.policyBlocks` 非空，Manager 据此回复或上报
-- 规则只做匹配，不经过模型；删除规则后同样的操作可以执行
-- 不写 `tools` 的规则只管修改：只读命令（`ls`、`cat`、`grep` 及其 `;`/`&&`/`|`/换行组合、`if`/`for` 结构里的只读命令）
-  提到被禁的文件不会被拦
-- `policy.blocked` 在拦下的那一刻落日志（排在被拦调用的 `side_effect.result` 之前），任务还在跑时卡片上就能看到
-- 结束后删除你加的规则
-
-## 场景 5F：扇出成子任务，取消沿树向下
+## 场景 5F：扇出成子任务
 
 让一个任务拆成几个互相独立的部分（「分别调研 A、B、C，最后给对比表」）。期望：
 
-- Manager 用子工作项扇出（`work_items.parent_id` 指向父项），每个子项有自己的工作区与 Manager
-- 子项完成后 `done`；全部结束时父项收到一条 `children.settled`（含每个子项的结果），随后给出汇总
-- 模型给出缺标题或缺说明的子项时不会静默丢弃：落一条 `agent.error`，写明是第几个子项、它的说明摘要和缺了什么；
-  这条错误会出现在该 Manager 之后每个 turn 的历史里
-- `children.settled` 在子项的最终回复**之后**落日志，结果就是那条最终回复；超长时注明截断，
-  并指出完整内容所在的工作项与目录
-- 子项的回复带 `payload.child = true`，不在主对话里出现；父项的汇总以最初的消息为 root
-- 看板上父项在子项运行时为 `delegated`
-- 另起一次扇出，在子项运行时 `POST /api/work-items/<父项>/cancel`：每个仍在执行的子项都落
-  `execution.cancelled`（payload.via 为父项 id），随后各自的 `execution.finished` 带 `cancelled: true`；
-  仍开着的子项被关闭（`closed`），父项**不**收到 `children.settled`，取消之后不再派出任何新的执行
-  （人已经叫停了，Manager 不能把它当成「结果缺失」去补跑）
+- Manager 用子工作项扇出（每个独立的部分一个子项），而不是交给一个 worker 全做
+- 子项都完成后，父项给出的汇总（对比表）与各子项的结果相符
 
 ## 场景 5G：重启不丢事
 
 让一个长执行跑起来，然后 `kill -9` 正在跑的 `hidane serve`（连同 agent CLI 子进程）再启动。期望：
 
 - 启动日志写明「N execution(s) lost to the last restart」
-- 该执行在 `executions` 表里为 `lost`，并有一条 `execution.finished`（`lost: true`）投递给其 Manager
 - Manager 据此决定重试或说明情况——不会有一个永远「运行中」、无人跟进的执行
-- 重启前积压在收件箱里的消息（游标之后的事件）在重启后被处理
 
 ## 场景 5I：界面（需真实浏览器）
 
@@ -262,54 +175,29 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 `/wails/runtime.js` 不存在时实时通道自动回退到 SSE）——两种形态都要看。界面交互应是桌面应用的，不是网页的。验证：
 
 - 布局：左侧边栏（新任务、搜索、会话/待处理/任务/定时/记忆/工作日志、「待处理」与「进行中」两组任务、底部设置齿轮），每页顶部 52px
-  工具栏；⌘B 收起侧边栏并在刷新后保持；桌面形态下收起时工具栏左侧给红绿灯留空；整个窗口不滚动，只有内容区滚动
-- 设置是替换整个主布局的独立界面（不是弹窗、不在主导航里）：⌘, / 侧边栏齿轮打开，Esc / 再按 ⌘, / 「← 返回」都回到
-  进入前的那一页；分区：通用、快捷键、关于、角色、模型服务、Agent CLI、安全规则、运行状态、事件日志；
-  旧地址 `/settings`、`/policies`、`/status`、`/events` 会跳到对应分区
-- 单项设置改了就生效（语言、开关、角色的下拉；模型名与 CLI 路径失焦或回车保存，行内显示保存中/已保存/错误）；
-  不兼容的角色组合留在屏幕上、不保存并给出警告；模型服务表单与新规则用显式保存
-- 破坏性操作（停止任务、隐藏消息、删除模型服务/规则/记忆/定时、归档）都弹应用内确认框：取消不发生任何事，确认才执行；
-  页面里不存在原生 `confirm/alert/prompt`
-- ⌘K 命令面板：顶部居中浮层，列出命令（跳转页面、新任务、各设置分区）与全部历史中的对话/任务搜索结果，
-  ↑↓ 回车 Esc 可用；从搜索结果打开一条对话会定位到以它为中心的历史（`?at=`），回到最新后地址里的 `?at=` 被清掉
-- ⌘N 新任务对话框能直接建工作项并打开它；⌘L 聚焦输入框
-- 右键菜单与「⋯」按钮给出同一组操作：消息（复制文本、隐藏；浏览器形态额外有复制链接），任务卡片与侧边栏任务
-  （打开、停止、标记完成、归档；桌面形态额外有在访达中显示工作区）
-- 对话流：归属标签（自动判断/你指定的/按当前聚焦 · 改）；新建的任务卡片在原消息下原位更新；迟到的回复出现在它所回答的
-  消息下面；停在底部时新回复到来视图保持贴底（不会差几十像素、不会被「回到最新」或「有新回复」盖住）；
-  往上翻时出现「回到最新」；侧边栏「待处理」列出等你回答/待审阅的任务，「进行中」列出运行中/有新进展的任务，点开在会话旁打开聚焦面板；
-  任务自己的回报在所属消息下只占一行、可原地展开；输入框里 `@` 能选几个任务一起发（发出后清空），`/done` 等命令只对选中的任务生效、不发消息；
-  「待处理」页能点选问题给出的选项、能直接写回答，待审阅的任务能展开看改动（逐文件差异）并标记完成
-- 图片可拖进会话作为下一条消息的附件；在会话区外放下文件不会让窗口跳转
-- 预算/截止类上报按界面语言显示，且都带 `payload.root`（截止上报指向开启该工作项的那条消息）；中英文切换后界面文案全部翻译（任务标题等内容保持原文）；`1 tool call` 单复数正确
-- 浏览器形态有 token 门与退出；桌面形态没有，且 `/api/desktop/*` 在 serve 下 404 不会弹错误提示
+  工具栏；桌面形态下侧边栏收起时工具栏左侧给红绿灯留空
+- 设置的分区：通用、快捷键、关于、角色、模型服务、Agent CLI、安全规则、运行状态、事件日志
+- ⌘K 命令面板是顶部居中的浮层
+- 对话流：用户消息下方的归属标签（自动判断/你指定的/按当前聚焦 · 改）；侧边栏「待处理」「进行中」里的任务点开后在会话旁打开聚焦面板；
+  「待处理」页上待审阅的任务能展开看改动（逐文件差异）
+- 在会话区外放下文件不会让窗口跳转
+- 中英文切换后界面文案全部翻译（任务标题等内容保持原文）
+- 浏览器形态有退出登录
 
-## 场景 4：事件不灭与重放
+## 场景 4：重放蒸馏不重复晋升
 
-期望：
+先有一条蒸馏出的记忆（例如 4B 的）。期望：
 
-- 事件被消费后依然留在日志里（append-only）
-- 把某个消费者的游标重置后，能重新读到历史事件（重放语义）。
-  可直接用 sqlite3 操作 cursors 表验证，注意别破坏 triage 消费者的现网状态（可用一个临时消费者名验证）。
-- 重放蒸馏器（重置它的游标再 `hidane distill`）不会把已有的记忆再晋升一遍：同一条记忆不出现两个 id，
-  模型换个说法也不行（全局与相关工作项的已有记忆都作为「不要重复」交给蒸馏器）；`distill.run` 的
-  `promoted` 只计真正新增的条数
-
+- 重放蒸馏器（重置它的游标再 `hidane distill`）时，真实模型不会把已有的记忆换个说法再晋升一遍：同一条记忆不出现两个 id
+  （全局与相关工作项的已有记忆都作为「不要重复」交给蒸馏器）
 
 ## 场景 7A：第一次提到一个仓库，任务在自己的工作树里做
 
-在 /tmp 下建一个 git 仓库（有一次提交，默认分支 main），仓库根放一个 `hidane.json`：
-`{"worktree":{"setup":"echo ready > .setup-done","teardown":"echo bye > $HIDANE_SOURCE_CHECKOUT_PATH/torn-down"}}`
-（并把 `.setup-done` 写进 `.gitignore` 提交）。在对话里给出它的绝对路径，让它做一个小改动（例如加一个
+在 /tmp 下建一个 git 仓库（有一次提交，默认分支 main）。在对话里给出它的绝对路径，让它做一个小改动（例如加一个
 `CHANGELOG.md`）。期望：
 
-- 仓库被登记（`repo.registered`，名字是目录名），`GET /api/repos` 能看到
-- 任务的工作区里多了一个工作树 `workspaces/<wi>/<仓库名>`，分支 `hidane/<wi>`，从 main 拉出
-  （`checkout.created`），`.setup-done` 存在：setup 在第一个 worker 之前跑过，并作为这次执行的副作用记录
-  （`side_effect.intent`，`tool` 为 `setup`）
-- 改动只出现在工作树里；你自己的仓库目录 `git status` 干净，没有多出文件
-- 主会话里的任务卡片标出了仓库名和分支
-- 之后只说仓库名（不给路径）再提一个新任务，能找到同一个仓库，并且开的是**另一个**工作树、另一个分支
+- 改动只出现在任务的工作树（`workspaces/<wi>/<仓库名>`）里；你自己的仓库目录 `git status` 干净，没有多出文件
+- 之后只说仓库名（不给路径）再提一个新任务，能找到同一个仓库，并且开的是**另一个**工作树
 
 ## 场景 7B：仓库名对不上唯一一个时先问，不开工
 
@@ -328,63 +216,41 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 - 同时对同一个仓库提一个明显无关的新任务：它开了自己的工作树，两个任务互不影响
 - 问「那个任务的分支里 CHANGELOG 写了什么」：在那个任务的工作树里读，回答与该分支内容一致
 
-## 场景 7D：工作树由人管理，归档删目录、留分支
+## 场景 7D：归档之后，接着做由人决定
 
-打开界面「任务 → 工作树」（`/items?view=worktrees`）。期望：
+归档一个已提交过的任务的工作树（界面「任务 → 工作树」，或 `POST /api/checkouts/:id/archive`）。期望：
 
-- 列出每个工作树：所属任务、仓库、分支、状态，以及领先主干的提交数和未提交改动数；能直接进入对应任务的会话
-- 任务完成后工作树不会被自动清理
-- 归档：先确认；若有未提交改动，再单独确认一次（API 未带 `force` 时返回 409 和 `dirty` 数）；任务正在运行时拒绝（409）
-- 归档后：teardown 跑过（`torn-down` 文件出现在原仓库目录），工作树目录被删除，分支 `hidane/<wi>` 仍在原仓库里，
-  记一条 `checkout.archived`；勾选「含已归档」仍能看到它
 - 之后要接着那个已归档的任务做（例如「接着那个已归档的任务做」）：从它的分支继续——新的工作树从那个分支拉出
-  （新任务开新分支，或原任务重新挂回自己的分支，都可以），包含之前的提交；新任务的卡片上标出它接着的是哪个分支
-  （「接着 hidane/<原任务>」），工作树列表里同样能看出来
+  （新任务开新分支，或原任务重新挂回自己的分支，都可以），包含之前的提交
 - 你归档了某个任务的工作树之后，它的 Manager 不会自己把工作树挂回来；只有你要求接着在那个仓库上做时才会
 
-## 场景 7E：仓库被挪走或删掉，先感知、记录、问人
+## 场景 7E：仓库被挪走，在对话里修好或移除
 
-把一个已登记的仓库目录改名（模拟挪走）。期望：
+把一个已登记、挂着工作树的仓库目录改名（模拟挪走），再让它在这个仓库上做事——它会问你仓库去哪了。期望：
 
-- 重启 runtime、打开工作树页，或再让它在这个仓库上做事时，都能发现：记一次 `repo.missing`（不重复记），
-  主会话里出现一条「仓库检查」提问，说明仓库不在原路径了
-- 对这个仓库提新任务时不开工，而是问你仓库去哪了
-- 告诉它新路径后，仓库保持原来的 id（`repo.relocated`），挂在它上面的已有工作树恢复可用（在工作树里 `git status` 正常）
-- 说「那个仓库不要了」或在页面上移除：仓库从列表消失（`repo.forgotten`），磁盘上的任何文件都没被删
+- 在对话里告诉它新路径后，还是原来那个仓库（`repo.relocated`，不是新登记一个），已有的工作树恢复可用
+- 在对话里说「那个仓库不要了」：仓库从列表消失（`repo.forgotten`），磁盘上的任何文件都没被删
 
 ## 场景 7F：只有明确要求才在原目录上改
 
 期望：
 
-- 不特别说明时，新任务一律在新工作树里做；即使指令里写了原目录的路径，任务也改不了你的原目录（被拦下，提示去工作树里改）
-- 明确说「直接在我的 xxx 目录（主干）上改」时，任务的检出是原目录（`mode: in_place`），改动出现在你自己的目录里，
-  闸门放行这些写入；不会自己提交
-- 另一个任务也要求在同一个原目录上改时，被拒绝并询问（等它结束，还是改用新工作树）
-- 归档原目录模式的检出只是交还目录，原目录里的任何文件都不会被删除
+- 不特别说明时，新任务一律在新工作树里做；即使你的话里写了原目录的路径，任务也只在工作树里改、不动你的原目录
+  （闸门不围住任何目录，这靠模型守约定：没有你的要求不改原目录）
+- 明确说「直接在我的 xxx 目录（主干）上改」时，任务的检出是原目录（`mode: in_place`），改动出现在你自己的目录里；
+  不会自己提交
 
 ## 场景 7G：一个任务跨多个仓库，子任务继承仓库
 
 期望：
 
-- 「后端 api 加一个字段，前端 web 跟着展示」（两个已登记的仓库）：一个任务挂上两个工作树，卡片列出两个仓库与各自分支，
-  worker 两边都改了
-- 一个在仓库上工作的任务被拆成子任务时，每个子任务有自己的工作树，分支从父任务的分支拉出；全部完成时父任务收到的
-  消息里写明每个子任务的分支，父任务能把它们合并回自己的工作树
+- 「后端 api 加一个字段，前端 web 跟着展示」（两个已登记的仓库）：一个任务挂上两个工作树，worker 两边都改了
+- 一个在仓库上工作的任务被拆成子任务时，子任务全部完成后，父任务能把它们的分支合并回自己的工作树
 
 ## 场景 6A：本机 agent CLI 与 LLM Provider 配置
 
-- `hidane agents` 列出 claude / codex / pi 的可用性、版本与路径；在 `settings.json` 的 `binaries` 里指向
-  `bin/fake/*` 后，`/api/agents` 显示这三个假 CLI 可用
-- `POST /api/providers` 新建一个 provider（例如 DeepSeek 预设：Anthropic 兼容地址 + pi provider 名 + key）：
-  响应与 `GET /api/settings` 里**只有** `hasApiKey` 与末四位提示，任何响应、事件（`settings.updated`）都不含 key；
-  `settings.json` 权限为 0600 且确实存了 key
-- 把 codex 角色指向一个没有 OpenAI Responses 地址的 provider → 400 且原配置不变；claude 需要 Anthropic 兼容地址、
-  pi 需要 pi provider 名，同理
-- 被角色使用中的 provider 不能删除（409，错误里点名角色）
-- 角色指向真实 CLI 时 `hidane model --ping --role <角色>` 返回 `ping ok`（花费少量 token）；指向假 CLI 同样 ok
-- 注入方式核对（可用假 CLI 的 `FAKEAGENT_LOG` 记录或 `ps` 观察）：claude 拿到 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`
-  环境变量；codex 拿到 `-c model_provider=hidane …` 与 `HIDANE_CODEX_API_KEY` 环境变量；pi 拿到 `--provider`。
-  key 不出现在 claude/codex 的命令行参数里
+- `hidane agents` 对本机真实安装的 claude / codex / pi 列出可用性、版本与路径
+- 角色指向真实 CLI 时 `hidane model --ping --role <角色>` 返回 `ping ok`（花费少量 token）
 
 ## 场景 6E：对话里选择 agent、模型和推理强度
 
@@ -392,25 +258,13 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 「任务」选新任务（或聚焦的那个任务）用哪个 agent CLI、模型服务、模型和推理强度。点开是一个浮层（手机宽度下是底部面板），
 里面先是「收藏的组合」，再是 agent、模型服务、模型、推理强度。期望：
 
-- 选项来自 CLI 本身：Codex 的模型和每个模型支持的推理强度来自 `codex debug models`，pi 的模型来自
-  `pi --list-models`，Claude Code 用内置列表；模型可以直接输入列表里没有的名字；推理强度只列出所选
-  CLI/模型接受的档位（claude 低…最高，codex 最低…极致，pi 不思考…最高）
-- 「对话」按钮显示的是 Primary 角色当前的设置；在浮层里换 agent/模型/强度会立刻保存到 `roles.primary`
-  （有「之后的对话由 … 回复」的提示，落一条 `settings.updated`），其他角色不变；下一条闲聊就由新选的 CLI 回答，
-  之前的对话照样在上下文里（会话目录或 CLI 调用里能看到这一轮用的是新 CLI）；浮层底部「全部角色设置」打开设置的角色分区
-- 「收藏当前组合」把 agent + 模型服务 + 模型 + 推理强度整套存下；点一个收藏一次切换整套（对话或任务都可以），
-  再点一次星标或 × 取消收藏；收藏和为新任务记住的选择在刷新页面后仍在；当前不可用的组合（CLI 未检测到、模型服务已删或不兼容）
-  显示但不能点，并说明原因
-- 在主会话里用「任务」选 Codex + 某个模型 + 推理强度后提一个要动手的任务（真实 CLI）：新建的工作项带 `runAs`，
-  落一条 `work_item.run_as_changed`；它的 Manager 与 worker 真的用 codex 跑（会话目录里的 manager
-  session 记的是 codex，worker 的命令参数里有所选模型与 `model_reasoning_effort`），而角色设置仍是原样；
-  任务卡片上显示「Codex · 模型 · 强度」
-- 聚焦这个任务时，「对话」按钮隐去（这条消息由任务自己的 Manager 回答），「任务」浮层显示它自己的设置并注明
-  「用于这个任务，立即生效」；改成 pi 立刻生效（`PATCH` 成功、有提示、再落一条 `work_item.run_as_changed`），
-  改回「跟随设置」后 `runAs` 为 null；连续快速改模型和强度，最后保存的是最后一次的完整组合
-- 子任务继承父任务的选择
-- 非法组合被拒（400）：未知 agent、该 CLI 不支持的推理强度、与 CLI 不兼容的模型服务、带空格的模型名
-- `hidane chat --agent codex --effort high "…"` 在命令行做同样的事；`--model`/`--effort` 不带 `--agent` 时报错
+- 选项来自本机真实 CLI：Codex 的模型和每个模型支持的推理强度来自 `codex debug models`，pi 的模型来自
+  `pi --list-models`，与 CLI 自己列出的一致
+- 在「对话」浮层把 Primary 换成另一个真实 CLI 后，下一条闲聊就由新选的 CLI 回答，之前的对话照样在上下文里
+  （会话目录或 CLI 调用里能看到这一轮用的是新 CLI）
+- 当前不可用的收藏组合（CLI 未检测到、模型服务已删或不兼容）显示但不能点，并说明原因
+- 在主会话里用「任务」选 Codex + 某个模型 + 推理强度后提一个要动手的任务（真实 CLI）：它的 Manager 与 worker
+  真的用 codex 跑（会话目录里的 manager session 记的是 codex，worker 的命令参数里有所选模型与 `model_reasoning_effort`）
 
 ## 场景 6B：闸门在真实 CLI 里生效
 
@@ -418,12 +272,7 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 让任务「创建 hello.txt 与 forbidden.txt」。期望：
 
 - 三次都只有 `workspaces/<wi>/hello.txt`；`forbidden.txt` 不存在；各有 `policy.blocked`（rule 为该规则 id）
-- 闸门只拦内置的高危命令（`sudo`、`rm -rf /`、强制 push 等）和你的规则；工作区只是起点和默认产物位置，不是围栏：
-  写到工作区外（`/tmp`、`~` 下其他目录）都放行。可直接用 `hidane guard --format claude` 喂入
-  `{"tool_name":"Bash","tool_input":{"command":"sudo ls"}}`（拒绝）与 `"echo x > /tmp/y"`（放行）验证——
-  验证时只用无害的命令，不要真的执行高危操作
-- 只读的命令不被规则误拦：引号里的 `>`、`;` 是文字不是语法，用 `;`/`&&`/`|`/换行串起来、或写在 `if … fi` 里的只读命令仍算只读
-- 把 `POLICY.json` 改成非法 JSON 后再派一次写操作：被拒（「policy file … is unreadable」），而不是规则静默失效
+- 真实 worker 查看文件时用的只读命令（不管怎么串：`;`/`&&`/`|`/换行、`if … fi`）不被规则误拦
 - 最终回复如实说明哪个成功、哪个被策略阻止
 
 ## 场景 6C：桌面应用
@@ -434,6 +283,4 @@ Primary 不再依赖一个无限增长的模型会话：每个 turn 新开会话
 - 原生菜单（hidane / File / Edit / View / Window）存在且带快捷键：Settings… ⌘,、New Task… ⌘N、New Message ⌘L、
   会话/任务/定时/记忆/日志 ⌘1–⌘5、Search ⌘K、Toggle Sidebar ⌘B——可用 `osascript` 读取应用菜单栏验证（若无辅助功能权限则 BLOCKED）
 - 隐藏式标题栏：窗口大小与位置在移动/缩放后写入 `$HIDANE_HOME/runtime/window.json`，下次启动恢复
-- 桌面专用端点（`/api/desktop/open-url`、`clipboard`、`notify`、`badge`、`open-data-dir`、`/api/work-items/:id/reveal`）
-  在 `hidane serve` 下一律 404；`open-url` 只接受 http(s)/mailto
-- 再次打开不会起第二个实例；桌面模式下 `/boot.js` 为 `desktop: true, auth: false`：不出现 token 输入框
+- 再次打开不会起第二个实例
