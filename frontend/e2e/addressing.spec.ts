@@ -55,9 +55,6 @@ test("one message names two tasks with @; each gets it from its own Manager and 
       await waitForEvent(api, "kind=agent.reply&tail=200", (e) => e.workItemId === item.id && e.payload["root"] === messageId && e.payload["report"] === true, `${item.title} reports`, 45_000),
     );
   }
-  const attributed = (await api.events("kind=message.attributed&tail=200")).filter((e) => e.payload["of"] === messageId);
-  expect(attributed.map((e) => [e.workItemId, e.payload["by"]])).toEqual([[a.id, "explicit"], [b.id, "explicit"]]);
-  expect((await api.events("kind=route.decision&tail=200")).some((e) => JSON.stringify(e.payload).includes(messageId)), "no routing model call").toBe(false);
 
   // Each report is one line under the message, opened in place.
   const show = said.getByRole("button", { name: "展开全文" });

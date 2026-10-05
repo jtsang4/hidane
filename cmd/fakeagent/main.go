@@ -188,12 +188,9 @@ func brain(system, prompt string) string {
 			case kind == "recall":
 				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "查到了之前的记录。"})
 			case strings.Contains(text, "停止并全部关闭"):
-				list = append(list, map[string]any{"type": "cancel", "of": id, "all_running": true},
-					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"},
-					map[string]any{"type": "reply", "of": id, "reply": "好的，已停止并关闭。"})
-			case strings.Contains(text, "全部关闭"):
 				// A model announces the change before it is made.
-				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就全部关闭。"},
+				list = append(list, map[string]any{"type": "reply", "of": id, "reply": "好的，这就停止并关闭。"},
+					map[string]any{"type": "cancel", "of": id, "all_running": true},
 					map[string]any{"type": "set_status", "of": id, "all_open": true, "status": "closed"})
 			case routeHint.MatchString(text):
 				list = append(list, map[string]any{"type": "route", "of": id, "work_item_id": routeHint.FindStringSubmatch(text)[1],

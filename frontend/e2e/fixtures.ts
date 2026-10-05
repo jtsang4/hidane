@@ -71,15 +71,15 @@ export class Api {
   }
 
   /** Signed exactly as the webhook connector checks it: HMAC-SHA256 over the raw body. */
-  async webhook(name: string, body: string, signature?: string): Promise<APIResponse> {
+  async webhook(name: string, body: string): Promise<APIResponse> {
     return this.request.post(`/webhook/${name}`, {
-      headers: { "content-type": "application/json", "x-hidane-signature": signature ?? (await sign(body, WEBHOOK_SECRET)) },
+      headers: { "content-type": "application/json", "x-hidane-signature": await sign(body, WEBHOOK_SECRET) },
       data: body,
     });
   }
 }
 
-export async function sign(body: string, secret: string): Promise<string> {
+async function sign(body: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(body)));

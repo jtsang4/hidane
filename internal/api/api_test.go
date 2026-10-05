@@ -156,7 +156,7 @@ func TestWebhooksStayClosedWithoutASecret(t *testing.T) {
 func TestWebhookSignature(t *testing.T) {
 	e := newEnv(t, api.Options{WebhookSecret: "hook"})
 	body := `{"hello":"world"}`
-	post := func(sig string) int {
+	post := func(body, sig string) int {
 		req, _ := http.NewRequest("POST", e.srv.URL+"/webhook/github", strings.NewReader(body))
 		if sig != "" {
 			req.Header.Set("x-hidane-signature", sig)
@@ -168,13 +168,17 @@ func TestWebhookSignature(t *testing.T) {
 		res.Body.Close()
 		return res.StatusCode
 	}
-	if post("") != 401 || post("sha256=bad") != 401 {
-		t.Fatal("unsigned and badly signed webhooks are refused")
+	signed := api.SignWebhook([]byte(body), "hook")
+	if post(body, "") != 401 || post(body, "sha256=bad") != 401 || post(`{"hello":"mallory"}`, signed) != 401 {
+		t.Fatal("unsigned, badly signed and replayed-body webhooks are refused")
 	}
-	if n := len(m(e.k.ListEvents(context.Background(), kernel.ListFilter{Kind: "connector.webhook"}))); n != 0 {
-		t.Fatalf("a refused webhook must not be recorded: %d", n)
+	// Not as a capture, and not anywhere else either.
+	for _, ev := range m(e.k.ListEvents(context.Background(), kernel.ListFilter{})) {
+		if raw, _ := json.Marshal(ev); ev.Kind == "connector.webhook" || strings.Contains(string(raw), "mallory") || strings.Contains(string(raw), "hello") {
+			t.Fatalf("a refused webhook must leave no event: %+v", ev)
+		}
 	}
-	if post(api.SignWebhook([]byte(body), "hook")) != 200 {
+	if post(body, signed) != 200 {
 		t.Fatal("a signed webhook is accepted")
 	}
 	evs := m(e.k.ListEvents(context.Background(), kernel.ListFilter{Kind: "connector.webhook"}))

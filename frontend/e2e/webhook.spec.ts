@@ -1,7 +1,6 @@
-import { expect, sign, test, turn, unique, waitForEvent } from "./fixtures.js";
-import { WEBHOOK_SECRET } from "./env.js";
+import { expect, test, turn, unique, waitForEvent } from "./fixtures.js";
 
-test("webhook: a signed delivery is captured, triaged and answered; a bad signature is refused", async ({ page, api }) => {
+test("webhook: a signed delivery is captured, triaged and answered", async ({ page, api }) => {
   await api.setAllRoles("claude");
   const marker = unique("e2e-hook");
   const body = JSON.stringify({ event: "deploy", id: marker });
@@ -40,20 +39,4 @@ test("webhook: a signed delivery is captured, triaged and answered; a bad signat
   const external = turn(page, triage.id);
   await expect(external).toContainText("外部事件");
   await expect(external).toContainText("收到外部事件：");
-
-  // A wrong signature is refused and leaves nothing in the log.
-  const forgedId = unique("e2e-forged");
-  const forged = JSON.stringify({ event: "deploy", id: forgedId });
-  const before = (await api.events("tail=1"))[0]?.seq ?? 0;
-  const refused = await api.webhook("e2e", forged, "sha256=0000");
-  expect(refused.status()).toBe(401);
-  const unsigned = await api.request.post("/webhook/e2e", { headers: { "content-type": "application/json" }, data: forged });
-  expect(unsigned.status()).toBe(401);
-  // Signed for a different body: also refused.
-  const replayed = await api.webhook("e2e", forged, await sign(body, WEBHOOK_SECRET));
-  expect(replayed.status()).toBe(401);
-  await page.waitForTimeout(1_000);
-  const after = await api.events(`after=${before}`);
-  expect(after.filter((e) => e.kind === "connector.webhook")).toEqual([]);
-  expect(JSON.stringify(after)).not.toContain(forgedId);
 });

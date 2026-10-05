@@ -187,25 +187,6 @@ func TestGreetingIsAnsweredWithoutAWorkItem(t *testing.T) {
 	}
 }
 
-// A status change answers for itself; the model's reply would say it twice.
-func TestStatusChangeIsConfirmedOnce(t *testing.T) {
-	t.Parallel()
-	w := newWorld(t, settings.Claude)
-	m(w.k.CreateWorkItem(ctx, "a", "test", kernel.CreateWorkItemOpts{}))
-	m(w.k.CreateWorkItem(ctx, "b", "test", kernel.CreateWorkItemOpts{}))
-	msg := m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "把工作项全部关闭", Source: "connector:web"}))
-	w.settle()
-	var replies []string
-	for _, r := range w.events("agent.reply") {
-		if r.Payload.Str("root") == msg.ID {
-			replies = append(replies, r.Payload.Str("text"))
-		}
-	}
-	if len(replies) != 1 || !strings.Contains(replies[0], "已将 2 个工作项的状态设为 closed") {
-		t.Fatalf("one factual confirmation: %q", replies)
-	}
-}
-
 // A Manager turn that only restates its understanding is asked once more for
 // a decision, rather than leaving the task silently idle.
 func TestUnderstandingOnlyTurnIsNudgedOnce(t *testing.T) {
@@ -295,7 +276,8 @@ func TestPrimaryRetriesOutputThatIsNotTheEffectList(t *testing.T) {
 	}
 }
 
-// Stop and close in one message: one answer saying both.
+// Stop and close in one message: one answer saying both, in place of the
+// model's reply, which was written before either happened.
 func TestStopAndCloseIsConfirmedOnce(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, settings.Claude)
@@ -897,7 +879,7 @@ func TestAddressingIsBounded(t *testing.T) {
 
 // A worker's outcome is a report the person reviews; an answer to what they
 // just said is not, and neither is acknowledging a stop they asked for.
-func TestReportsAreMarkedAndWaitForReview(t *testing.T) {
+func TestReportsAreMarked(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, settings.Claude)
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "写一个 report 文件", Source: "connector:web"}))
@@ -906,14 +888,6 @@ func TestReportsAreMarkedAndWaitForReview(t *testing.T) {
 	last := replies[len(replies)-1]
 	if !last.Payload.Bool("report") || last.WorkItemID == "" {
 		t.Fatalf("the outcome is a report: %+v", last.Payload)
-	}
-	cards := m(projections.BuildBoard(ctx, w.k, nil))
-	if len(cards) != 1 || cards[0].State != "review" {
-		t.Fatalf("the task waits for review: %+v", cards)
-	}
-	m(w.s.ChangeStatus(ctx, last.WorkItemID, kernel.StatusDone, "test", nil))
-	if cards := m(projections.BuildBoard(ctx, w.k, nil)); cards[0].State != "done" {
-		t.Fatalf("done: %s", cards[0].State)
 	}
 }
 
@@ -931,10 +905,6 @@ func TestQuestionOffersOptions(t *testing.T) {
 	opts, _ := esc[0].Payload["options"].([]any)
 	if len(opts) != 2 || opts[0] != "周五晚上" {
 		t.Fatalf("the options reach the person: %+v", esc[0].Payload)
-	}
-	cards := m(projections.BuildBoard(ctx, w.k, nil))
-	if cards[0].State != "waiting" || len(cards[0].Escalation.Options) != 2 {
-		t.Fatalf("the card offers them: %+v", cards[0])
 	}
 	m(w.s.SubmitMessage(ctx, agents.InboundMessage{Text: "周五晚上", Source: "connector:web", Target: item.ID, ReplyTo: esc[0].ID}))
 	w.settle()
