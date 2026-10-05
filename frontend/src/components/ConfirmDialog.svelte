@@ -14,10 +14,10 @@
     onresult,
   }: {
     title: string;
-    body?: string;
-    confirmLabel?: string;
-    cancelLabel?: string;
-    destructive?: boolean;
+    body?: string | undefined;
+    confirmLabel?: string | undefined;
+    cancelLabel?: string | undefined;
+    destructive?: boolean | undefined;
     onresult: (confirmed: boolean) => void;
   } = $props();
 

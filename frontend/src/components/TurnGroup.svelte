@@ -105,7 +105,6 @@
       <TaskCard
         card={createdCard}
         {cards}
-        compact
         hideQuestion={turn.answers.some((answer) => answer.id === createdCard.escalation?.id)}
         focused={focused === createdCard.item.id}
         {onfocus}

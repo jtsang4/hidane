@@ -93,8 +93,8 @@ export interface BoardCard {
   checkouts: CardCheckout[];
 }
 
-export type CheckoutMode = "worktree" | "in_place";
-export type SetupState = "none" | "pending" | "running" | "done" | "failed";
+type CheckoutMode = "worktree" | "in_place";
+type SetupState = "none" | "pending" | "running" | "done" | "failed";
 
 export interface CardCheckout {
   id: string;

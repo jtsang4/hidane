@@ -66,7 +66,7 @@ export function rankCandidates(candidates: readonly Candidate[], query: string, 
     .slice(0, limit);
 }
 
-export const SLASH_COMMANDS = ["stop", "done", "archive", "reopen"] as const;
+const SLASH_COMMANDS = ["stop", "done", "archive", "reopen"] as const;
 export type SlashCommand = (typeof SLASH_COMMANDS)[number];
 
 /** The command being typed, while the whole message so far is `/` and letters. */

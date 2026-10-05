@@ -29,7 +29,7 @@ function isActive(card: BoardCard): boolean {
 }
 
 /** Blocked on the person: a question to answer, or a result to review. */
-export function needsPerson(card: BoardCard): boolean {
+function needsPerson(card: BoardCard): boolean {
   return card.item.status === "open" && (card.state === "waiting" || card.state === "review");
 }
 

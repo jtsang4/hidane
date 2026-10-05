@@ -1,6 +1,6 @@
 import { ApiError, type CheckoutView } from "./api.js";
 
-export type CheckoutBadgeKey = "running" | "archived" | "missing" | "repoMissing" | "setup" | "setupFailed" | "done" | "closed";
+type CheckoutBadgeKey = "running" | "archived" | "missing" | "repoMissing" | "setup" | "setupFailed" | "done" | "closed";
 
 export interface CheckoutBadge {
   key: CheckoutBadgeKey;

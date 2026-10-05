@@ -4,10 +4,10 @@ export type LiveState = "connecting" | "live" | "offline";
  * How long silence is tolerated before the stream counts as lost.
  * The server pings every 15s, so this allows two misses.
  */
-export const STALE_AFTER_MS = 40_000;
+const STALE_AFTER_MS = 40_000;
 
 /** How long to wait between reconnect attempts once the stream stops talking. */
-export const RECONNECT_AFTER_MS = 20_000;
+const RECONNECT_AFTER_MS = 20_000;
 
 /**
  * Liveness cannot be read from EventSource error events: when the server dies

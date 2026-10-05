@@ -5,7 +5,7 @@
   import { t } from "../../i18n/index.js";
 
   /** Inline state of an auto-saved setting. */
-  let { status, error = "" }: { status: "idle" | "saving" | "saved" | "error" | "unsaved"; error?: string } = $props();
+  let { status, error }: { status: "idle" | "saving" | "saved" | "error" | "unsaved"; error: string } = $props();
 </script>
 
 <span class="inline-flex min-w-0 items-center gap-1 text-xs" role="status" aria-live="polite">

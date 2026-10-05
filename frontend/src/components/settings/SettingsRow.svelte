@@ -9,7 +9,6 @@
     children,
     below,
     wide = false,
-    class: className = "",
   }: {
     label: string;
     hint?: string;
@@ -21,11 +20,10 @@
     below?: Snippet | undefined;
     /** A field rather than a toggle: on a phone it takes the row's full width under the label. */
     wide?: boolean;
-    class?: string;
   } = $props();
 </script>
 
-<div class={cn("px-3.5 py-2.5", className)}>
+<div class="px-3.5 py-2.5">
   <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
     <div class="min-w-0 flex-1 basis-48">
       {#if controlId}

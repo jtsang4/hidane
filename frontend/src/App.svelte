@@ -295,7 +295,7 @@
           <div class="relative mb-4" aria-hidden="true">
             <div class="absolute -inset-4 rounded-full bg-primary/25 blur-xl"></div>
             <div class="relative grid size-12 place-items-center rounded-2xl border border-border bg-linear-to-b from-surface-2 to-surface shadow-popover">
-              <BrandMark size={24} />
+              <BrandMark />
             </div>
           </div>
           <h1 class="text-xl font-semibold tracking-tight">Hidane</h1>

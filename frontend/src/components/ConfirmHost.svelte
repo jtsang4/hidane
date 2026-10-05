@@ -8,10 +8,10 @@
   {#key request.id}
     <ConfirmDialog
       title={request.title}
-      body={request.body ?? ""}
-      confirmLabel={request.confirmLabel ?? ""}
-      cancelLabel={request.cancelLabel ?? ""}
-      destructive={request.destructive ?? false}
+      body={request.body}
+      confirmLabel={request.confirmLabel}
+      cancelLabel={request.cancelLabel}
+      destructive={request.destructive}
       onresult={settleConfirm}
     />
   {/key}

@@ -37,7 +37,7 @@ export function dropNotices(notices: Notice[], roots: ReadonlySet<string>): Noti
  * Backpressure on attention: past a handful of notices the bar stops listing
  * and summarises, the same way the tray stops at what is in motion.
  */
-export function digest(notices: Notice[], limit = 3): { shown: Notice[]; hidden: number } {
-  if (notices.length <= limit) return { shown: notices, hidden: 0 };
-  return { shown: notices.slice(-limit), hidden: notices.length - limit };
+export function digest(notices: Notice[]): { shown: Notice[]; hidden: number } {
+  if (notices.length <= 3) return { shown: notices, hidden: 0 };
+  return { shown: notices.slice(-3), hidden: notices.length - 3 };
 }

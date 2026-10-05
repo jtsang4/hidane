@@ -25,7 +25,6 @@
     card,
     cards,
     focused = false,
-    compact = false,
     headless = false,
     hideQuestion = false,
     onfocus,
@@ -38,8 +37,6 @@
     /** Every card, to name this one's children. */
     cards: ReadonlyMap<string, BoardCard>;
     focused?: boolean;
-    /** In the conversation the question is shown in full where it was asked; one line here. */
-    compact?: boolean;
     /** Inside the focus panel, whose header already names the item and its state. */
     headless?: boolean;
     /** The question is shown in full right beside the card; once is enough. */
@@ -144,7 +141,8 @@
 
   {#if card.escalation && hideQuestion}
     <!-- Asked in full just below. -->
-  {:else if card.escalation && compact}
+  {:else if card.escalation && !headless}
+    <!-- In the conversation the question is shown in full where it was asked; one line here. -->
     <div class="mt-2 flex items-center gap-2 rounded-md bg-danger/8 py-1 pr-1 pl-2">
       <CircleHelp size={13} class="shrink-0 text-danger" aria-hidden="true" />
       <p class="min-w-0 flex-1 truncate text-xs"><span class="font-medium text-danger">{$t("task.question")}</span> · {question}</p>
