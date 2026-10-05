@@ -272,7 +272,7 @@ func (l *LiveText) Begin(threadID string) *LiveHandle {
 }
 
 func (h *LiveHandle) Push(delta string) {
-	if h == nil || delta == "" {
+	if delta == "" {
 		return
 	}
 	h.l.mu.Lock()

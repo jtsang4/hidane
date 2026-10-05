@@ -691,7 +691,7 @@ func TestBudgetStopsDispatchButNeverAnOutcome(t *testing.T) {
 	w.k.Cfg.MaxHops = 3
 	item := m(w.k.CreateWorkItem(ctx, "edge", "test", kernel.CreateWorkItemOpts{}))
 	cause := m(w.k.Append(ctx, kernel.EventInput{Source: "t", Kind: "user.message", WorkItemID: item.ID, Hop: 3}))
-	if _, err := w.s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), "do it", "", cause); !errors.Is(err, agents.ErrBudget) {
+	if err := w.s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), "do it", "", cause); !errors.Is(err, agents.ErrBudget) {
 		t.Fatalf("a dispatch past the budget must not spend anything: %v", err)
 	}
 	if n := m(w.k.CountExecutions(ctx, item.ID)); n != 0 {

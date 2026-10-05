@@ -43,7 +43,7 @@ func (s *server) titled(ctx context.Context, conversation bool, events []kernel.
 		return map[string]string{}
 	}
 	t, err := projections.TitlesFor(ctx, s.K, events)
-	if err != nil || t == nil {
+	if err != nil {
 		return map[string]string{}
 	}
 	return t
@@ -429,7 +429,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		text = agents.ImageOnlyText
 	}
 	msg, err := s.Sys.SubmitMessage(ctx, agents.InboundMessage{Text: text, Images: images, Source: "connector:web",
-		Target: body.Target, Targets: body.Targets, Focus: body.Target != "" && body.Focus, ReplyTo: body.ReplyTo, RunAs: runAs})
+		Target: body.Target, Targets: body.Targets, Focus: body.Focus, ReplyTo: body.ReplyTo, RunAs: runAs})
 	switch {
 	case errors.Is(err, agents.ErrTooManyTargets) || errors.Is(err, agents.ErrRunAsNeedsOneTarget):
 		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
@@ -1016,6 +1016,14 @@ func (s *server) desktopOnly(w http.ResponseWriter) bool {
 // DesktopOnly is the error for host actions outside the desktop app.
 const DesktopOnly = "desktop app only"
 
+func hostDone(w http.ResponseWriter, err error) {
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // openURL sends an external link to the system browser: navigating the app's
 // own window to it would leave no way back to the app.
 func (s *server) openURL(w http.ResponseWriter, r *http.Request) {
@@ -1031,11 +1039,7 @@ func (s *server) openURL(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("only http(s) and mailto links open externally"))
 		return
 	}
-	if err := s.Host.Open(u.String(), false); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	hostDone(w, s.Host.Open(u.String(), false))
 }
 
 // reveal shows a workspace file in the file manager; a webview cannot save
@@ -1065,11 +1069,7 @@ func (s *server) reveal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errBody("not found"))
 		return
 	}
-	if err := s.Host.Open(target, true); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	hostDone(w, s.Host.Open(target, true))
 }
 
 func (s *server) copyText(w http.ResponseWriter, r *http.Request) {
@@ -1080,11 +1080,7 @@ func (s *server) copyText(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 	}
 	_ = readJSON(r, &body)
-	if err := s.Host.CopyText(body.Text); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	hostDone(w, s.Host.CopyText(body.Text))
 }
 
 func (s *server) notify(w http.ResponseWriter, r *http.Request) {
@@ -1100,11 +1096,7 @@ func (s *server) notify(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("title required"))
 		return
 	}
-	if err := s.Host.Notify(clipText(body.Title, 120), clipText(body.Body, 400)); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	hostDone(w, s.Host.Notify(clipText(body.Title, 120), clipText(body.Body, 400)))
 }
 
 func (s *server) badge(w http.ResponseWriter, r *http.Request) {
@@ -1118,11 +1110,7 @@ func (s *server) badge(w http.ResponseWriter, r *http.Request) {
 	if body.Count < 0 {
 		body.Count = 0
 	}
-	if err := s.Host.SetBadge(body.Count); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	hostDone(w, s.Host.SetBadge(body.Count))
 }
 
 func clipText(s string, n int) string {
@@ -1138,9 +1126,5 @@ func (s *server) openDataDir(w http.ResponseWriter, r *http.Request) {
 	if !s.desktopOnly(w) {
 		return
 	}
-	if err := s.Host.Open(s.K.Cfg.Home, false); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errBody(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	hostDone(w, s.Host.Open(s.K.Cfg.Home, false))
 }

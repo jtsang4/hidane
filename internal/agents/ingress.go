@@ -28,7 +28,7 @@ type InboundMessage struct {
 	Channel map[string]any
 	// RunAs is what the person chose to run the work on: it pins the target
 	// work item, or the one the Primary creates for this message. Nil keeps
-	// what is configured.
+	// what is configured; otherwise it names an agent (callers validate it).
 	RunAs *kernel.RunAs
 }
 
@@ -91,7 +91,7 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 	if len(targets) > MaxTargets {
 		return kernel.Event{}, ErrTooManyTargets
 	}
-	if len(targets) > 1 && m.RunAs != nil && m.RunAs.Agent != "" {
+	if len(targets) > 1 && m.RunAs != nil {
 		return kernel.Event{}, ErrRunAsNeedsOneTarget
 	}
 	answers, answersItem := "", ""
@@ -129,7 +129,7 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 	if m.Channel != nil {
 		payload["channel"] = m.Channel
 	}
-	if m.RunAs != nil && m.RunAs.Agent != "" {
+	if m.RunAs != nil {
 		payload["runAs"] = map[string]any{"agent": m.RunAs.Agent, "provider": m.RunAs.Provider, "model": m.RunAs.Model, "effort": m.RunAs.Effort}
 	}
 	if len(targets) == 1 {
@@ -137,7 +137,7 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 		if err != nil {
 			return kernel.Event{}, err
 		}
-		if m.RunAs != nil && m.RunAs.Agent != "" {
+		if m.RunAs != nil {
 			if item, err = k.SetWorkItemRunAs(ctx, item.ID, m.RunAs, m.Source); err != nil {
 				return kernel.Event{}, err
 			}
@@ -147,8 +147,7 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 		if err != nil {
 			return ev, err
 		}
-		_, err = s.DeliverToWorkItem(ctx, ev, item, byOf(0), DeliverOpts{Answers: answers})
-		return ev, err
+		return ev, s.DeliverToWorkItem(ctx, ev, item, byOf(0), DeliverOpts{Answers: answers})
 	}
 	if len(targets) > 1 {
 		var items []kernel.WorkItem
@@ -180,7 +179,7 @@ func (s *System) SubmitMessage(ctx context.Context, m InboundMessage) (kernel.Ev
 			if item.ID == answersItem {
 				o.Answers = answers
 			}
-			if _, err := s.DeliverToWorkItem(ctx, ev, item, byOf(i), o); err != nil {
+			if err := s.DeliverToWorkItem(ctx, ev, item, byOf(i), o); err != nil {
 				return ev, err
 			}
 		}
@@ -216,18 +215,15 @@ type DeliverOpts struct {
 // records who decided. The Manager's copy lives on the item's thread; the
 // main-thread original stays the person's record. A closed item the person
 // talks to again is reopened.
-func (s *System) DeliverToWorkItem(ctx context.Context, message kernel.Event, item kernel.WorkItem, by string, o DeliverOpts) (kernel.Event, error) {
+func (s *System) DeliverToWorkItem(ctx context.Context, message kernel.Event, item kernel.WorkItem, by string, o DeliverOpts) error {
 	k := s.K
 	source := o.Source
 	if source == "" {
 		source = message.Source
-		if by == "model" {
-			source = "agent:primary"
-		}
 	}
 	if item.Status != kernel.StatusOpen {
 		if _, err := k.SetWorkItemStatus(ctx, item.ID, kernel.StatusOpen, source); err != nil {
-			return kernel.Event{}, err
+			return err
 		}
 	}
 	attributed := kernel.Payload{"of": message.ID, "workItemId": item.ID, "title": item.Title, "by": by}
@@ -242,7 +238,7 @@ func (s *System) DeliverToWorkItem(ctx context.Context, message kernel.Event, it
 	}
 	if _, err := k.Append(ctx, kernel.EventInput{Source: source, Kind: "message.attributed", ThreadID: "main",
 		WorkItemID: item.ID, CausedBy: message.ID, Payload: attributed}); err != nil {
-		return kernel.Event{}, err
+		return err
 	}
 	text := o.Text
 	if text == "" {
@@ -265,11 +261,11 @@ func (s *System) DeliverToWorkItem(ctx context.Context, message kernel.Event, it
 	if o.Context != "" {
 		fwd["context"] = o.Context
 	}
-	ev, _, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{
+	_, _, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{
 		Source: source, Kind: "user.message", Mailbox: kernel.ManagerAddress(item.ID), Lane: kernel.LaneInterrupt,
 		ThreadID: item.ThreadID, WorkItemID: item.ID, Payload: fwd,
 	}, CausedBy: &message})
-	return ev, err
+	return err
 }
 
 // Reattribute: the person moved a message to another work item (or answered
@@ -298,8 +294,7 @@ func (s *System) Reattribute(ctx context.Context, messageID, workItemID, source 
 	if previous == item.ID {
 		return nil
 	}
-	_, err = s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Previous: previous})
-	return err
+	return s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Previous: previous})
 }
 
 // ErrAlreadyAttributed: the message already went to a work item.
@@ -355,8 +350,7 @@ func (s *System) Promote(ctx context.Context, messageID, source string) (kernel.
 			return item, err
 		}
 	}
-	_, err = s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Created: true, Context: answered})
-	return item, err
+	return item, s.DeliverToWorkItem(ctx, message, item, "user", DeliverOpts{Source: source, Created: true, Context: answered})
 }
 
 // RedactMessage hides something the person said. Only their own main-thread

@@ -167,7 +167,7 @@ func (s *System) RunDistillation(ctx context.Context, minEvents int) (DistillRes
 	for _, e := range meaningful {
 		lines = append(lines, eventLine(e))
 	}
-	thought := s.think(ctx, joinNonEmpty([]string{existingText, "Recent events:\n" + strings.Join(lines, "\n")}, "\n\n"),
+	thought := s.think(ctx, joinNonEmpty([]string{existingText, "Recent events:\n" + strings.Join(lines, "\n")}),
 		thinkOpts{Role: "distiller", Charter: DistillerCharter, Cwd: roleDir(k, "distiller"), SessionDir: k.Cfg.SessionsDir()})
 	if !thought.OK {
 		_, err := k.Append(ctx, kernel.EventInput{Source: "agent:distiller", Kind: "distill.run",
@@ -252,7 +252,7 @@ func (s *System) RecallForPrimary() string {
 func (s *System) RecallForManager(item kernel.WorkItem) string {
 	scoped := strings.TrimSpace(kernel.ReadTextFile(kernel.WorkItemMemoryPath(item.Workspace)))
 	global := strings.TrimSpace(kernel.ReadTextFile(s.K.GlobalMemoryPath()))
-	return clipRunes(joinNonEmpty([]string{scoped, global}, "\n\n"), recallCap)
+	return clipRunes(joinNonEmpty([]string{scoped, global}), recallCap)
 }
 
 // NewRuntime is the event loop with every role and housekeeping task wired in.

@@ -79,19 +79,19 @@ func (p *WorkerPool) Shutdown(timeout time.Duration) {
 var ErrBudget = errors.New("hop budget spent")
 
 // Dispatch records an execution and queues it; the caller's turn returns.
-func (p *WorkerPool) Dispatch(ctx context.Context, item kernel.WorkItem, owner, instructions, expect string, causedBy kernel.Event) (kernel.Event, error) {
+func (p *WorkerPool) Dispatch(ctx context.Context, item kernel.WorkItem, owner, instructions, expect string, causedBy kernel.Event) error {
 	k := p.s.K
 	// Checked before anything is spent: the outcome of a dispatched execution
 	// is always delivered, so this is the last point a chain can stop cheaply.
 	if k.OverBudget(&causedBy) {
 		if err := k.BudgetEscalation(ctx, &causedBy, "execution.started", owner, item.ID); err != nil {
-			return kernel.Event{}, err
+			return err
 		}
-		return kernel.Event{}, ErrBudget
+		return ErrBudget
 	}
 	id := kernel.GenID("ex", 6)
 	if err := k.CreateExecution(ctx, id, item.ID, owner); err != nil {
-		return kernel.Event{}, err
+		return err
 	}
 	var exp any
 	if expect != "" {
@@ -101,14 +101,14 @@ func (p *WorkerPool) Dispatch(ctx context.Context, item kernel.WorkItem, owner, 
 		WorkItemID: item.ID, ExecutionID: id, CausedBy: causedBy.ID, Hop: causedBy.Hop + 1,
 		Payload: kernel.Payload{"instructions": instructions, "expect": exp, "root": kernel.RootOf(causedBy)}})
 	if err != nil {
-		return started, err
+		return err
 	}
 	p.mu.Lock()
 	p.jobs[id] = &job{executionID: id, workItemID: item.ID, owner: owner, instructions: instructions, started: started}
 	p.order = append(p.order, id)
 	p.mu.Unlock()
 	p.Pump()
-	return started, nil
+	return nil
 }
 
 // Delivery is where the person's words went.
@@ -411,10 +411,6 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 	if item != nil {
 		threadID = item.ThreadID
 	}
-	rootP := kernel.Payload{}
-	if started != nil && started.ID != "" {
-		rootP["root"] = kernel.RootOf(*started)
-	}
 	// Each refusal was recorded as policy.blocked when it happened (toolTrail).
 	var blocks []any
 	for _, b := range run.PolicyBlocks {
@@ -440,8 +436,8 @@ func (p *WorkerPool) reportOutcome(ctx context.Context, executionID, workItemID,
 		source = "kernel:runtime"
 		payload["lost"] = true
 	}
-	for key, v := range rootP {
-		payload[key] = v
+	if started != nil && started.ID != "" {
+		payload["root"] = kernel.RootOf(*started)
 	}
 	_, _, err := k.Post(ctx, kernel.PostInput{EventInput: kernel.EventInput{Source: source, Kind: "execution.finished",
 		Mailbox: owner, Lane: kernel.LaneNormal, ThreadID: threadID, WorkItemID: workItemID, ExecutionID: executionID, Payload: payload},

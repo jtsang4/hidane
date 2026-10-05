@@ -247,7 +247,7 @@ func (t *managerTurn) apply(ctx context.Context, e Effect, spawned *bool) error 
 					"question": fmt.Sprintf("「%s」自上次回复以来已经执行了 %d 次，已暂停。需要继续的话，直接回复这个任务。", item.Title, n)}})
 			return err
 		}
-		_, err = s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), instructions, Str(e["expect"]), t.cause)
+		err = s.Pool.Dispatch(ctx, item, kernel.ManagerAddress(item.ID), instructions, Str(e["expect"]), t.cause)
 		if errors.Is(err, ErrBudget) {
 			t.refused = true
 			return nil
@@ -595,7 +595,7 @@ func (s *System) ManagerTurn(ctx context.Context, address string, messages []ker
 		"The person's registered repositories (for attach_repo):\n" + s.repoInventory(ctx),
 		activeLine, answeredLine, historyBlock,
 		"Messages this turn:\n" + strings.Join(described, "\n\n"),
-	}, "\n\n")
+	})
 
 	sessionPath := managerSessionPath(item)
 	agent := s.Settings.Get().ResolveWith("manager", ownRun(item)).Agent

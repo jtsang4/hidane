@@ -263,14 +263,14 @@ func clipRunes(s string, n int) string {
 	return s
 }
 
-func joinNonEmpty(parts []string, sep string) string {
+func joinNonEmpty(parts []string) string {
 	var out []string
 	for _, p := range parts {
 		if strings.TrimSpace(p) != "" {
 			out = append(out, p)
 		}
 	}
-	return strings.Join(out, sep)
+	return strings.Join(out, "\n\n")
 }
 
 // originOf marks a work item's later replies the way the Primary marks its own

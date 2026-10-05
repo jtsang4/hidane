@@ -301,9 +301,8 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 		}
 		if typ == "route" && found && conf >= k.Cfg.AttributionThreshold {
 			t.cover(m, e["also_of"])
-			_, err := s.DeliverToWorkItem(ctx, t.attributionSubject(ctx, m), item, "model",
+			return s.DeliverToWorkItem(ctx, t.attributionSubject(ctx, m), item, "model",
 				DeliverOpts{Text: Str(e["message"]), Confidence: confidence, Source: "agent:primary"})
-			return err
 		}
 		// Asked, or not sure enough: put the choice in front of the person
 		// rather than guessing — a wrong guess sends work into the wrong workspace.
@@ -393,7 +392,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 			}
 			return t.reply(ctx, m, fmt.Sprintf("已创建工作项 %s，状态为 open，暂未启动 Manager/Worker。", item.ID))
 		}
-		if _, err := s.DeliverToWorkItem(ctx, subject, item, "model", DeliverOpts{Text: brief, Created: true, Source: "agent:primary"}); err != nil {
+		if err := s.DeliverToWorkItem(ctx, subject, item, "model", DeliverOpts{Text: brief, Created: true, Source: "agent:primary"}); err != nil {
 			return err
 		}
 		// Later messages folded into this one reach the Manager too, so none
@@ -404,7 +403,7 @@ func (t *primaryTurn) apply(ctx context.Context, e Effect) error {
 				if !ok || extra.ID == m.ID {
 					continue
 				}
-				if _, err := s.DeliverToWorkItem(ctx, extra, item, "model", DeliverOpts{Source: "agent:primary"}); err != nil {
+				if err := s.DeliverToWorkItem(ctx, extra, item, "model", DeliverOpts{Source: "agent:primary"}); err != nil {
 					return err
 				}
 			}
@@ -659,7 +658,7 @@ func (s *System) PrimaryTurn(ctx context.Context, _ string, messages []kernel.Ev
 		"Running executions (cancellation targets):\n" + running,
 		recentConv.Text,
 		"Messages this turn:\n" + strings.Join(described, "\n"),
-	}, "\n\n")
+	})
 	opts := thinkOpts{
 		Role: "primary", Charter: PrimaryCharter, Cwd: roleDir(k, "primary"), SessionDir: k.Cfg.SessionsDir(),
 		Images: imagesOf(batch), LiveThreadID: "main",
