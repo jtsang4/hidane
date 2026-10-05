@@ -495,8 +495,16 @@ func TestScheduleDefinitionsAndRunHistory(t *testing.T) {
 
 type frame struct{ id, event, data string }
 
+// openStream follows the log from its current end, named as an explicit
+// cursor: a stream left to find the tail itself reads it after its hello, so
+// an event appended in between is skipped, and on a busy machine the test
+// then waits for a frame that never comes.
 func (e *env) openStream(ctx context.Context) (*http.Response, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", e.srv.URL+"/api/events/stream", nil)
+	seq, err := e.k.LatestSeq(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", e.srv.URL+"/api/events/stream?after="+strconv.FormatInt(seq, 10), nil)
 	return http.DefaultClient.Do(req)
 }
 
@@ -545,7 +553,6 @@ func TestStreamDeliversHelloLogEventsAndLiveText(t *testing.T) {
 	if f := next(); f.event != "hello" {
 		t.Fatalf("first frame: %v", f)
 	}
-	time.Sleep(100 * time.Millisecond)
 	ev := m(e.k.Append(context.Background(), kernel.EventInput{Source: "test", Kind: "x.y", Payload: kernel.Payload{"a": 1}}))
 	// The id is the seq, so a reconnecting EventSource resumes after it.
 	if f := next(); f.event != "hidane" || f.id != strconv.FormatInt(ev.Seq, 10) || !strings.Contains(f.data, ev.ID) {
@@ -609,7 +616,6 @@ func TestConcurrentStreamsEachGreetAndFollow(t *testing.T) {
 		}
 		streams = append(streams, next)
 	}
-	time.Sleep(100 * time.Millisecond)
 	code, body := e.do("POST", "/api/chat", "", map[string]any{"text": "hello all"})
 	if code != 202 {
 		t.Fatalf("chat: %d %v", code, body)
